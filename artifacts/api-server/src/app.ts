@@ -41,15 +41,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-function resolvePkgPath(pkg: string, ...rest: string[]): string {
+function resolvePkgDist(pkg: string): string {
+  // require.resolve uses node condition → resolves to lib/index.cjs
+  // We need to go up to pkg root, then into dist/
   const mainPath = require.resolve(pkg);
-  const pkgDir = path.dirname(mainPath);
-  return path.join(pkgDir, ...rest);
+  const pkgRoot = path.dirname(path.dirname(mainPath));
+  return path.join(pkgRoot, "dist");
 }
 
 app.use(
   "/api/baremod",
-  express.static(resolvePkgPath("@mercuryworkshop/bare-as-module3", "dist"), {
+  express.static(resolvePkgDist("@mercuryworkshop/bare-as-module3"), {
     index: false,
   }),
 );
