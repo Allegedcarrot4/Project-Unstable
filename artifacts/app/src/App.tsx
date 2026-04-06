@@ -21,7 +21,6 @@ declare global {
 const CORRECT_PASSWORD = "ripmoonlight";
 const SESSION_KEY = "unstable_auth";
 const UV_PREFIX = "/service/";
-const SCRAM_PREFIX = "/scramjet/";
 
 function encodeProxyUrl(url: string): string {
   if (window.Ultraviolet && window.__uv$config) {
@@ -33,12 +32,8 @@ function encodeProxyUrl(url: string): string {
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
-  }
-  if (trimmed.includes(".") && !trimmed.includes(" ")) {
-    return "https://" + trimmed;
-  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  if (trimmed.includes(".") && !trimmed.includes(" ")) return "https://" + trimmed;
   return "https://www.google.com/search?q=" + encodeURIComponent(trimmed);
 }
 
@@ -46,15 +41,11 @@ function getDisplayUrl(proxyUrl: string): string {
   try {
     if (proxyUrl.startsWith(UV_PREFIX)) {
       const encoded = proxyUrl.slice(UV_PREFIX.length);
-      if (window.__uv$config) {
-        return window.__uv$config.decodeUrl(decodeURIComponent(encoded));
-      }
+      if (window.__uv$config) return window.__uv$config.decodeUrl(decodeURIComponent(encoded));
     }
   } catch {}
   return proxyUrl;
 }
-
-type Engine = "uv" | "scramjet" | "auto";
 
 interface Tab {
   id: string;
@@ -62,7 +53,6 @@ interface Tab {
   url: string;
   history: string[];
   historyIndex: number;
-  engine: Engine;
   loading: boolean;
 }
 
@@ -73,27 +63,107 @@ function makeTab(url = ""): Tab {
     url,
     history: url ? [url] : [],
     historyIndex: url ? 0 : -1,
-    engine: "auto",
     loading: false,
   };
 }
 
+export type ProxyStatus =
+  | { phase: "idle" }
+  | { phase: "registering-sw" }
+  | { phase: "waiting-sw" }
+  | { phase: "connecting-transport" }
+  | { phase: "ready" }
+  | { phase: "error"; message: string };
+
 let swReady = false;
+type StatusListener = (s: ProxyStatus) => void;
+const statusListeners = new Set<StatusListener>();
+let currentStatus: ProxyStatus = { phase: "idle" };
+
+function emitStatus(s: ProxyStatus) {
+  currentStatus = s;
+  statusListeners.forEach(l => l(s));
+}
 
 async function setupProxy(): Promise<void> {
   if (swReady) return;
   try {
-    if (!("serviceWorker" in navigator)) return;
+    if (!("serviceWorker" in navigator)) {
+      emitStatus({ phase: "error", message: "Service workers not supported in this context" });
+      return;
+    }
+
+    emitStatus({ phase: "registering-sw" });
     await navigator.serviceWorker.register("/uv.sw.js", { scope: "/" });
+
+    emitStatus({ phase: "waiting-sw" });
     await navigator.serviceWorker.ready;
+
+    emitStatus({ phase: "connecting-transport" });
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     const conn = new BareMuxConnection("/baremux/worker.js");
-    await conn.setTransport("/api/baremod/index.mjs", ["/api/bare/"]);
+
+    // Use absolute URLs so the SharedWorker's dynamic import resolves correctly
+    const origin = location.origin;
+    const baremodUrl = origin + "/api/baremod/index.mjs";
+    const bareServerUrl = origin + "/api/bare/";
+
+    await conn.setTransport(baremodUrl, [bareServerUrl]);
+
     swReady = true;
+    emitStatus({ phase: "ready" });
     console.log("[Unstable] Proxy ready");
-  } catch (err) {
-    console.warn("[Unstable] Proxy setup failed:", err);
+  } catch (err: unknown) {
+    let msg = "unknown error";
+    if (err instanceof Error) {
+      msg = err.message + (err.cause ? ` (cause: ${err.cause})` : "");
+    } else if (typeof err === "string") {
+      msg = err;
+    } else {
+      try { msg = JSON.stringify(err); } catch { msg = String(err); }
+    }
+    emitStatus({ phase: "error", message: msg });
+    console.error("[Unstable] Proxy setup failed:", err);
   }
+}
+
+function useProxyStatus(): ProxyStatus {
+  const [status, setStatus] = useState<ProxyStatus>(currentStatus);
+  useEffect(() => {
+    statusListeners.add(setStatus);
+    return () => { statusListeners.delete(setStatus); };
+  }, []);
+  return status;
+}
+
+function StatusBar() {
+  const status = useProxyStatus();
+
+  const color =
+    status.phase === "ready" ? "rgba(80,200,120,0.8)"
+    : status.phase === "error" ? "rgba(220,80,80,0.9)"
+    : "rgba(180,160,80,0.75)";
+
+  const label =
+    status.phase === "idle" ? "proxy: idle"
+    : status.phase === "registering-sw" ? "registering service worker…"
+    : status.phase === "waiting-sw" ? "waiting for service worker…"
+    : status.phase === "connecting-transport" ? "connecting transport…"
+    : status.phase === "ready" ? "proxy: ready"
+    : `error: ${status.message}`;
+
+  return (
+    <div style={{
+      position: "fixed", bottom: "10px", left: "10px", zIndex: 9999,
+      fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem",
+      letterSpacing: "0.06em", color,
+      maxWidth: "420px", wordBreak: "break-word",
+      textShadow: "0 0 8px rgba(0,0,0,0.8)",
+      pointerEvents: "none",
+    }}>
+      {label}
+    </div>
+  );
 }
 
 function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
@@ -128,12 +198,13 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
       }} />
       <div style={{
         position: "relative", zIndex: 1, display: "flex", flexDirection: "column",
-        alignItems: "center", gap: "2.5rem", width: "100%", maxWidth: "360px", padding: "0 1.5rem",
+        alignItems: "center", gap: "2rem", width: "100%", maxWidth: "360px", padding: "0 1.5rem",
       }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ width: "2px", height: "32px", background: "rgba(255,255,255,0.3)", margin: "0 auto 1.5rem" }} />
-          <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable</p>
-        </div>
+        <p style={{
+          fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em",
+          textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0,
+        }}>unstable</p>
+
         <form onSubmit={handleSubmit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <div style={{ animation: shaking ? "shake 0.5s ease-in-out" : "none" }}>
             <input
@@ -151,7 +222,12 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
               onBlur={e => { if (!error) e.target.style.borderColor = "#222"; }}
             />
           </div>
-          {error && <p style={{ color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em", textTransform: "uppercase", margin: 0, textAlign: "center" }}>incorrect password</p>}
+          {error && (
+            <p style={{
+              color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em",
+              textTransform: "uppercase", margin: 0, textAlign: "center",
+            }}>incorrect password</p>
+          )}
           <button type="submit" style={{
             width: "100%", background: "#e8e8e8", color: "#0d0d0d", border: "none",
             padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
@@ -164,7 +240,6 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
             enter
           </button>
         </form>
-        <div style={{ width: "2px", height: "32px", background: "rgba(255,255,255,0.3)", margin: "0 auto" }} />
       </div>
       <style>{`
         @keyframes shake {
@@ -243,31 +318,27 @@ function BrowserTab({
         onClick={e => { e.stopPropagation(); onClose(); }}
         style={{
           background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer",
-          padding: "2px 4px", fontSize: "14px", lineHeight: 1, borderRadius: "2px",
-          flexShrink: 0,
+          padding: "2px 4px", fontSize: "14px", lineHeight: 1, borderRadius: "2px", flexShrink: 0,
         }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.3)"}
-      >
-        ×
-      </button>
+      >×</button>
     </div>
   );
 }
 
-function BrowserApp() {
+function BrowserApp({ onLogout }: { onLogout: () => void }) {
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
-  const [proxyReady, setProxyReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
 
   useEffect(() => {
-    setupProxy().then(() => setProxyReady(true));
+    setupProxy();
   }, []);
 
   useEffect(() => {
@@ -346,25 +417,13 @@ function BrowserApp() {
 
   function handleOpenInNewTab() {
     if (!activeTab.url) return;
-    const iframeSrc = activeTab.url;
     const win = window.open("about:blank", "_blank");
     if (!win) return;
-    win.document.write(`<!DOCTYPE html>
-<html>
-<head>
-<title>Unstable</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;background:#0d0d0d}iframe{width:100%;height:100%;border:none;display:block}</style>
-</head>
-<body>
-<iframe src="${iframeSrc}" allowfullscreen allow="fullscreen *; autoplay *; camera *; microphone *; payment *; clipboard-read *; clipboard-write *; encrypted-media *"></iframe>
-</body>
-</html>`);
+    win.document.write(`<!DOCTYPE html><html><head><title>Unstable</title><style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;background:#0d0d0d}iframe{width:100%;height:100%;border:none;display:block}</style></head><body><iframe src="${activeTab.url}" allowfullscreen allow="fullscreen *; autoplay *; camera *; microphone *; payment *; clipboard-read *; clipboard-write *; encrypted-media *"></iframe></body></html>`);
     win.document.close();
   }
 
-  function handleFullscreen() {
-    setFullscreen(f => !f);
-  }
+  function handleFullscreen() { setFullscreen(f => !f); }
 
   const canBack = (activeTab?.historyIndex ?? -1) > 0;
   const canForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false;
@@ -373,7 +432,7 @@ function BrowserApp() {
     background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer",
     padding: "0 0.4rem", fontSize: "16px", display: "flex", alignItems: "center",
     justifyContent: "center", borderRadius: "2px", height: "28px", minWidth: "28px",
-    transition: "color 0.1s, background 0.1s",
+    transition: "color 0.1s, background 0.1s", flexShrink: 0,
   };
   const disabledBtnStyle: React.CSSProperties = { ...toolbarBtnStyle, color: "rgba(255,255,255,0.18)", cursor: "not-allowed" };
 
@@ -403,15 +462,26 @@ function BrowserApp() {
               style={{
                 background: "none", border: "none", borderLeft: "1px solid #1a1a1a",
                 color: "rgba(255,255,255,0.35)", cursor: "pointer", padding: "0 1rem",
-                fontSize: "18px", lineHeight: 1, flexShrink: 0,
-                transition: "color 0.1s",
+                fontSize: "18px", lineHeight: 1, flexShrink: 0, transition: "color 0.1s",
               }}
               onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
               onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.35)"}
               title="New tab"
-            >
-              +
-            </button>
+            >+</button>
+
+            {/* Logout button in tab bar */}
+            <button
+              onClick={onLogout}
+              style={{
+                background: "none", border: "none", borderLeft: "1px solid #1a1a1a",
+                color: "rgba(255,255,255,0.2)", cursor: "pointer", padding: "0 0.85rem",
+                fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase",
+                fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s",
+              }}
+              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,80,80,0.8)"}
+              onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
+              title="Lock"
+            >lock</button>
           </div>
 
           {/* Toolbar */}
@@ -420,31 +490,21 @@ function BrowserApp() {
             padding: "0.4rem 0.75rem", background: "#0d0d0d",
             borderBottom: "1px solid #1a1a1a", flexShrink: 0,
           }}>
-            <button
-              onClick={handleBack} disabled={!canBack}
-              style={canBack ? toolbarBtnStyle : disabledBtnStyle}
+            <button onClick={handleBack} disabled={!canBack} style={canBack ? toolbarBtnStyle : disabledBtnStyle}
               onMouseEnter={e => { if (canBack) { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; } }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = canBack ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.18)"; (e.target as HTMLButtonElement).style.background = "none"; }}
-              title="Go back"
-            >←</button>
-            <button
-              onClick={handleForward} disabled={!canForward}
-              style={canForward ? toolbarBtnStyle : disabledBtnStyle}
+              title="Go back">←</button>
+            <button onClick={handleForward} disabled={!canForward} style={canForward ? toolbarBtnStyle : disabledBtnStyle}
               onMouseEnter={e => { if (canForward) { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; } }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = canForward ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.18)"; (e.target as HTMLButtonElement).style.background = "none"; }}
-              title="Go forward"
-            >→</button>
-            <button
-              onClick={handleReload}
-              style={toolbarBtnStyle}
+              title="Go forward">→</button>
+            <button onClick={handleReload} style={toolbarBtnStyle}
               onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"; (e.target as HTMLButtonElement).style.background = "none"; }}
-              title="Reload"
-            >↺</button>
+              title="Reload">↺</button>
 
-            <div style={{ width: "1px", height: "18px", background: "#222", margin: "0 0.25rem" }} />
+            <div style={{ width: "1px", height: "18px", background: "#222", margin: "0 0.25rem", flexShrink: 0 }} />
 
-            {/* URL Bar */}
             <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
               <input
                 ref={urlInputRef}
@@ -464,26 +524,20 @@ function BrowserApp() {
               />
             </form>
 
-            <div style={{ width: "1px", height: "18px", background: "#222", margin: "0 0.25rem" }} />
+            <div style={{ width: "1px", height: "18px", background: "#222", margin: "0 0.25rem", flexShrink: 0 }} />
 
-            <button
-              onClick={handleOpenInNewTab}
-              style={toolbarBtnStyle}
+            <button onClick={handleOpenInNewTab} style={toolbarBtnStyle}
               onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"; (e.target as HTMLButtonElement).style.background = "none"; }}
-              title="Open in new tab (about:blank)"
-            >
+              title="Open in new window">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
               </svg>
             </button>
-            <button
-              onClick={handleFullscreen}
-              style={toolbarBtnStyle}
+            <button onClick={handleFullscreen} style={toolbarBtnStyle}
               onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"; (e.target as HTMLButtonElement).style.background = "none"; }}
-              title="Fullscreen"
-            >
+              title="Fullscreen">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
               </svg>
@@ -492,30 +546,19 @@ function BrowserApp() {
         </>
       )}
 
-      {/* Content */}
+      {/* Content area */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {fullscreen && (
-          <button
-            onClick={handleFullscreen}
-            style={{
-              position: "absolute", top: "12px", right: "12px", zIndex: 999,
-              background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8",
-              cursor: "pointer", padding: "6px 10px", borderRadius: "2px",
-              fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.65rem",
-              letterSpacing: "0.1em", textTransform: "uppercase",
-            }}
-          >
-            exit fullscreen
-          </button>
+          <button onClick={handleFullscreen} style={{
+            position: "absolute", top: "12px", right: "12px", zIndex: 999,
+            background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8",
+            cursor: "pointer", padding: "6px 10px", borderRadius: "2px",
+            fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.65rem",
+            letterSpacing: "0.1em", textTransform: "uppercase",
+          }}>exit fullscreen</button>
         )}
         {tabs.map(tab => (
-          <div
-            key={tab.id}
-            style={{
-              position: "absolute", inset: 0,
-              display: tab.id === activeTabId ? "block" : "none",
-            }}
-          >
+          <div key={tab.id} style={{ position: "absolute", inset: 0, display: tab.id === activeTabId ? "block" : "none" }}>
             {tab.url ? (
               <iframe
                 ref={tab.id === activeTabId ? iframeRef : undefined}
@@ -532,6 +575,8 @@ function BrowserApp() {
         ))}
       </div>
 
+      <StatusBar />
+
       <style>{`
         @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
         input::placeholder { color: rgba(255,255,255,0.2); }
@@ -542,6 +587,13 @@ function BrowserApp() {
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(() => sessionStorage.getItem(SESSION_KEY) === "true");
+
+  function handleLogout() {
+    sessionStorage.removeItem(SESSION_KEY);
+    swReady = false;
+    setAuthenticated(false);
+  }
+
   if (!authenticated) return <PasswordScreen onSuccess={() => setAuthenticated(true)} />;
-  return <BrowserApp />;
+  return <BrowserApp onLogout={handleLogout} />;
 }
