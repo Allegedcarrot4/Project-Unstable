@@ -84,10 +84,10 @@ async function setupProxy(): Promise<void> {
   if (swReady) return;
   try {
     if (!("serviceWorker" in navigator)) return;
-    const reg = await navigator.serviceWorker.register("/uv.sw.js", { scope: "/" });
+    await navigator.serviceWorker.register("/uv.sw.js", { scope: "/" });
     await navigator.serviceWorker.ready;
-    const BareMux = await import("/baremux/index.mjs" as any);
-    const conn = new BareMux.BareMuxConnection("/baremux/worker.js");
+    const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
+    const conn = new BareMuxConnection("/baremux/worker.js");
     await conn.setTransport("/api/baremod/index.mjs", ["/api/bare/"]);
     swReady = true;
     console.log("[Unstable] Proxy ready");
@@ -450,7 +450,8 @@ function BrowserApp() {
                 ref={urlInputRef}
                 value={urlInput}
                 onChange={e => setUrlInput(e.target.value)}
-                onFocus={e => e.target.select()}
+                onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
+                onBlur={e => { e.target.style.borderColor = "#222"; }}
                 placeholder="search or enter a url"
                 style={{
                   width: "100%", background: "#111", border: "1px solid #222",
@@ -458,8 +459,7 @@ function BrowserApp() {
                   fontFamily: "'Space Grotesk', sans-serif", outline: "none",
                   borderRadius: "2px", letterSpacing: "0.01em", transition: "border-color 0.15s",
                 }}
-                onFocusCss={{ borderColor: "#444" } as any}
-                onMouseEnter={e => (e.target as HTMLInputElement).style.borderColor = "#333"}
+                onMouseEnter={e => { if (document.activeElement !== e.target) (e.target as HTMLInputElement).style.borderColor = "#333"; }}
                 onMouseLeave={e => { if (document.activeElement !== e.target) (e.target as HTMLInputElement).style.borderColor = "#222"; }}
               />
             </form>
