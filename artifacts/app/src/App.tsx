@@ -94,7 +94,12 @@ async function setupProxy(): Promise<void> {
     }
 
     emitStatus({ phase: "registering-sw" });
-    await navigator.serviceWorker.register("/uv.sw.js", { scope: "/" });
+    // Unregister any stale service workers (e.g. old uv.sw.js registration)
+    const existing = await navigator.serviceWorker.getRegistrations();
+    for (const reg of existing) {
+      if (reg.active?.scriptURL?.includes("uv.sw.js")) await reg.unregister();
+    }
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
 
     emitStatus({ phase: "waiting-sw" });
     await navigator.serviceWorker.ready;
