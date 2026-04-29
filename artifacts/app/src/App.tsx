@@ -265,13 +265,40 @@ function StatusBar({ visible }: { visible: boolean }) {
   );
 }
 
+// ─── Server-side password check ───────────────────────────────────────────────
+// POST /api/auth/check → 200 ok | 401 wrong | 503 {dev:true} (no PASSWORD set, dev mode)
+
+async function verifyPassword(pw: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+    if (res.ok) return true;
+    if (res.status === 401) return false;
+    if (res.status === 503) {
+      // Server has no PASSWORD configured — dev mode, fall back to local check
+      return pw === CORRECT_PASSWORD;
+    }
+    return false;
+  } catch {
+    // Network error or dev server not running — fall back to local check
+    return pw === CORRECT_PASSWORD;
+  }
+}
+
 // ─── Password screen ──────────────────────────────────────────────────────────
 
 function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
   const [pw, setPw] = useState(""); const [err, setErr] = useState(false); const [shaking, setShaking] = useState(false);
-  function submit(e: React.FormEvent) {
+  const [checking, setChecking] = useState(false);
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (pw === CORRECT_PASSWORD) { sessionStorage.setItem(SESSION_KEY, "true"); onSuccess(); }
+    setChecking(true);
+    const ok = await verifyPassword(pw);
+    setChecking(false);
+    if (ok) { sessionStorage.setItem(SESSION_KEY, "true"); onSuccess(); }
     else { setErr(true); setShaking(true); setPw(""); setTimeout(() => setShaking(false), 500); }
   }
   return (
@@ -287,10 +314,10 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
           {err && <p style={{ color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em", textTransform: "uppercase", margin: 0, textAlign: "center" }}>incorrect password</p>}
-          <button type="submit" style={{ width: "100%", background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}
-            onMouseEnter={e => (e.target as HTMLButtonElement).style.background = "#bbb"}
-            onMouseLeave={e => (e.target as HTMLButtonElement).style.background = "#e8e8e8"}
-          >enter</button>
+          <button type="submit" disabled={checking} style={{ width: "100%", background: checking ? "#555" : "#e8e8e8", color: checking ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: checking ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
+            onMouseEnter={e => { if (!checking) (e.target as HTMLButtonElement).style.background = "#bbb"; }}
+            onMouseLeave={e => { if (!checking) (e.target as HTMLButtonElement).style.background = "#e8e8e8"; }}
+          >{checking ? "checking…" : "enter"}</button>
         </form>
       </div>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>

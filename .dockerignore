@@ -1,0 +1,38 @@
+# Dependencies (will be installed fresh inside Docker)
+**/node_modules
+
+# Build outputs (will be built fresh inside Docker)
+**/dist
+artifacts/app/dist
+
+# Dev / editor files
+.git
+.gitignore
+.env*
+*.local
+
+# Replit-specific files
+.replit
+replit.nix
+.config/
+.upm/
+.cache/
+attached_assets/
+
+# Log files
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test and CI
+coverage/
+.nyc_output/
+
+# Large media / assets that are not needed for the build
+*.mp4
+*.mov
+*.psd
+*.ai

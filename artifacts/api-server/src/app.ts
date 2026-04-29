@@ -26,7 +26,6 @@ type WispHandler = (req: IncomingMessage, socket: any, head: Buffer) => void;
 export let wispHandler: WispHandler | null = null;
 
 try {
-  // wisp-server-node is marked as external in build.mjs → loaded at runtime
   const wisp = require("wisp-server-node");
   wispHandler = wisp.routeRequest ?? wisp.default?.routeRequest ?? null;
   if (wispHandler) logger.info("Wisp protocol enabled at /api/wisp");
@@ -62,5 +61,21 @@ app.use(
 );
 
 app.use("/api", router);
+
+// ─── Static frontend (production only) ───────────────────────────────────────
+// In Docker/production, the Vite-built frontend lives at ../public relative to dist/
+if (process.env.NODE_ENV === "production") {
+  const staticDir = path.join(__dirname, "../public");
+  app.use(express.static(staticDir));
+  // SPA fallback — send index.html for any unmatched route that isn't /api or a proxy route
+  app.use((req, res, next) => {
+    const p = req.path;
+    if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/baremux")) {
+      res.sendFile(path.join(staticDir, "index.html"));
+    } else {
+      next();
+    }
+  });
+}
 
 export default app;

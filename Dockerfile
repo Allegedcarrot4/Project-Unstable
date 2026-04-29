@@ -1,0 +1,48 @@
+# ─── Base ─────────────────────────────────────────────────────────────────────
+FROM node:20-slim AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@latest-10 --activate
+
+# ─── Builder ──────────────────────────────────────────────────────────────────
+FROM base AS builder
+WORKDIR /app
+
+# Copy the full monorepo source (node_modules are excluded via .dockerignore)
+COPY . .
+
+# Install all workspace dependencies
+RUN pnpm install --frozen-lockfile
+
+# Build the React frontend
+# BASE_PATH=/ because in Docker there is no path prefix
+RUN BASE_PATH=/ PORT=7860 NODE_ENV=production \
+    pnpm --filter @workspace/app run build
+
+# Build the Express API server
+RUN pnpm --filter @workspace/api-server run build
+
+# ─── Runner ───────────────────────────────────────────────────────────────────
+FROM node:20-slim AS runner
+WORKDIR /app
+
+# API server compiled bundle
+COPY --from=builder /app/artifacts/api-server/dist          ./dist
+
+# Runtime node_modules for the API server
+# (bare-server-node, bare-as-module3, pino, express, etc.)
+COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
+
+# Vite-built frontend + UV/service-worker public files
+# Vite copies artifacts/app/public/** into the output during build
+COPY --from=builder /app/artifacts/app/dist/public          ./public
+
+EXPOSE 7860
+
+ENV PORT=7860
+ENV NODE_ENV=production
+
+# PASSWORD must be set as a Space secret — the app will refuse auth without it
+# SESSION_SECRET is optional but recommended for production hardening
+
+CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
