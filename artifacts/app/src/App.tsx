@@ -257,20 +257,86 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
+const SHORTCUTS_KEY = "unstable_shortcuts";
+
+interface Shortcut {
+  id: string;
+  name: string;
+  url: string;
+  favicon: string;
+}
+
+const DEFAULT_SHORTCUTS: Shortcut[] = [
+  { id: "google",  name: "Google",  url: "https://google.com",       favicon: "https://www.google.com/favicon.ico" },
+  { id: "discord", name: "Discord", url: "https://discord.com",      favicon: "https://discord.com/assets/favicon.ico" },
+  { id: "github",  name: "GitHub",  url: "https://github.com",       favicon: "https://github.com/favicon.ico" },
+  { id: "spotify", name: "Spotify", url: "https://open.spotify.com", favicon: "https://open.spotify.com/favicon.ico" },
+  { id: "twitch",  name: "Twitch",  url: "https://twitch.tv",        favicon: "https://static.twitchsvc.net/assets/uploads/favicon-32x32.png" },
+];
+
+function loadCustomShortcuts(): Shortcut[] {
+  try {
+    const raw = localStorage.getItem(SHORTCUTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveCustomShortcuts(shortcuts: Shortcut[]) {
+  localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(shortcuts));
+}
+
 function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }) {
   const [input, setInput] = useState("");
+  const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUrl, setNewUrl] = useState("");
+
+  const allShortcuts = [...DEFAULT_SHORTCUTS, ...customShortcuts];
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const url = normalizeUrl(input);
     if (url) onNavigate(url);
   }
+
+  function handleAddShortcut(e: React.FormEvent) {
+    e.preventDefault();
+    const trimName = newName.trim();
+    const trimUrl = newUrl.trim();
+    if (!trimName || !trimUrl) return;
+    const normalized = normalizeUrl(trimUrl);
+    let faviconBase = normalized;
+    try { faviconBase = new URL(normalized).origin; } catch {}
+    const shortcut: Shortcut = {
+      id: Math.random().toString(36).slice(2),
+      name: trimName,
+      url: normalized,
+      favicon: faviconBase + "/favicon.ico",
+    };
+    const updated = [...customShortcuts, shortcut];
+    setCustomShortcuts(updated);
+    saveCustomShortcuts(updated);
+    setAdding(false);
+    setNewName("");
+    setNewUrl("");
+  }
+
+  function handleRemoveShortcut(id: string) {
+    const updated = customShortcuts.filter(s => s.id !== id);
+    setCustomShortcuts(updated);
+    saveCustomShortcuts(updated);
+  }
+
   return (
     <div style={{
       height: "100%", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", background: "#0d0d0d", gap: "2rem",
+      fontFamily: "'Space Grotesk', sans-serif",
     }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable</p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0", width: "100%", maxWidth: "520px", padding: "0 2rem" }}>
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}>
         <input
           autoFocus value={input}
           onChange={e => setInput(e.target.value)}
@@ -289,6 +355,137 @@ function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }) {
           letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0",
         }}>go</button>
       </form>
+
+      {/* Shortcuts row */}
+      <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem" }}>
+        {allShortcuts.map(sc => (
+          <div key={sc.id} style={{ position: "relative" }} className="shortcut-wrap">
+            <button
+              onClick={() => onNavigate(sc.url)}
+              title={sc.name}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.45rem",
+                background: "none", border: "none", cursor: "pointer", padding: "0.5rem 0.25rem",
+                borderRadius: "4px", transition: "background 0.15s", minWidth: "52px",
+              }}
+              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
+              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
+            >
+              <img
+                src={sc.favicon}
+                alt={sc.name}
+                width={22} height={22}
+                style={{ borderRadius: "4px", objectFit: "contain" }}
+                onError={e => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  const el = (e.target as HTMLImageElement).nextSibling as HTMLElement;
+                  if (el) el.style.display = "flex";
+                }}
+              />
+              <span style={{
+                display: "none", width: 22, height: 22, background: "#222", borderRadius: "4px",
+                alignItems: "center", justifyContent: "center", fontSize: "0.65rem",
+                color: "rgba(255,255,255,0.4)",
+              }}>
+                {sc.name[0]?.toUpperCase()}
+              </span>
+              <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.04em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {sc.name}
+              </span>
+            </button>
+            {/* Remove button for custom shortcuts */}
+            {!DEFAULT_SHORTCUTS.find(d => d.id === sc.id) && (
+              <button
+                onClick={() => handleRemoveShortcut(sc.id)}
+                className="shortcut-remove"
+                style={{
+                  position: "absolute", top: "0", right: "0",
+                  background: "#222", border: "none", color: "rgba(255,255,255,0.5)",
+                  borderRadius: "50%", width: "14px", height: "14px",
+                  fontSize: "9px", cursor: "pointer", display: "none",
+                  alignItems: "center", justifyContent: "center", lineHeight: 1,
+                }}
+              >×</button>
+            )}
+          </div>
+        ))}
+
+        {/* Add shortcut button */}
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            title="Add shortcut"
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: "0.45rem",
+              background: "none", border: "none", cursor: "pointer", padding: "0.5rem 0.25rem",
+              borderRadius: "4px", transition: "background 0.15s", minWidth: "52px",
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
+          >
+            <div style={{
+              width: 22, height: 22, borderRadius: "4px", border: "1px dashed rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "14px", color: "rgba(255,255,255,0.25)",
+            }}>+</div>
+            <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.2)", letterSpacing: "0.04em" }}>add</span>
+          </button>
+        )}
+      </div>
+
+      {/* Add shortcut inline form */}
+      {adding && (
+        <form onSubmit={handleAddShortcut} style={{
+          display: "flex", flexDirection: "column", gap: "0.5rem",
+          background: "#111", border: "1px solid #222", borderRadius: "4px",
+          padding: "1rem 1.25rem", width: "100%", maxWidth: "320px",
+        }}>
+          <p style={{ margin: 0, fontSize: "0.62rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" }}>new shortcut</p>
+          <input
+            autoFocus
+            placeholder="name"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            style={{
+              background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8",
+              padding: "0.5rem 0.75rem", fontSize: "0.8rem",
+              fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px",
+            }}
+            onFocus={e => e.target.style.borderColor = "#444"}
+            onBlur={e => e.target.style.borderColor = "#222"}
+          />
+          <input
+            placeholder="url"
+            value={newUrl}
+            onChange={e => setNewUrl(e.target.value)}
+            style={{
+              background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8",
+              padding: "0.5rem 0.75rem", fontSize: "0.8rem",
+              fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px",
+            }}
+            onFocus={e => e.target.style.borderColor = "#444"}
+            onBlur={e => e.target.style.borderColor = "#222"}
+          />
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button type="submit" style={{
+              flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none",
+              padding: "0.5rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+              cursor: "pointer", borderRadius: "2px",
+            }}>add</button>
+            <button type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); }} style={{
+              flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222",
+              padding: "0.5rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}>cancel</button>
+          </div>
+        </form>
+      )}
+
+      <style>{`
+        .shortcut-wrap:hover .shortcut-remove { display: flex !important; }
+        input::placeholder { color: rgba(255,255,255,0.2); }
+      `}</style>
     </div>
   );
 }
