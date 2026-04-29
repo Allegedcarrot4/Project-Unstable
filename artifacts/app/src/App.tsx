@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import gamesData from "./data/games.json";
 
 declare global {
   interface Window {
@@ -9,21 +10,20 @@ declare global {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type AppView = "browser" | "games";
 type CloakId = "none" | "google-drive" | "schoology" | "classlink" | "google-classroom";
-
 interface KeyShortcuts {
   tab1: string; tab2: string; tab3: string; tab4: string; tab5: string;
   tab6: string; tab7: string; tab8: string; tab9: string;
   closeTab: string; newTab: string; addShortcut: string;
 }
-
 interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
-
 interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
 }
+interface Game { id: string; name: string; url: string; category: string; description: string; }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ const UV_PREFIX = "/service/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
 const BARE_KEY = "unstable_bare";
+const SIDEBAR_W = 44;
 
 const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab1: "Alt+1", tab2: "Alt+2", tab3: "Alt+3", tab4: "Alt+4", tab5: "Alt+5",
@@ -55,7 +56,24 @@ const SHORTCUT_LABELS: Record<string, string> = {
   closeTab: "Close tab", newTab: "New tab", addShortcut: "Add as shortcut",
 };
 
-const DEFAULT_SHORTCUTS: Shortcut[] = [
+const CATEGORY_COLORS: Record<string, { bg: string; text: string; accent: string }> = {
+  action:     { bg: "rgba(220,90,60,0.1)",   text: "rgba(230,110,80,0.85)",  accent: "rgba(220,90,60,0.2)"  },
+  puzzle:     { bg: "rgba(70,130,220,0.1)",   text: "rgba(100,150,230,0.85)", accent: "rgba(70,130,220,0.2)" },
+  arcade:     { bg: "rgba(200,150,50,0.1)",   text: "rgba(210,170,70,0.85)",  accent: "rgba(200,150,50,0.2)" },
+  strategy:   { bg: "rgba(60,190,120,0.1)",   text: "rgba(80,210,140,0.85)",  accent: "rgba(60,190,120,0.2)" },
+  racing:     { bg: "rgba(160,80,220,0.1)",   text: "rgba(180,100,230,0.85)", accent: "rgba(160,80,220,0.2)" },
+  shooter:    { bg: "rgba(220,55,55,0.1)",    text: "rgba(230,80,80,0.85)",   accent: "rgba(220,55,55,0.2)"  },
+  multiplayer:{ bg: "rgba(50,170,220,0.1)",   text: "rgba(70,190,230,0.85)",  accent: "rgba(50,170,220,0.2)" },
+  idle:       { bg: "rgba(190,190,50,0.1)",   text: "rgba(210,210,70,0.85)",  accent: "rgba(190,190,50,0.2)" },
+  sports:     { bg: "rgba(50,210,100,0.1)",   text: "rgba(70,230,120,0.85)",  accent: "rgba(50,210,100,0.2)" },
+  rhythm:     { bg: "rgba(210,80,190,0.1)",   text: "rgba(230,100,210,0.85)", accent: "rgba(210,80,190,0.2)" },
+  sandbox:    { bg: "rgba(130,190,60,0.1)",   text: "rgba(150,210,80,0.85)",  accent: "rgba(130,190,60,0.2)" },
+  card:       { bg: "rgba(200,165,80,0.1)",   text: "rgba(220,185,100,0.85)", accent: "rgba(200,165,80,0.2)" },
+  board:      { bg: "rgba(140,90,200,0.1)",   text: "rgba(160,110,220,0.85)", accent: "rgba(140,90,200,0.2)" },
+};
+const CAT_DEFAULT = { bg: "rgba(255,255,255,0.05)", text: "rgba(255,255,255,0.35)", accent: "rgba(255,255,255,0.08)" };
+
+const DEFAULT_SHORTCUTS_LIST: Shortcut[] = [
   { id: "google",  name: "Google",  url: "https://google.com",       favicon: faviconUrl("google.com") },
   { id: "discord", name: "Discord", url: "https://discord.com",      favicon: faviconUrl("discord.com") },
   { id: "github",  name: "GitHub",  url: "https://github.com",       favicon: faviconUrl("github.com") },
@@ -63,17 +81,17 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
   { id: "twitch",  name: "Twitch",  url: "https://twitch.tv",        favicon: faviconUrl("twitch.tv") },
 ];
 
+const games: Game[] = gamesData as Game[];
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
-
 function encodeProxyUrl(url: string): string {
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
   return UV_PREFIX + encodeURIComponent(url);
 }
-
 function normalizeUrl(input: string): string {
   const t = input.trim();
   if (!t) return "";
@@ -82,7 +100,6 @@ function normalizeUrl(input: string): string {
   if (t.includes(".") && !t.includes(" ")) return "https://" + t;
   return "https://www.google.com/search?q=" + encodeURIComponent(t);
 }
-
 function decodeProxyUrl(url: string): string {
   try {
     if (url.startsWith(UV_PREFIX)) {
@@ -93,15 +110,12 @@ function decodeProxyUrl(url: string): string {
   } catch {}
   return url;
 }
-
 function getDomainFromProxyUrl(url: string): string {
   try { return new URL(decodeProxyUrl(url)).hostname; } catch { return ""; }
 }
-
 function barePathForNum(n: number): string {
   return n === 1 ? "/api/bare/" : `/api/bare${n}/`;
 }
-
 function buildCombo(e: KeyboardEvent): string {
   const parts: string[] = [];
   if (e.ctrlKey) parts.push("Ctrl");
@@ -114,49 +128,37 @@ function buildCombo(e: KeyboardEvent): string {
   return parts.join("+");
 }
 
-// ─── Settings persistence ──────────────────────────────────────────────────────
+// ─── Settings ─────────────────────────────────────────────────────────────────
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return {
-      cloak: parsed.cloak ?? "none",
-      shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
-    };
+    const p = JSON.parse(raw);
+    return { cloak: p.cloak ?? "none", shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(p.shortcuts ?? {}) } };
   } catch { return DEFAULT_SETTINGS; }
 }
 function saveSettings(s: Settings) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
-
 function loadCustomShortcuts(): Shortcut[] {
-  try { const r = localStorage.getItem(SHORTCUTS_KEY); return r ? JSON.parse(r) : []; }
-  catch { return []; }
+  try { const r = localStorage.getItem(SHORTCUTS_KEY); return r ? JSON.parse(r) : []; } catch { return []; }
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
 
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
 function applyCloak(id: CloakId) {
-  const preset = CLOAK_PRESETS[id];
-  document.title = preset.title;
+  const p = CLOAK_PRESETS[id];
+  document.title = p.title;
   document.querySelectorAll('link[rel*="icon"]').forEach(l => l.remove());
   const link = document.createElement("link");
-  link.rel = "icon"; link.href = preset.favicon;
+  link.rel = "icon"; link.href = p.favicon;
   document.head.appendChild(link);
 }
 
 // ─── Tab factory ─────────────────────────────────────────────────────────────
 
-function makeTab(url = ""): Tab {
-  let title = "New Tab", favicon = "";
-  if (url && !url.startsWith("unstable://")) {
-    try { const d = new URL(url.startsWith("http") ? url : "https://" + url).hostname; title = d; favicon = faviconUrl(d); } catch {}
-  } else if (url.startsWith("unstable://")) {
-    title = url.slice("unstable://".length);
-    title = title.charAt(0).toUpperCase() + title.slice(1);
-  }
-  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false };
+function makeTab(): Tab {
+  return { id: Math.random().toString(36).slice(2), title: "New Tab", url: "", favicon: "", history: [], historyIndex: -1, loading: false };
 }
 
 // ─── Proxy state ──────────────────────────────────────────────────────────────
@@ -175,7 +177,6 @@ let bareConn: any = null;
 type SL = (s: ProxyStatus) => void;
 const statusListeners = new Set<SL>();
 let currentStatus: ProxyStatus = { phase: "idle" };
-
 function emitStatus(s: ProxyStatus) { currentStatus = s; statusListeners.forEach(l => l(s)); }
 
 async function setupProxy(bareNum = 1): Promise<void> {
@@ -193,8 +194,8 @@ async function setupProxy(bareNum = 1): Promise<void> {
     emitStatus({ phase: "connecting-transport" });
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    const origin = location.origin;
-    await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
+    const o = location.origin;
+    await bareConn.setTransport(o + "/api/baremod/index.mjs", [o + barePathForNum(bareNum)]);
     emitStatus({ phase: "ready", bare: bareNum });
   } catch (err: unknown) {
     let msg = "unknown error";
@@ -203,7 +204,6 @@ async function setupProxy(bareNum = 1): Promise<void> {
     emitStatus({ phase: "error", message: msg });
   }
 }
-
 async function switchBare(n: number): Promise<void> {
   emitStatus({ phase: "switching", bare: n });
   try {
@@ -212,27 +212,109 @@ async function switchBare(n: number): Promise<void> {
     await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
     localStorage.setItem(BARE_KEY, String(n));
     emitStatus({ phase: "ready", bare: n });
-  } catch (err) {
-    emitStatus({ phase: "error", message: err instanceof Error ? err.message : String(err) });
-  }
+  } catch (err) { emitStatus({ phase: "error", message: err instanceof Error ? err.message : String(err) }); }
 }
-
 function useProxyStatus(): ProxyStatus {
   const [s, setS] = useState<ProxyStatus>(currentStatus);
   useEffect(() => { statusListeners.add(setS); return () => { statusListeners.delete(setS); }; }, []);
   return s;
 }
 
-// ─── StatusBar ────────────────────────────────────────────────────────────────
+// ─── SVG Icons ────────────────────────────────────────────────────────────────
+
+function IconBrowser({ size = 16, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="18" rx="2"/>
+      <line x1="2" y1="8" x2="22" y2="8"/>
+      <circle cx="5" cy="5.5" r="0.9" fill={color} stroke="none"/>
+      <circle cx="8" cy="5.5" r="0.9" fill={color} stroke="none"/>
+    </svg>
+  );
+}
+function IconGames({ size = 16, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="20" height="10" rx="5"/>
+      <line x1="7" y1="11" x2="7" y2="13"/>
+      <line x1="6" y1="12" x2="8" y2="12"/>
+      <circle cx="16.5" cy="11.5" r="0.9" fill={color} stroke="none"/>
+      <circle cx="18.5" cy="13" r="0.9" fill={color} stroke="none"/>
+    </svg>
+  );
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+function Sidebar({ activeView, onViewChange }: { activeView: AppView; onViewChange: (v: AppView) => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const items: { view: AppView; label: string; icon: React.ReactNode }[] = [
+    { view: "browser", label: "Browser", icon: <IconBrowser size={15} /> },
+    { view: "games",   label: "Games",   icon: <IconGames size={15} /> },
+  ];
+
+  return (
+    <div
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
+      style={{
+        position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 200,
+        width: expanded ? 200 : SIDEBAR_W,
+        background: "#080808",
+        borderRight: "1px solid #161616",
+        display: "flex", flexDirection: "column",
+        overflow: "hidden",
+        transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)",
+        userSelect: "none",
+      }}
+    >
+      {/* Logo mark */}
+      <div style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", gap: 12, borderBottom: "1px solid #111", flexShrink: 0 }}>
+        <div style={{ width: 15, height: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 9, height: 9, border: "1.5px solid rgba(255,255,255,0.25)", borderRadius: "2px", flexShrink: 0 }} />
+        </div>
+        <span style={{ fontSize: "0.58rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.2)", whiteSpace: "nowrap", fontFamily: "'Space Grotesk', sans-serif" }}>unstable</span>
+      </div>
+
+      {/* Nav */}
+      <div style={{ flex: 1, paddingTop: "0.4rem" }}>
+        {items.map(item => {
+          const isActive = activeView === item.view;
+          return (
+            <button key={item.view} onClick={() => onViewChange(item.view)} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              height: 38, width: "100%", padding: "0 14px",
+              background: isActive ? "rgba(255,255,255,0.04)" : "none",
+              border: "none", cursor: "pointer",
+              color: isActive ? "#e8e8e8" : "rgba(255,255,255,0.28)",
+              fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.73rem",
+              letterSpacing: "0.04em", textAlign: "left",
+              transition: "color 0.12s, background 0.12s",
+              position: "relative",
+            }}
+              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.025)"; }}
+              onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+            >
+              {isActive && <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 2, height: 14, background: "#e8e8e8", borderRadius: "0 2px 2px 0" }} />}
+              <div style={{ width: 15, height: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.icon}</div>
+              <span style={{ whiteSpace: "nowrap", opacity: expanded ? 1 : 0, transition: "opacity 0.12s", pointerEvents: "none" }}>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Status bar ───────────────────────────────────────────────────────────────
 
 function StatusBar({ visible }: { visible: boolean }) {
   const status = useProxyStatus();
   if (!visible) return null;
-
   const ready = status.phase === "ready" || status.phase === "switching";
   const curBare = status.phase === "ready" ? status.bare : status.phase === "switching" ? status.bare : 0;
-  const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.2)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
-
+  const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.18)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
   const label = status.phase === "idle" ? "proxy: idle"
     : status.phase === "registering-sw" ? "registering service worker…"
     : status.phase === "waiting-sw" ? "waiting for service worker…"
@@ -240,26 +322,18 @@ function StatusBar({ visible }: { visible: boolean }) {
     : status.phase === "switching" ? `switching to ws${status.bare}…`
     : status.phase === "ready" ? "proxy: ready"
     : `error: ${status.message}`;
-
   const labelColor = status.phase === "ready" ? green : status.phase === "error" ? red : amber;
-
   return (
-    <div style={{ position: "fixed", bottom: 10, left: 12, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
-      <span style={{ fontSize: "0.58rem", letterSpacing: "0.06em", color: labelColor, textShadow: "0 1px 6px rgba(0,0,0,0.9)", maxWidth: 300, wordBreak: "break-word" }}>{label}</span>
-      <span style={{ display: "flex", gap: "0.25rem", pointerEvents: "all" }}>
-        {[1, 2, 3, 4, 5].map(n => (
-          <button key={n} onClick={() => switchBare(n)} title={`Switch to bare server ${n}`} style={{
-            background: "none", border: "none", padding: "0 2px", cursor: "pointer",
-            fontSize: "0.55rem", letterSpacing: "0.05em",
-            color: curBare === n && ready ? green : gray,
-            fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 1px 4px rgba(0,0,0,0.9)",
-            transition: "color 0.15s",
-          }}
+    <div style={{ position: "fixed", bottom: 10, left: SIDEBAR_W + 10, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
+      <span style={{ fontSize: "0.57rem", letterSpacing: "0.06em", color: labelColor, textShadow: "0 1px 6px rgba(0,0,0,0.9)", maxWidth: 280, wordBreak: "break-word" }}>{label}</span>
+      <span style={{ display: "flex", gap: "0.22rem", pointerEvents: "all" }}>
+        {[1,2,3,4,5].map(n => (
+          <button key={n} onClick={() => switchBare(n)} style={{ background: "none", border: "none", padding: "0 2px", cursor: "pointer", fontSize: "0.54rem", letterSpacing: "0.04em", color: curBare === n && ready ? green : gray, fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 1px 4px rgba(0,0,0,0.9)", transition: "color 0.15s" }}
             onMouseEnter={e => { if (curBare !== n) (e.target as HTMLElement).style.color = "rgba(255,255,255,0.6)"; }}
             onMouseLeave={e => { (e.target as HTMLElement).style.color = curBare === n && ready ? green : gray; }}
           >ws{n}</button>
         ))}
-        <span title="Wisp: run `pnpm --filter @workspace/api-server add wisp-server-node` to enable" style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.1)", letterSpacing: "0.05em", cursor: "default", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>wisp</span>
+        <span title="Wisp: install wisp-server-node to enable" style={{ fontSize: "0.54rem", color: "rgba(255,255,255,0.09)", letterSpacing: "0.04em", cursor: "default", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>wisp</span>
       </span>
     </div>
   );
@@ -318,7 +392,6 @@ function CreditsPage() {
           </div>
         ))}
       </div>
-      <p style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em", margin: 0 }}>type unstable://credits in the url bar</p>
     </div>
   );
 }
@@ -342,68 +415,61 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
     return () => window.removeEventListener("keydown", onKey, true);
   }, [recording, settings, onSettingsChange]);
 
-  const inputBase: React.CSSProperties = {
-    background: "none", border: "1px solid #222", borderRadius: "2px",
-    color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
-    padding: "0.3rem 0.6rem", letterSpacing: "0.04em",
-  };
-
   return (
-    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div className="unstable-scroll" style={{ flex: 1, overflowY: "auto", padding: "2rem 2rem", maxWidth: 560, margin: "0 auto", width: "100%" }}>
+        <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
 
-      {/* Cloak section */}
-      <section style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Makes the browser tab containing Unstable look like another site.
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(Object.keys(CLOAK_PRESETS) as CloakId[]).map(id => (
-            <button key={id} onClick={() => onSettingsChange({ ...settings, cloak: id })} style={{
-              background: settings.cloak === id ? "#e8e8e8" : "#111",
-              color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-              border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
-              padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-              transition: "all 0.15s",
-            }}>{CLOAK_PRESETS[id].label}</button>
-          ))}
-        </div>
-      </section>
+        {/* Cloak */}
+        <section style={{ marginBottom: "2.5rem" }}>
+          <p style={{ fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "0.75rem", marginTop: 0 }}>tab cloak</p>
+          <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", margin: "0 0 1rem", lineHeight: 1.6 }}>Makes the browser tab look like another site.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+            {(Object.keys(CLOAK_PRESETS) as CloakId[]).map(id => (
+              <button key={id} onClick={() => onSettingsChange({ ...settings, cloak: id })} style={{
+                background: settings.cloak === id ? "#e8e8e8" : "#0f0f0f",
+                color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.4)",
+                border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#1e1e1e"}`,
+                padding: "0.38rem 0.8rem", fontSize: "0.67rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px", transition: "all 0.15s",
+              }}>{CLOAK_PRESETS[id].label}</button>
+            ))}
+          </div>
+        </section>
 
-      {/* Key shortcuts section */}
-      <section>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>keyboard shortcuts</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-          {Object.keys(SHORTCUT_LABELS).map(key => {
-            const isRec = recording === key;
-            const val = settings.shortcuts[key as keyof KeyShortcuts] ?? "";
-            return (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid #111" }}>
-                <span style={{ flex: 1, fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>{SHORTCUT_LABELS[key]}</span>
-                <span style={{ ...inputBase, minWidth: "80px", textAlign: "center", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.5)", borderColor: isRec ? "#555" : "#222", background: isRec ? "#161616" : "none" }}>
-                  {isRec ? "press keys…" : val}
-                </span>
-                <button onClick={() => setRecording(isRec ? null : key)} style={{
-                  background: isRec ? "rgba(220,80,80,0.15)" : "none",
-                  border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
-                  color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
-                  padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                }}>{isRec ? "cancel" : "record"}</button>
-              </div>
-            );
-          })}
-        </div>
-        <button onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })} style={{
-          marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
-          padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-          letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-        }}>reset to defaults</button>
-      </section>
+        {/* Key shortcuts */}
+        <section>
+          <p style={{ fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "0.75rem", marginTop: 0 }}>keyboard shortcuts</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            {Object.keys(SHORTCUT_LABELS).map(key => {
+              const isRec = recording === key;
+              const val = settings.shortcuts[key as keyof KeyShortcuts] ?? "";
+              return (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.38rem 0", borderBottom: "1px solid #0f0f0f" }}>
+                  <span style={{ flex: 1, fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{SHORTCUT_LABELS[key]}</span>
+                  <span style={{ minWidth: "80px", textAlign: "center", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.45)", background: isRec ? "#161616" : "none", border: `1px solid ${isRec ? "#333" : "#1a1a1a"}`, borderRadius: "2px", padding: "0.25rem 0.5rem" }}>
+                    {isRec ? "press keys…" : val}
+                  </span>
+                  <button onClick={() => setRecording(isRec ? null : key)} style={{
+                    background: isRec ? "rgba(220,80,80,0.12)" : "none",
+                    border: `1px solid ${isRec ? "rgba(220,80,80,0.4)" : "#1a1a1a"}`,
+                    color: isRec ? "rgba(220,80,80,0.85)" : "rgba(255,255,255,0.3)",
+                    padding: "0.22rem 0.55rem", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif",
+                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  }}>{isRec ? "cancel" : "record"}</button>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })} style={{
+            marginTop: "1rem", background: "none", border: "1px solid #1a1a1a", color: "rgba(255,255,255,0.22)",
+            padding: "0.38rem 0.8rem", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}>reset to defaults</button>
+        </section>
 
-      <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
+        <p style={{ marginTop: "2rem", fontSize: "0.57rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>unstable://settings</p>
+      </div>
     </div>
   );
 }
@@ -419,13 +485,11 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState(""); const [newUrl, setNewUrl] = useState(""); const [newImg, setNewImg] = useState("");
 
-  const all = [...DEFAULT_SHORTCUTS, ...customShortcuts];
+  const all = [...DEFAULT_SHORTCUTS_LIST, ...customShortcuts];
 
   function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const url = normalizeUrl(input); if (url) onNavigate(url);
+    e.preventDefault(); const url = normalizeUrl(input); if (url) onNavigate(url);
   }
-
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     const name = newName.trim(), rawUrl = newUrl.trim(); if (!name || !rawUrl) return;
@@ -435,17 +499,15 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
     const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
     setAdding(false); setNewName(""); setNewUrl(""); setNewImg("");
   }
-
   function removeCustom(id: string) {
     const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
   }
 
-  const inputSt: React.CSSProperties = { background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
+  const iSt: React.CSSProperties = { background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable</p>
-
       <form onSubmit={handleSearch} style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}>
         <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
           style={{ flex: 1, background: "#111", border: "1px solid #222", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
@@ -454,87 +516,80 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
         <button type="submit" style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}>go</button>
       </form>
 
-      {/* Shortcuts */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem", maxWidth: 600 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem", maxWidth: 580 }}>
         {all.map(sc => (
           <div key={sc.id} style={{ position: "relative" }} className="sc-wrap">
-            <button onClick={() => onNavigate(sc.url)} title={sc.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
+            <button onClick={() => onNavigate(sc.url)} title={sc.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.35rem", background: "none", border: "none", cursor: "pointer", padding: "0.5rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
               onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
               onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
             >
               <div style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
-                  onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }}
-                />
+                <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }} onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }} />
                 <span style={{ display: "none", width: 24, height: 24, background: "#1e1e1e", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
               </div>
-              <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.32)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
+              <span style={{ fontSize: "0.56rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
             </button>
-            {!DEFAULT_SHORTCUTS.find(d => d.id === sc.id) && (
+            {!DEFAULT_SHORTCUTS_LIST.find(d => d.id === sc.id) && (
               <button onClick={() => removeCustom(sc.id)} className="sc-remove" style={{ position: "absolute", top: 2, right: 2, background: "#1a1a1a", border: "none", color: "rgba(255,255,255,0.4)", borderRadius: "50%", width: 14, height: 14, fontSize: 9, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center" }}>×</button>
             )}
           </div>
         ))}
         {!adding && (
-          <button onClick={() => setAdding(true)} title="Add shortcut" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
+          <button onClick={() => setAdding(true)} title="Add shortcut" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.35rem", background: "none", border: "none", cursor: "pointer", padding: "0.5rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
             onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
             onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
           >
-            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "rgba(255,255,255,0.2)" }}>+</div>
-            <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.03em" }}>add</span>
+            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed rgba(255,255,255,0.13)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "rgba(255,255,255,0.18)" }}>+</div>
+            <span style={{ fontSize: "0.56rem", color: "rgba(255,255,255,0.16)", letterSpacing: "0.03em" }}>add</span>
           </button>
         )}
       </div>
 
-      {/* Add shortcut form */}
       {adding && (
-        <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #222", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}>
-          <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
-          <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
-          <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
-          <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
+        <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #1e1e1e", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}>
+          <p style={{ margin: 0, fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.22)" }}>new shortcut</p>
+          <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={iSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
+          <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={iSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
+          <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={iSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button type="submit" style={{ flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>add</button>
-            <button type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</button>
+            <button type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #1e1e1e", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</button>
           </div>
         </form>
       )}
 
-      {/* Credits + Settings links */}
       <div style={{ display: "flex", gap: "1.5rem" }}>
         {[["credits", "unstable://credits"], ["settings", "unstable://settings"]].map(([label, url]) => (
-          <button key={label} onClick={() => onNavigate(url)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
-            onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"}
-            onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
+          <button key={label} onClick={() => onNavigate(url)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.18)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.6rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
+            onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.45)"}
+            onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.18)"}
           >{label}</button>
         ))}
       </div>
-
-      <style>{`.sc-wrap:hover .sc-remove{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+      <style>{`.sc-wrap:hover .sc-remove{display:flex!important} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
     </div>
   );
 }
 
-// ─── Browser tab ──────────────────────────────────────────────────────────────
+// ─── Browser tab strip ────────────────────────────────────────────────────────
 
 function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
   return (
-    <div onClick={onActivate} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s" }}
+    <div onClick={onActivate} style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: "0 0.45rem 0 0.65rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #181818", minWidth: 100, maxWidth: 170, flexShrink: 0, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {tab.loading ? <div style={{ width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.3)", animation: "pulse 1s ease-in-out infinite" }} />
+        {tab.loading ? <div style={{ width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.25)", animation: "pulse 1s ease-in-out infinite" }} />
           : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
-          : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
-        }
+          : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#252525" }} />}
       </div>
-      <span style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>
-      <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+      <span style={{ flex: 1, fontSize: "0.68rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>
+      <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
-        onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
+        onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
       >×</button>
     </div>
   );
@@ -542,43 +597,59 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 
 // ─── Browser app ──────────────────────────────────────────────────────────────
 
-function BrowserApp({ onLogout }: { onLogout: () => void }) {
+interface BrowserAppProps {
+  onLogout: () => void;
+  settings: Settings;
+  setSettings: (s: Settings) => void;
+  customShortcuts: Shortcut[];
+  setCustomShortcuts: (s: Shortcut[]) => void;
+  gameToOpen: { url: string; key: number } | null;
+}
+
+function BrowserApp({ onLogout, settings, setSettings, customShortcuts, setCustomShortcuts, gameToOpen }: BrowserAppProps) {
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
-  const [settings, setSettings] = useState<Settings>(loadSettings);
-  const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
 
-  // Apply cloak when settings change
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
-
-  // Save settings when they change
   useEffect(() => { saveSettings(settings); }, [settings]);
 
-  // Initial proxy setup
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n);
   }, []);
 
-  // Sync URL bar with active tab
+  // Open game in new tab when signalled from games library
+  useEffect(() => {
+    if (!gameToOpen) return;
+    const normalized = normalizeUrl(gameToOpen.url);
+    if (!normalized || normalized.startsWith("unstable://")) return;
+    const proxyUrl = encodeProxyUrl(normalized);
+    let domain = ""; try { domain = new URL(normalized).hostname; } catch {}
+    const newTab: Tab = {
+      id: Math.random().toString(36).slice(2), title: domain || "Game",
+      url: proxyUrl, favicon: domain ? faviconUrl(domain) : "",
+      history: [proxyUrl], historyIndex: 0, loading: true,
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, [gameToOpen?.key]);
+
   useEffect(() => {
     if (!activeTab) return;
     const display = activeTab.url ? (activeTab.url.startsWith("unstable://") ? activeTab.url : decodeProxyUrl(activeTab.url)) : "";
     setUrlInput(display);
   }, [activeTabId, activeTab?.url]);
 
-  // Refs for stable keydown handler
   const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts });
   useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts }; });
 
-  // Global keyboard shortcuts
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       const el = document.activeElement;
@@ -587,7 +658,6 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
       if (!combo) return;
       const { tabs, activeTabId, settings, customShortcuts } = stateRef.current;
       const s = settings.shortcuts;
-
       for (let i = 1; i <= 9; i++) {
         if (combo === s[`tab${i}` as keyof KeyShortcuts]) {
           e.preventDefault(); const t = tabs[i - 1]; if (t) setActiveTabId(t.id); return;
@@ -626,7 +696,6 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
       if (["settings", "credits", "blank"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
-        updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
         return;
       }
@@ -672,62 +741,55 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     win.document.write(`<!DOCTYPE html><html><head><title>Unstable</title><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#0d0d0d}iframe{width:100%;height:100%;border:none;display:block}</style></head><body><iframe src="${activeTab.url}" allowfullscreen allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *"></iframe></body></html>`);
     win.document.close();
   }
-
   function handleUrlSubmit(e: React.FormEvent) { e.preventDefault(); handleNavigate(urlInput); urlInputRef.current?.blur(); }
 
   const canBack = (activeTab?.historyIndex ?? -1) > 0;
   const canForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false;
-
-  const btn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "0 0.35rem", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "2px", height: 26, minWidth: 26, flexShrink: 0, transition: "color 0.1s, background 0.1s" };
-  const btnOff: React.CSSProperties = { ...btn, color: "rgba(255,255,255,0.14)", cursor: "not-allowed" };
+  const btn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "0 0.3rem", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "2px", height: 24, minWidth: 24, flexShrink: 0, transition: "color 0.1s, background 0.1s" };
+  const btnOff: React.CSSProperties = { ...btn, color: "rgba(255,255,255,0.13)", cursor: "not-allowed" };
   const hov = (on: boolean) => ({
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { if (on) { (e.target as HTMLButtonElement).style.color="#e8e8e8"; (e.target as HTMLButtonElement).style.background="#1a1a1a"; } },
-    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color=on?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.14)"; (e.target as HTMLButtonElement).style.background="none"; },
+    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color=on?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.13)"; (e.target as HTMLButtonElement).style.background="none"; },
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}>
       {!fullscreen && (
         <>
-          {/* Tab bar */}
-          <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #181818", height: 34, flexShrink: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
               {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} />)}
             </div>
-            <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.28)"} title="New tab">+</button>
-            <button onClick={onLogout} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.16)", cursor: "pointer", padding: "0 0.8rem", fontSize: "0.57rem", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.16)"} title="Lock">lock</button>
+            <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #181818", color: "rgba(255,255,255,0.25)", cursor: "pointer", padding: "0 0.8rem", fontSize: 17, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
+              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.25)"} title="New tab">+</button>
+            <button onClick={onLogout} style={{ background: "none", border: "none", borderLeft: "1px solid #181818", color: "rgba(255,255,255,0.15)", cursor: "pointer", padding: "0 0.75rem", fontSize: "0.55rem", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s" }}
+              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.15)"} title="Lock">lock</button>
           </div>
-
-          {/* Toolbar */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.18rem", padding: "0.28rem 0.5rem", background: "#0d0d0d", borderBottom: "1px solid #181818", flexShrink: 0 }}>
             <button onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</button>
             <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
             <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
-            <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
+            <div style={{ width: 1, height: 14, background: "#1e1e1e", margin: "0 0.1rem", flexShrink: 0 }} />
             <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
               <input ref={urlInputRef} value={urlInput} onChange={e => setUrlInput(e.target.value)}
-                onFocus={e => { e.target.select(); e.target.style.borderColor="#444"; }} onBlur={e => e.target.style.borderColor="#1e1e1e"}
+                onFocus={e => { e.target.select(); e.target.style.borderColor="#444"; }} onBlur={e => e.target.style.borderColor="#181818"}
                 placeholder="search, url, or unstable://…"
-                style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
+                style={{ width: "100%", background: "#0a0a0a", border: "1px solid #181818", color: "#e0e0e0", padding: "0.24rem 0.65rem", fontSize: "0.75rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
               />
             </form>
-            <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
+            <div style={{ width: 1, height: 14, background: "#1e1e1e", margin: "0 0.1rem", flexShrink: 0 }} />
             <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} title="Open in new window">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </button>
             <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} title="Fullscreen">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
             </button>
           </div>
         </>
       )}
-
-      {/* Content */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {fullscreen && (
-          <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
+          <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 10, right: 10, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "5px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.6rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
         )}
         {tabs.map(tab => (
           <div key={tab.id} style={{ position: "absolute", inset: 0, display: tab.id === activeTabId ? "block" : "none" }}>
@@ -750,10 +812,99 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
           </div>
         ))}
       </div>
-
       <StatusBar visible={isNewtab} />
+      <style>{`@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.16)}`}</style>
+    </div>
+  );
+}
 
-      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
+// ─── Game card ────────────────────────────────────────────────────────────────
+
+function GameCard({ game, onOpen }: { game: Game; onOpen: (url: string) => void }) {
+  const colors = CATEGORY_COLORS[game.category] ?? CAT_DEFAULT;
+  let domain = ""; try { domain = new URL(game.url).hostname; } catch {}
+
+  return (
+    <button onClick={() => onOpen(game.url)} title={game.description} style={{
+      display: "flex", flexDirection: "column", background: "#0c0c0c", border: "1px solid #181818",
+      borderRadius: "6px", cursor: "pointer", textAlign: "left", overflow: "hidden", padding: 0,
+      transition: "border-color 0.15s, transform 0.12s", width: "100%",
+    }}
+      onMouseEnter={e => { const el = e.currentTarget as HTMLButtonElement; el.style.borderColor = "#2a2a2a"; el.style.transform = "translateY(-1px)"; }}
+      onMouseLeave={e => { const el = e.currentTarget as HTMLButtonElement; el.style.borderColor = "#181818"; el.style.transform = "none"; }}
+    >
+      {/* Thumbnail area */}
+      <div style={{ padding: "1.1rem 0.75rem 0.85rem", display: "flex", alignItems: "center", justifyContent: "center", background: colors.bg, borderBottom: "1px solid #141414" }}>
+        <img src={faviconUrl(domain)} width={28} height={28} alt={game.name}
+          style={{ borderRadius: "6px", objectFit: "contain" }}
+          onError={e => { const img = e.target as HTMLImageElement; img.style.opacity="0.3"; }}
+        />
+      </div>
+      {/* Info */}
+      <div style={{ padding: "0.55rem 0.65rem 0.6rem" }}>
+        <p style={{ margin: "0 0 0.3rem", fontSize: "0.72rem", color: "rgba(255,255,255,0.75)", fontWeight: 500, fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{game.name}</p>
+        <span style={{ fontSize: "0.54rem", color: colors.text, background: colors.accent, padding: "2px 6px", borderRadius: "10px", letterSpacing: "0.07em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif" }}>{game.category}</span>
+      </div>
+    </button>
+  );
+}
+
+// ─── Games library ────────────────────────────────────────────────────────────
+
+function GamesLibrary({ onGameOpen }: { onGameOpen: (url: string) => void }) {
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("all");
+
+  const allCategories = ["all", ...Array.from(new Set(games.map(g => g.category))).sort()];
+
+  const filtered = games.filter(g => {
+    const matchesSearch = !search || g.name.toLowerCase().includes(search.toLowerCase()) || g.description.toLowerCase().includes(search.toLowerCase());
+    const matchesCat = activeCategory === "all" || g.category === activeCategory;
+    return matchesSearch && matchesCat;
+  });
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}>
+      {/* Header */}
+      <div style={{ padding: "0.75rem 1.25rem 0.6rem", borderBottom: "1px solid #181818", flexShrink: 0 }}>
+        <p style={{ fontSize: "0.58rem", letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 0 0.6rem" }}>games</p>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)} placeholder="search games…" autoFocus
+          style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", color: "#e8e8e8", padding: "0.5rem 0.85rem", fontSize: "0.78rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "4px", boxSizing: "border-box", letterSpacing: "0.02em" }}
+          onFocus={e => e.target.style.borderColor="#333"} onBlur={e => e.target.style.borderColor="#1e1e1e"}
+        />
+        {/* Category filter */}
+        <div className="unstable-scroll" style={{ display: "flex", gap: "0.3rem", marginTop: "0.6rem", overflowX: "auto", paddingBottom: "2px" }}>
+          {allCategories.map(cat => {
+            const isActive = activeCategory === cat;
+            const colors = CATEGORY_COLORS[cat] ?? CAT_DEFAULT;
+            return (
+              <button key={cat} onClick={() => setActiveCategory(cat)} style={{
+                background: isActive ? (cat === "all" ? "#e8e8e8" : colors.accent) : "none",
+                color: isActive ? (cat === "all" ? "#0d0d0d" : colors.text) : "rgba(255,255,255,0.28)",
+                border: `1px solid ${isActive ? (cat === "all" ? "#e8e8e8" : colors.text) : "#1a1a1a"}`,
+                padding: "0.2rem 0.6rem", fontSize: "0.56rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
+                whiteSpace: "nowrap", transition: "all 0.12s", flexShrink: 0,
+              }}>{cat}</button>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.13)", margin: "0.45rem 0 0", letterSpacing: "0.04em" }}>{filtered.length} game{filtered.length !== 1 ? "s" : ""}</p>
+      </div>
+
+      {/* Grid */}
+      <div className="unstable-scroll" style={{ flex: 1, overflowY: "auto", padding: "0.85rem 1.25rem 1.5rem" }}>
+        {filtered.length > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.55rem" }}>
+            {filtered.map(game => <GameCard key={game.id} game={game} onOpen={onGameOpen} />)}
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "200px" }}>
+            <p style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.75rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>no games found</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -762,7 +913,43 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
 
 export default function App() {
   const [auth, setAuth] = useState(() => sessionStorage.getItem(SESSION_KEY) === "true");
+  const [view, setView] = useState<AppView>("browser");
+  const [gameToOpen, setGameToOpen] = useState<{ url: string; key: number } | null>(null);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
+
   function logout() { sessionStorage.removeItem(SESSION_KEY); swRegistered = false; bareConn = null; setAuth(false); applyCloak("none"); }
+
+  function handleGameOpen(url: string) {
+    setGameToOpen({ url, key: Date.now() });
+    setView("browser");
+  }
+
   if (!auth) return <PasswordScreen onSuccess={() => setAuth(true)} />;
-  return <BrowserApp onLogout={logout} />;
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "#0d0d0d", overflow: "hidden" }}>
+      <Sidebar activeView={view} onViewChange={setView} />
+
+      {/* Main content — offset by sidebar width */}
+      <div style={{ flex: 1, marginLeft: SIDEBAR_W, height: "100vh", position: "relative", overflow: "hidden" }}>
+        {/* Browser — always mounted, hidden when not active */}
+        <div style={{ position: "absolute", inset: 0, display: view === "browser" ? "flex" : "none", flexDirection: "column" }}>
+          <BrowserApp
+            onLogout={logout}
+            settings={settings}
+            setSettings={setSettings}
+            customShortcuts={customShortcuts}
+            setCustomShortcuts={setCustomShortcuts}
+            gameToOpen={gameToOpen}
+          />
+        </div>
+
+        {/* Games library */}
+        <div style={{ position: "absolute", inset: 0, display: view === "games" ? "flex" : "none", flexDirection: "column" }}>
+          <GamesLibrary onGameOpen={handleGameOpen} />
+        </div>
+      </div>
+    </div>
+  );
 }
