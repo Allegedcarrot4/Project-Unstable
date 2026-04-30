@@ -350,6 +350,53 @@ function CreditsPage() {
   );
 }
 
+// ─── Terms of Service page ────────────────────────────────────────────────────
+
+function ToSPage() {
+  return (
+    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
+      {[
+        ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
+        ["Acceptable use", "You agree not to use Unstable to access, distribute, or transmit content that is illegal in your jurisdiction. Circumventing network restrictions may violate your school, employer, or ISP's acceptable-use policy — you are solely responsible for compliance."],
+        ["No logging", "This instance does not store logs of sites you visit, passwords you enter, or any other personally identifiable information beyond what is necessary for the proxy connection to function."],
+        ["Third-party content", "Unstable acts as a transparent proxy. The operators of this service are not responsible for the content of third-party websites accessed through it."],
+        ["Changes", "These terms may be updated at any time without prior notice. Continued use of the service constitutes acceptance of the updated terms."],
+      ].map(([title, body]) => (
+        <div key={title} style={{ marginBottom: "1.5rem" }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(255,255,255,0.55)", margin: "0 0 0.35rem", letterSpacing: "0.04em" }}>{title}</p>
+          <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.32)", margin: 0, lineHeight: 1.65 }}>{body}</p>
+        </div>
+      ))}
+      <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://tos in the url bar</p>
+    </div>
+  );
+}
+
+// ─── Privacy policy page ──────────────────────────────────────────────────────
+
+function PrivacyPage() {
+  return (
+    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
+      {[
+        ["What we collect", "Nothing beyond what is strictly required for a WebSocket proxy connection to function. We do not store browsing history, search queries, usernames, or passwords on any server we control."],
+        ["Session storage", "Your authentication session is stored in your browser's sessionStorage and is erased when you close the tab. Shortcut and settings preferences are stored in localStorage on your device only."],
+        ["Proxy traffic", "Network requests made through the Unstable proxy pass through our bare servers. We do not log request URLs, response bodies, or IP addresses beyond the lifetime of a single connection."],
+        ["Cookies", "We do not set any tracking or analytics cookies. Third-party sites you visit through the proxy may set their own cookies in the proxied context."],
+        ["Third parties", "We do not share, sell, or transmit any data to third-party analytics, advertising, or data-broker services."],
+        ["Changes", "This policy may be updated at any time. The current version is always available at unstable://privacy."],
+      ].map(([title, body]) => (
+        <div key={title} style={{ marginBottom: "1.5rem" }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(255,255,255,0.55)", margin: "0 0 0.35rem", letterSpacing: "0.04em" }}>{title}</p>
+          <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.32)", margin: 0, lineHeight: 1.65 }}>{body}</p>
+        </div>
+      ))}
+      <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://privacy in the url bar</p>
+    </div>
+  );
+}
+
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSettingsChange: (s: Settings) => void }) {
@@ -529,7 +576,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
 
       {/* Credits + Settings links */}
       <div style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["settings", "unstable://settings"]].map(([label, url]) => (
+        {[["credits", "unstable://credits"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <button key={label} onClick={() => onNavigate(url)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
             onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"}
             onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
@@ -651,7 +698,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "blank"].includes(page)) {
+      if (["settings", "credits", "blank", "tos", "privacy"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
@@ -764,6 +811,10 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
               <SettingsPage settings={settings} onSettingsChange={setSettings} />
             ) : tab.url === "unstable://credits" ? (
               <CreditsPage />
+            ) : tab.url === "unstable://tos" ? (
+              <ToSPage />
+            ) : tab.url === "unstable://privacy" ? (
+              <PrivacyPage />
             ) : tab.url === "unstable://blank" ? (
               <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
             ) : (
