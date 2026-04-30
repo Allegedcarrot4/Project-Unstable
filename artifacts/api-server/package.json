@@ -12,17 +12,12 @@
   "dependencies": {
     "@mercuryworkshop/bare-as-module3": "^2.2.5",
     "@nebula-services/bare-server-node": "^2.0.4",
-    "@workspace/api-zod": "workspace:*",
-    "@workspace/db": "workspace:*",
-    "cookie-parser": "^1.4.7",
     "cors": "^2",
-    "drizzle-orm": "catalog:",
     "express": "^5",
     "pino": "^9",
     "pino-http": "^10"
   },
   "devDependencies": {
-    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",

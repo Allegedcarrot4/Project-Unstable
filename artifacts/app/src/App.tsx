@@ -325,6 +325,56 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
+// ─── Legal page template ──────────────────────────────────────────────────────
+
+function LegalPage({ heading, sections }: { heading: string; sections: { title: string; body: string }[] }) {
+  return (
+    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — {heading}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        {sections.map(s => (
+          <div key={s.title}>
+            <p style={{ fontSize: "0.62rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "0.45rem" }}>{s.title}</p>
+            <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>{s.body}</p>
+          </div>
+        ))}
+      </div>
+      <p style={{ marginTop: "2.5rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>last updated: {new Date().getFullYear()}</p>
+    </div>
+  );
+}
+
+// ─── Terms of Service ─────────────────────────────────────────────────────────
+
+function TosPage() {
+  return (
+    <LegalPage heading="terms of service" sections={[
+      { title: "Acceptance", body: "By using Unstable you agree to these terms. If you do not agree, do not use this service." },
+      { title: "Purpose", body: "Unstable is provided for lawful, personal, educational use only. Using this service to access or distribute illegal content, circumvent security controls you are not authorized to bypass, or violate any applicable law is strictly prohibited." },
+      { title: "No warranty", body: "This service is provided \"as is\" without warranty of any kind, express or implied. We do not guarantee uptime, reliability, or fitness for any particular purpose." },
+      { title: "Limitation of liability", body: "The operators of this service are not liable for any damages arising from use or inability to use the service, including but not limited to data loss, service interruption, or content accessed through the proxy." },
+      { title: "Third-party content", body: "Unstable acts as a proxy and does not control or endorse the content of third-party websites accessed through it. Users are solely responsible for their activity and compliance with the terms of those third-party services." },
+      { title: "Termination", body: "Access may be revoked at any time, for any reason, without notice." },
+      { title: "Changes", body: "These terms may be updated at any time. Continued use after changes constitutes acceptance of the revised terms." },
+    ]} />
+  );
+}
+
+// ─── Privacy Policy ───────────────────────────────────────────────────────────
+
+function PrivacyPage() {
+  return (
+    <LegalPage heading="privacy policy" sections={[
+      { title: "Data collection", body: "Unstable does not collect, store, or sell personal information. No accounts, no profiles, no analytics." },
+      { title: "Proxy traffic", body: "Traffic routed through the proxy passes through the bare servers in-memory and is not logged, stored, or inspected beyond what is necessary to forward the request." },
+      { title: "Local storage", body: "Settings, keyboard shortcuts, cloaks, and tab shortcuts are stored locally in your browser's localStorage and sessionStorage. This data never leaves your device." },
+      { title: "Third-party sites", body: "Websites you visit through the proxy may set cookies, run scripts, and collect data subject to their own privacy policies. Unstable has no control over third-party sites." },
+      { title: "Cookies", body: "Unstable itself does not set any tracking or analytics cookies. Session authentication is stored in sessionStorage and cleared when you close the tab." },
+      { title: "Contact", body: "This service is self-hosted. If you are running your own instance, you are the data controller. There is no central operator to contact." },
+    ]} />
+  );
+}
+
 // ─── Credits page ─────────────────────────────────────────────────────────────
 
 function CreditsPage() {
@@ -529,7 +579,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
 
       {/* Credits + Settings links */}
       <div style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["settings", "unstable://settings"]].map(([label, url]) => (
+        {[["credits", "unstable://credits"], ["settings", "unstable://settings"], ["terms", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <button key={label} onClick={() => onNavigate(url)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
             onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"}
             onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
@@ -651,7 +701,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "blank"].includes(page)) {
+      if (["settings", "credits", "blank", "tos", "privacy"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
@@ -764,6 +814,10 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
               <SettingsPage settings={settings} onSettingsChange={setSettings} />
             ) : tab.url === "unstable://credits" ? (
               <CreditsPage />
+            ) : tab.url === "unstable://tos" ? (
+              <TosPage />
+            ) : tab.url === "unstable://privacy" ? (
+              <PrivacyPage />
             ) : tab.url === "unstable://blank" ? (
               <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
             ) : (
