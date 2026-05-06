@@ -261,6 +261,41 @@ async function setupProxy(bareNum = 1): Promise<void> {
       });
       await scrController.init();
     }
+
+    // Pre-populate PSL in IDB so the SW doesn't fetch from publicsuffix.org (rate-limited)
+    try {
+      const PSL_KEY = "publicSuffixList";
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("$scramjet", 1);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const existing = await new Promise<{ expiry: number } | undefined>((resolve) => {
+        const tx = db.transaction(PSL_KEY, "readonly");
+        const req = tx.objectStore(PSL_KEY).get(PSL_KEY);
+        req.onsuccess = () => resolve(req.result as { expiry: number } | undefined);
+        req.onerror = () => resolve(undefined);
+      });
+      if (!existing || Date.now() >= existing.expiry) {
+        const resp = await fetch("/psl.dat");
+        const text = await resp.text();
+        const data = text.split("\n").map((line: string) => {
+          const t = line.trim();
+          const sp = t.indexOf(" ");
+          return sp > -1 ? t.substring(0, sp) : t;
+        }).filter((l: string) => l && !l.startsWith("//"));
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(PSL_KEY, "readwrite");
+          const req = tx.objectStore(PSL_KEY).put({ data, expiry: Date.now() + 36e5 }, PSL_KEY);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+      }
+      db.close();
+    } catch (pslErr) {
+      console.warn("PSL pre-population failed:", pslErr);
+    }
+
     // Register Scramjet service worker at /ham/ scope
     try { await navigator.serviceWorker.register("/s_sw.js", { scope: SCRAMJET_PREFIX }); } catch { /* scope might already be claimed */ }
     emitStatus({ scramjet: "ready" });
