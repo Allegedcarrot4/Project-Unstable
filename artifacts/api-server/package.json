@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@mercuryworkshop/bare-as-module3": "^2.2.5",
-    "@nebula-services/bare-server-node": "^2.0.4",
+    "@mercuryworkshop/wisp-js": "^0.4.1",
+    "@tomphttp/bare-server-node": "^2.0.6",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",

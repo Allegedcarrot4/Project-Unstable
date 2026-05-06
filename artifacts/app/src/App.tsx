@@ -4,7 +4,16 @@ declare global {
   interface Window {
     Ultraviolet: { codec: { xor: { encode: (s: string) => string; decode: (s: string) => string } } };
     __uv$config: { prefix: string; encodeUrl: (s: string) => string; decodeUrl: (s: string) => string };
+    $scramjetLoadController: () => { ScramjetController: new (cfg: any) => ScramjetCtrl };
+    $scramjetLoadWorker: () => any;
   }
+}
+
+interface ScramjetCtrl {
+  init(): Promise<void>;
+  encodeUrl(url: string | URL): string;
+  decodeUrl(url: string | URL): string;
+  createFrame(frame?: HTMLIFrameElement): any;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,6 +39,7 @@ interface Tab {
 const CORRECT_PASSWORD = "ripmoonlight";
 const SESSION_KEY = "unstable_auth";
 const UV_PREFIX = "/service/";
+const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
 const BARE_KEY = "unstable_bare";
@@ -69,9 +79,19 @@ function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
-function encodeProxyUrl(url: string): string {
+function encodeProxyUrl(url: string, engine: "auto" | "uv" | "scramjet" = "auto"): string {
+  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
+  if (useScramjet) {
+    try { return SCRAMJET_PREFIX + scrController!.encodeUrl(url); } catch { /* fall through */ }
+  }
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
   return UV_PREFIX + encodeURIComponent(url);
+}
+
+function getEngineForUrl(url: string): "scramjet" | "uv" | "none" {
+  if (url.startsWith(SCRAMJET_PREFIX)) return "scramjet";
+  if (url.startsWith(UV_PREFIX)) return "uv";
+  return "none";
 }
 
 function normalizeUrl(input: string): string {
@@ -85,6 +105,9 @@ function normalizeUrl(input: string): string {
 
 function decodeProxyUrl(url: string): string {
   try {
+    if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
+      return scrController.decodeUrl(url.slice(SCRAMJET_PREFIX.length));
+    }
     if (url.startsWith(UV_PREFIX)) {
       const enc = url.slice(UV_PREFIX.length);
       if (window.__uv$config) return window.__uv$config.decodeUrl(decodeURIComponent(enc));
@@ -161,106 +184,185 @@ function makeTab(url = ""): Tab {
 
 // ─── Proxy state ──────────────────────────────────────────────────────────────
 
-export type ProxyStatus =
-  | { phase: "idle" }
-  | { phase: "registering-sw" }
-  | { phase: "waiting-sw" }
-  | { phase: "connecting-transport" }
-  | { phase: "ready"; bare: number }
-  | { phase: "switching"; bare: number }
-  | { phase: "error"; message: string };
+type EngineStatus = "pending" | "ready" | "error";
+
+interface ProxyState {
+  phase: "idle" | "loading" | "ready" | "error";
+  message: string;
+  uv: EngineStatus;
+  scramjet: EngineStatus;
+  transport: "none" | "libcurl" | "bare";
+  bare: number;
+  switching: boolean;
+}
+
+const defaultProxyState: ProxyState = {
+  phase: "idle", message: "", uv: "pending", scramjet: "pending",
+  transport: "none", bare: 1, switching: false,
+};
 
 let swRegistered = false;
 let bareConn: any = null;
-type SL = (s: ProxyStatus) => void;
-const statusListeners = new Set<SL>();
-let currentStatus: ProxyStatus = { phase: "idle" };
+let scrController: ScramjetCtrl | null = null;
 
-function emitStatus(s: ProxyStatus) { currentStatus = s; statusListeners.forEach(l => l(s)); }
+type SL = (s: ProxyState) => void;
+const statusListeners = new Set<SL>();
+let currentStatus: ProxyState = { ...defaultProxyState };
+
+function emitStatus(patch: Partial<ProxyState>) {
+  currentStatus = { ...currentStatus, ...patch };
+  statusListeners.forEach(l => l(currentStatus));
+}
 
 async function setupProxy(bareNum = 1): Promise<void> {
+  if (!("serviceWorker" in navigator)) {
+    emitStatus({ phase: "error", message: "Service workers not supported" }); return;
+  }
+  emitStatus({ phase: "loading" });
+
+  // ── 1. Ultraviolet service worker ────────────────────────────────────────────
   try {
-    if (!("serviceWorker" in navigator)) { emitStatus({ phase: "error", message: "Service workers not supported" }); return; }
     if (!swRegistered) {
-      emitStatus({ phase: "registering-sw" });
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const r of regs) { if (r.active?.scriptURL?.includes("uv.sw.js")) await r.unregister(); }
       await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      emitStatus({ phase: "waiting-sw" });
       await navigator.serviceWorker.ready;
       swRegistered = true;
     }
-    emitStatus({ phase: "connecting-transport" });
+    emitStatus({ uv: "ready" });
+  } catch {
+    emitStatus({ uv: "error" });
+  }
+
+  // ── 2. Scramjet ───────────────────────────────────────────────────────────────
+  try {
+    if (!document.querySelector('script[src="/eggs/scramjet.all.js"]')) {
+      await new Promise<void>((res, rej) => {
+        const s = document.createElement("script");
+        s.src = "/eggs/scramjet.all.js";
+        s.onload = () => res(); s.onerror = () => rej(new Error("scramjet.all.js load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const { ScramjetController } = window.$scramjetLoadController();
+    if (!scrController) {
+      scrController = new ScramjetController({
+        prefix: SCRAMJET_PREFIX,
+        files: {
+          wasm: "/eggs/scramjet.wasm.wasm",
+          all: "/eggs/scramjet.all.js",
+          sync: "/eggs/scramjet.sync.js",
+        },
+        flags: { rewriterLogs: false, cleanErrors: true },
+      });
+      await scrController.init();
+    }
+    // Register Scramjet service worker at /ham/ scope
+    try { await navigator.serviceWorker.register("/s_sw.js", { scope: SCRAMJET_PREFIX }); } catch { /* scope might already be claimed */ }
+    emitStatus({ scramjet: "ready" });
+  } catch {
+    emitStatus({ scramjet: "error" });
+  }
+
+  // ── 3. Transport: libcurl+wisp first, bare fallback ───────────────────────────
+  try {
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    const origin = location.origin;
-    await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
-    emitStatus({ phase: "ready", bare: bareNum });
+
+    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    try {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+    } catch {
+      // fallback: bare-as-module3
+      const origin = location.origin;
+      await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
+      emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
+    }
   } catch (err: unknown) {
-    let msg = "unknown error";
-    if (err instanceof Error) msg = err.message + (err.cause ? ` — ${err.cause}` : "");
-    else { try { msg = JSON.stringify(err); } catch { msg = String(err); } }
+    const msg = err instanceof Error ? err.message : String(err);
     emitStatus({ phase: "error", message: msg });
   }
 }
 
 async function switchBare(n: number): Promise<void> {
-  emitStatus({ phase: "switching", bare: n });
+  emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
+    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    try {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      emitStatus({ switching: false, transport: "libcurl", bare: n });
+    } catch {
+      await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
+      emitStatus({ switching: false, transport: "bare", bare: n });
+    }
     localStorage.setItem(BARE_KEY, String(n));
-    emitStatus({ phase: "ready", bare: n });
   } catch (err) {
-    emitStatus({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    emitStatus({ switching: false, phase: "error", message: err instanceof Error ? err.message : String(err) });
   }
 }
 
-function useProxyStatus(): ProxyStatus {
-  const [s, setS] = useState<ProxyStatus>(currentStatus);
+function useProxyStatus(): ProxyState {
+  const [s, setS] = useState<ProxyState>(currentStatus);
   useEffect(() => { statusListeners.add(setS); return () => { statusListeners.delete(setS); }; }, []);
   return s;
 }
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
 
+function EngineBadge({ label, status }: { label: string; status: EngineStatus }) {
+  const color = status === "ready" ? "rgba(80,200,120,0.9)" : status === "error" ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.2)";
+  const dot = status === "ready" ? "●" : status === "error" ? "●" : "○";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem", fontSize: "0.55rem", letterSpacing: "0.05em", color, textShadow: "0 1px 4px rgba(0,0,0,0.9)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <span style={{ fontSize: "0.45rem" }}>{dot}</span>{label}
+    </span>
+  );
+}
+
 function StatusBar({ visible }: { visible: boolean }) {
-  const status = useProxyStatus();
+  const s = useProxyStatus();
   if (!visible) return null;
 
-  const ready = status.phase === "ready" || status.phase === "switching";
-  const curBare = status.phase === "ready" ? status.bare : status.phase === "switching" ? status.bare : 0;
-  const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.2)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
+  const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.15)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
+  const isReady = s.phase === "ready";
+  const isError = s.phase === "error";
 
-  const label = status.phase === "idle" ? "proxy: idle"
-    : status.phase === "registering-sw" ? "registering service worker…"
-    : status.phase === "waiting-sw" ? "waiting for service worker…"
-    : status.phase === "connecting-transport" ? "connecting transport…"
-    : status.phase === "switching" ? `switching to ws${status.bare}…`
-    : status.phase === "ready" ? "proxy: ready"
-    : `error: ${status.message}`;
-
-  const labelColor = status.phase === "ready" ? green : status.phase === "error" ? red : amber;
+  const phaseLabel = s.phase === "idle" ? "initializing…"
+    : s.phase === "loading" ? "starting proxy…"
+    : s.switching ? `switching ws${s.bare}…`
+    : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : `bare ws${s.bare}`)
+    : isError ? `err: ${s.message.slice(0, 40)}`
+    : "…";
+  const phaseColor = isReady ? green : isError ? red : amber;
 
   return (
-    <div style={{ position: "fixed", bottom: 10, left: 12, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
-      <span style={{ fontSize: "0.58rem", letterSpacing: "0.06em", color: labelColor, textShadow: "0 1px 6px rgba(0,0,0,0.9)", maxWidth: 300, wordBreak: "break-word" }}>{label}</span>
-      <span style={{ display: "flex", gap: "0.25rem", pointerEvents: "all" }}>
-        {[1, 2, 3, 4, 5].map(n => (
-          <button key={n} onClick={() => switchBare(n)} title={`Switch to bare server ${n}`} style={{
-            background: "none", border: "none", padding: "0 2px", cursor: "pointer",
-            fontSize: "0.55rem", letterSpacing: "0.05em",
-            color: curBare === n && ready ? green : gray,
-            fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 1px 4px rgba(0,0,0,0.9)",
-            transition: "color 0.15s",
-          }}
-            onMouseEnter={e => { if (curBare !== n) (e.target as HTMLElement).style.color = "rgba(255,255,255,0.6)"; }}
-            onMouseLeave={e => { (e.target as HTMLElement).style.color = curBare === n && ready ? green : gray; }}
-          >ws{n}</button>
-        ))}
-        <span title="Wisp: run `pnpm --filter @workspace/api-server add wisp-server-node` to enable" style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.1)", letterSpacing: "0.05em", cursor: "default", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>wisp</span>
-      </span>
+    <div style={{ position: "fixed", bottom: 10, left: 12, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
+      <EngineBadge label="uv" status={s.uv} />
+      <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
+      <EngineBadge label="scr" status={s.scramjet} />
+      <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
+      <span style={{ fontSize: "0.55rem", letterSpacing: "0.05em", color: phaseColor, textShadow: "0 1px 6px rgba(0,0,0,0.9)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{phaseLabel}</span>
+      {s.transport === "bare" && (
+        <>
+          <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
+          <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
+            {[1, 2, 3, 4, 5].map(n => (
+              <button key={n} onClick={() => switchBare(n)} title={`Switch to bare server ${n}`} style={{
+                background: "none", border: "none", padding: "0 2px", cursor: "pointer",
+                fontSize: "0.52rem", letterSpacing: "0.04em",
+                color: s.bare === n ? green : gray,
+                fontFamily: "'Space Grotesk', sans-serif", textShadow: "0 1px 4px rgba(0,0,0,0.9)", transition: "color 0.15s",
+              }}
+                onMouseEnter={e => { if (s.bare !== n) (e.target as HTMLElement).style.color = "rgba(255,255,255,0.5)"; }}
+                onMouseLeave={e => { (e.target as HTMLElement).style.color = s.bare === n ? green : gray; }}
+              >ws{n}</button>
+            ))}
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -329,9 +431,10 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
 
 function CreditsPage() {
   const items = [
-    ["Ultraviolet", "web proxy engine"], ["bare-mux", "transport multiplexer"],
-    ["bare-server-node", "proxy backend"], ["bare-as-module3", "bare transport"],
-    ["wisp-server-node", "wisp transport (optional)"], ["React + Vite", "frontend"],
+    ["Ultraviolet", "web proxy engine"], ["Scramjet", "web proxy engine (primary)"],
+    ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport"],
+    ["bare-server-node", "bare proxy backend"], ["bare-as-module3", "bare transport (fallback)"],
+    ["wisp-js", "wisp server"], ["React + Vite", "frontend"],
     ["Space Grotesk", "typeface"],
   ];
   return (
@@ -840,7 +943,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
 
 export default function App() {
   const [auth, setAuth] = useState(() => sessionStorage.getItem(SESSION_KEY) === "true");
-  function logout() { sessionStorage.removeItem(SESSION_KEY); swRegistered = false; bareConn = null; setAuth(false); applyCloak("none"); }
+  function logout() { sessionStorage.removeItem(SESSION_KEY); swRegistered = false; bareConn = null; scrController = null; currentStatus = { ...defaultProxyState }; setAuth(false); applyCloak("none"); }
   if (!auth) return <PasswordScreen onSuccess={() => setAuth(true)} />;
   return <BrowserApp onLogout={logout} />;
 }

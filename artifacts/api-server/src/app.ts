@@ -3,7 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { createBareServer } from "@nebula-services/bare-server-node";
+import { createBareServer } from "@tomphttp/bare-server-node";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -21,16 +21,16 @@ export const bare5 = createBareServer("/api/bare5/", { logErrors: false, blockLo
 
 export const bares = [bare1, bare2, bare3, bare4, bare5];
 
-// ─── Wisp server (optional — install wisp-server-node to enable) ──────────────
-type WispHandler = (req: IncomingMessage, socket: any, head: Buffer) => void;
+// ─── Wisp server ──────────────────────────────────────────────────────────────
+type WispHandler = (req: IncomingMessage, socket: any, head?: Buffer) => void;
 export let wispHandler: WispHandler | null = null;
 
 try {
-  const wisp = require("wisp-server-node");
-  wispHandler = wisp.routeRequest ?? wisp.default?.routeRequest ?? null;
-  if (wispHandler) logger.info("Wisp protocol enabled at /api/wisp");
-} catch {
-  logger.warn("wisp-server-node not installed — Wisp disabled. Run: pnpm --filter @workspace/api-server add wisp-server-node");
+  const { routeRequest } = await import("@mercuryworkshop/wisp-js/server");
+  wispHandler = routeRequest as WispHandler;
+  logger.info("Wisp protocol enabled at /api/wisp/");
+} catch (err) {
+  logger.warn({ err }, "wisp-js not available — Wisp disabled");
 }
 
 // ─── Express app ──────────────────────────────────────────────────────────────
@@ -63,14 +63,12 @@ app.use(
 app.use("/api", router);
 
 // ─── Static frontend (production only) ───────────────────────────────────────
-// In Docker/production, the Vite-built frontend lives at ../public relative to dist/
 if (process.env.NODE_ENV === "production") {
   const staticDir = path.join(__dirname, "../public");
   app.use(express.static(staticDir));
-  // SPA fallback — send index.html for any unmatched route that isn't /api or a proxy route
   app.use((req, res, next) => {
     const p = req.path;
-    if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/baremux")) {
+    if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/ham") && !p.startsWith("/baremux")) {
       res.sendFile(path.join(staticDir, "index.html"));
     } else {
       next();

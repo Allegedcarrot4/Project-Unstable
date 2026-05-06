@@ -17,8 +17,8 @@ const server = createServer((req, res) => {
 server.on("upgrade", (req, socket, head) => {
   const url = req.url ?? "";
 
-  // Wisp protocol (optional — needs wisp-server-node installed)
-  if (url.startsWith("/api/wisp") && wispHandler) {
+  // Wisp protocol
+  if (url.startsWith("/api/wisp/") && wispHandler) {
     wispHandler(req, socket, head);
     return;
   }

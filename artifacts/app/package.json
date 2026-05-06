@@ -75,6 +75,9 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.8"
+    "@mercuryworkshop/bare-mux": "^2.1.8",
+    "@mercuryworkshop/libcurl-transport": "^2.0.5",
+    "@mercuryworkshop/scramjet": "^1.1.0",
+    "vite-plugin-static-copy": "^4.1.0"
   }
 }

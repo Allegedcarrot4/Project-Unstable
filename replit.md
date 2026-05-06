@@ -11,28 +11,33 @@
 
 ### Artifacts
 - `artifacts/app` — React + Vite frontend (multi-tab proxy browser UI)
-- `artifacts/api-server` — Express API server (bare server, static proxy assets)
+- `artifacts/api-server` — Express API server (bare servers + wisp server)
 
 ### Proxy Stack
-- **Proxy engine**: Ultraviolet (UV) — pre-built dist files copied to `artifacts/app/public/`
-- **Bare server**: `@nebula-services/bare-server-node` mounted at `/api/bare/`
-- **Bare transport module**: `@mercuryworkshop/bare-as-module3` served from `/api/baremod/`
-- **Bare-mux transport**: `@mercuryworkshop/bare-mux` (npm dep in React app)
-- **Baremux worker**: `artifacts/app/public/baremux/worker.js` (SharedWorker)
-- **Service worker**: `/uv.sw.js` (scope `/`)
-- **UV prefix**: `/service/`
+- **Primary engine**: Scramjet — `/ham/` prefix, `ScramjetController`, service worker at `/s_sw.js` (scope `/ham/`)
+- **Fallback engine**: Ultraviolet (UV) — `/service/` prefix, service worker at `/sw.js` (scope `/`)
+- **Primary transport**: `@mercuryworkshop/libcurl-transport` via wisp at `/api/wisp/`
+- **Fallback transport**: `@mercuryworkshop/bare-as-module3` + `@tomphttp/bare-server-node` at `/api/bare/` (ws1-ws5)
+- **Bare-mux transport**: `@mercuryworkshop/bare-mux` (SharedWorker at `/baremux/worker.js`)
+- **Wisp server**: `@mercuryworkshop/wisp-js/server` at `/api/wisp/`
 
 ### Key Files
-- `artifacts/app/src/App.tsx` — tab browser UI, password screen, proxy setup
-- `artifacts/app/public/uv.config.js` — UV configuration (prefix `/service/`)
-- `artifacts/app/index.html` — loads uv.bundle.js and uv.config.js as plain scripts
-- `artifacts/api-server/src/app.ts` — bare server, baremod static, CORS
-- `artifacts/api-server/src/index.ts` — HTTP server + WebSocket upgrade for bare
+- `artifacts/app/src/App.tsx` — tab browser UI, password screen, dual proxy setup, StatusBar
+- `artifacts/app/public/uv.config.js` — UV config (prefix `/service/`)
+- `artifacts/app/public/s_sw.js` — Scramjet service worker
+- `artifacts/app/public/eggs/` — scramjet.all.js, scramjet.sync.js, scramjet.wasm.wasm
+- `artifacts/app/public/libcurl/index.mjs` — libcurl transport
+- `artifacts/app/index.html` — loads uv.bundle.js, uv.config.js
+- `artifacts/api-server/src/app.ts` — tomphttp bare servers (x5), wisp, baremod static
+- `artifacts/api-server/src/index.ts` — HTTP server + upgrade routing (wisp at `/api/wisp/`, bare upgrade)
 
-### Important Constraints
-- Do NOT run npm/pnpm install inside `/home/runner/workspace/scramjet/` or `/home/runner/workspace/Ultraviolet/`
-- Never install `@titaniumnetwork-dev/*` packages
-- Scramjet is cloned at `/home/runner/workspace/scramjet/` but not yet integrated
+### Proxy Init Flow (setupProxy)
+1. Register UV service worker (`/sw.js` scope `/`) → `uv` badge goes green
+2. Load `/eggs/scramjet.all.js`, create `ScramjetController`, call `init()`, register `/s_sw.js` at `/ham/` → `scr` badge goes green
+3. Try libcurl+wisp transport → on fail, fall back to bare-as-module3
+
+### Status Bar (bottom-left)
+Shows `uv` and `scr` engine badges (○ pending, ● green ready, ● red error), transport label (`libcurl+wisp` or `bare ws#`), and ws1-ws5 buttons (bare mode only).
 
 ## Stack
 
@@ -47,3 +52,9 @@
 
 - `pnpm --filter @workspace/api-server run dev` — run API server (port 8080)
 - `pnpm --filter @workspace/app run dev` — run React app (Vite)
+
+## Important Constraints
+- Do NOT run npm/pnpm install inside `/home/runner/workspace/scramjet/` or `/home/runner/workspace/Ultraviolet/`
+- Never install `@titaniumnetwork-dev/*` packages
+- Scramjet cloned at `/home/runner/workspace/scramjet/` but not integrated (using npm package instead)
+- Scramjet/libcurl static files are copied directly to `artifacts/app/public/` — no vite plugin needed
