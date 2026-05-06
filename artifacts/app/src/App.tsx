@@ -26,7 +26,8 @@ interface KeyShortcuts {
   closeTab: string; newTab: string; addShortcut: string;
 }
 
-interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; }
+type ProxyEngine = "auto" | "uv" | "scramjet";
+interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
 interface Tab {
@@ -49,7 +50,7 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS };
+const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto" };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none:               { label: "None",             title: "Unstable",              favicon: "/favicon.svg" },
@@ -79,10 +80,11 @@ function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
-function encodeProxyUrl(url: string, engine: "auto" | "uv" | "scramjet" = "auto"): string {
+function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
   const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
   if (useScramjet) {
-    try { return SCRAMJET_PREFIX + scrController!.encodeUrl(url); } catch { /* fall through */ }
+    // scrController.encodeUrl already returns the full path including /ham/ prefix
+    try { return scrController!.encodeUrl(url); } catch { /* fall through */ }
   }
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
   return UV_PREFIX + encodeURIComponent(url);
@@ -106,7 +108,8 @@ function normalizeUrl(input: string): string {
 function decodeProxyUrl(url: string): string {
   try {
     if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      return scrController.decodeUrl(url.slice(SCRAMJET_PREFIX.length));
+      // decodeUrl takes the full proxied path (including the /ham/ prefix)
+      return scrController.decodeUrl(url);
     }
     if (url.startsWith(UV_PREFIX)) {
       const enc = url.slice(UV_PREFIX.length);
@@ -147,6 +150,7 @@ function loadSettings(): Settings {
     return {
       cloak: parsed.cloak ?? "none",
       shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
+      proxyEngine: (parsed.proxyEngine ?? "auto") as ProxyEngine,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -529,6 +533,30 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
     <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
 
+      {/* Proxy engine section */}
+      <section style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose which rewriting engine handles proxied pages. Auto tries Scramjet first, falls back to Ultraviolet.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["auto", "scramjet", "uv"] as ProxyEngine[]).map(id => {
+            const labels: Record<ProxyEngine, string> = { auto: "Auto", scramjet: "Scramjet", uv: "Ultraviolet" };
+            const active = settings.proxyEngine === id;
+            return (
+              <button key={id} onClick={() => onSettingsChange({ ...settings, proxyEngine: id })} style={{
+                background: active ? "#e8e8e8" : "#111",
+                color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                transition: "all 0.15s",
+              }}>{labels[id]}</button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Cloak section */}
       <section style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
@@ -810,7 +838,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     }
     const normalized = normalizeUrl(t);
     if (!normalized) return;
-    const proxyUrl = encodeProxyUrl(normalized);
+    const proxyUrl = encodeProxyUrl(normalized, settings.proxyEngine);
     let domain = ""; try { domain = new URL(normalized).hostname; } catch {}
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
