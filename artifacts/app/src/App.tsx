@@ -268,20 +268,20 @@ async function setupProxy(bareNum = 1): Promise<void> {
     emitStatus({ scramjet: "error" });
   }
 
-  // ── 3. Transport: libcurl+wisp first, bare fallback ───────────────────────────
+  // ── 3. Transport: bare-as-module3 first (compatible), libcurl+wisp fallback ───
   try {
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
+    const origin = location.origin;
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     try {
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-    } catch {
-      // fallback: bare-as-module3
-      const origin = location.origin;
       await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
       emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
+    } catch {
+      // fallback: libcurl+wisp
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -296,11 +296,11 @@ async function switchBare(n: number): Promise<void> {
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     try {
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      emitStatus({ switching: false, transport: "libcurl", bare: n });
-    } catch {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
       emitStatus({ switching: false, transport: "bare", bare: n });
+    } catch {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      emitStatus({ switching: false, transport: "libcurl", bare: n });
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
