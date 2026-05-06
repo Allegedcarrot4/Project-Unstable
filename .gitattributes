@@ -1,3 +1,4 @@
+zipFile.zip filter=lfs diff=lfs merge=lfs -text
 scramjet/rewriter/native/flamegraph.svg filter=lfs diff=lfs merge=lfs -text
 *.wasm filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
