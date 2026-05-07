@@ -8,9 +8,16 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import type { IncomingMessage } from "http";
+import http from "http";
+import https from "https";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+
+// Disable keep-alive on outgoing connections so target servers (e.g. Google)
+// don't reject with "Too many keep-alive connections from this IP address"
+http.globalAgent = new http.Agent({ keepAlive: false });
+https.globalAgent = new https.Agent({ keepAlive: false });
 
 // ─── Bare servers (1-5) ───────────────────────────────────────────────────────
 export const bare1 = createBareServer("/api/bare/",  { logErrors: false, blockLocal: false });
