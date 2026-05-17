@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 
 declare global {
   interface Window {
@@ -35,6 +36,12 @@ interface Tab {
   history: string[]; historyIndex: number; loading: boolean;
 }
 
+interface AIMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CORRECT_PASSWORD = "ripmoonlight";
@@ -53,11 +60,11 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
 const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto" };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
-  none:               { label: "None",             title: "Unstable",              favicon: "/favicon.svg" },
-  "google-drive":     { label: "Google Drive",     title: "My Drive - Google Drive", favicon: "https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" },
-  schoology:          { label: "Schoology",         title: "Schoology",             favicon: "https://asset-cdn.schoology.com/sites/all/themes/schoology_theme/favicon.ico" },
-  classlink:          { label: "ClassLink",         title: "ClassLink",             favicon: "https://www.classlink.com/hubfs/favicon.ico" },
-  "google-classroom": { label: "Google Classroom",  title: "Classroom",             favicon: "https://www.gstatic.com/classroom/favicon.png" },
+  none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
+  "google-drive": { label: "Google Drive", title: "My Drive - Google Drive", favicon: "https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" },
+  schoology: { label: "Schoology", title: "Schoology", favicon: "https://asset-cdn.schoology.com/sites/all/themes/schoology_theme/favicon.ico" },
+  classlink: { label: "ClassLink", title: "ClassLink", favicon: "https://www.classlink.com/hubfs/favicon.ico" },
+  "google-classroom": { label: "Google Classroom", title: "Classroom", favicon: "https://www.gstatic.com/classroom/favicon.png" },
 };
 
 const SHORTCUT_LABELS: Record<string, string> = {
@@ -67,11 +74,11 @@ const SHORTCUT_LABELS: Record<string, string> = {
 };
 
 const DEFAULT_SHORTCUTS: Shortcut[] = [
-  { id: "google",  name: "Google",  url: "https://google.com",       favicon: faviconUrl("google.com") },
-  { id: "discord", name: "Discord", url: "https://discord.com",      favicon: faviconUrl("discord.com") },
-  { id: "github",  name: "GitHub",  url: "https://github.com",       favicon: faviconUrl("github.com") },
+  { id: "google", name: "Google", url: "https://google.com", favicon: faviconUrl("google.com") },
+  { id: "discord", name: "Discord", url: "https://discord.com", favicon: faviconUrl("discord.com") },
+  { id: "github", name: "GitHub", url: "https://github.com", favicon: faviconUrl("github.com") },
   { id: "spotify", name: "Spotify", url: "https://open.spotify.com", favicon: faviconUrl("open.spotify.com") },
-  { id: "twitch",  name: "Twitch",  url: "https://twitch.tv",        favicon: faviconUrl("twitch.tv") },
+  { id: "twitch", name: "Twitch", url: "https://twitch.tv", favicon: faviconUrl("twitch.tv") },
 ];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -80,20 +87,48 @@ function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
+function aiMessageId() {
+  return Math.random().toString(36).slice(2);
+}
+
+async function sendAiChat(messages: AIMessage[]): Promise<string> {
+  const res = await fetch("/api/ai/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: messages.map(({ role, content }) => ({ role, content })),
+    }),
+  });
+
+  const data = await res.json().catch(() => null) as { content?: string; error?: string } | null;
+  if (!res.ok) throw new Error(data?.error || "The AI request failed.");
+  if (!data?.content) throw new Error("The AI response was empty.");
+  return data.content;
+}
+
 function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
-  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
+  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null && !shouldForceUv(url);
   if (useScramjet) {
-    // scrController.encodeUrl already returns the full path including /ham/ prefix
     try { return scrController!.encodeUrl(url); } catch { /* fall through */ }
   }
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
   return UV_PREFIX + encodeURIComponent(url);
 }
 
-function getEngineForUrl(url: string): "scramjet" | "uv" | "none" {
-  if (url.startsWith(SCRAMJET_PREFIX)) return "scramjet";
-  if (url.startsWith(UV_PREFIX)) return "uv";
-  return "none";
+function shouldForceUv(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return (
+      host === "youtube.com" ||
+      host.endsWith(".youtube.com") ||
+      host === "youtu.be" ||
+      host.endsWith(".googlevideo.com") ||
+      host === "smashkarts.io" ||
+      host.endsWith(".smashkarts.io")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function normalizeUrl(input: string): string {
@@ -108,15 +143,16 @@ function normalizeUrl(input: string): string {
 function decodeProxyUrl(url: string): string {
   try {
     if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      // decodeUrl takes the full proxied path (including the /ham/ prefix)
-      return scrController.decodeUrl(url);
+      try { return scrController.decodeUrl(url); } catch { }
+      const encoded = url.slice(SCRAMJET_PREFIX.length);
+      return decodeURIComponent(encoded);
     }
     if (url.startsWith(UV_PREFIX)) {
       const enc = url.slice(UV_PREFIX.length);
       if (window.__uv$config) return window.__uv$config.decodeUrl(decodeURIComponent(enc));
       return decodeURIComponent(enc);
     }
-  } catch {}
+  } catch { }
   return url;
 }
 
@@ -178,7 +214,7 @@ function applyCloak(id: CloakId) {
 function makeTab(url = ""): Tab {
   let title = "New Tab", favicon = "";
   if (url && !url.startsWith("unstable://")) {
-    try { const d = new URL(url.startsWith("http") ? url : "https://" + url).hostname; title = d; favicon = faviconUrl(d); } catch {}
+    try { const d = new URL(url.startsWith("http") ? url : "https://" + url).hostname; title = d; favicon = faviconUrl(d); } catch { }
   } else if (url.startsWith("unstable://")) {
     title = url.slice("unstable://".length);
     title = title.charAt(0).toUpperCase() + title.slice(1);
@@ -224,7 +260,6 @@ async function setupProxy(bareNum = 1): Promise<void> {
   }
   emitStatus({ phase: "loading" });
 
-  // ── 1. Ultraviolet service worker ────────────────────────────────────────────
   try {
     if (!swRegistered) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -238,7 +273,6 @@ async function setupProxy(bareNum = 1): Promise<void> {
     emitStatus({ uv: "error" });
   }
 
-  // ── 2. Scramjet ───────────────────────────────────────────────────────────────
   try {
     if (!document.querySelector('script[src="/eggs/scramjet.all.js"]')) {
       await new Promise<void>((res, rej) => {
@@ -262,7 +296,6 @@ async function setupProxy(bareNum = 1): Promise<void> {
       await scrController.init();
     }
 
-    // Pre-populate PSL in IDB so the SW doesn't fetch from publicsuffix.org (rate-limited)
     try {
       const PSL_KEY = "publicSuffixList";
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -296,27 +329,51 @@ async function setupProxy(bareNum = 1): Promise<void> {
       console.warn("PSL pre-population failed:", pslErr);
     }
 
-    // Register Scramjet service worker at /ham/ scope
-    try { await navigator.serviceWorker.register("/s_sw.js", { scope: SCRAMJET_PREFIX }); } catch { /* scope might already be claimed */ }
+    try {
+      const reg = await navigator.serviceWorker.register("/s_sw.js", {
+        scope: SCRAMJET_PREFIX,
+        updateViaCache: "none",
+      });
+      if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      reg.addEventListener("updatefound", () => {
+        const newSW = reg.installing;
+        if (newSW) newSW.addEventListener("statechange", () => {
+          if (newSW.state === "installed" && reg.waiting) {
+            reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    } catch { /* scope might already be claimed */ }
     emitStatus({ scramjet: "ready" });
   } catch {
     emitStatus({ scramjet: "error" });
   }
 
-  // ── 3. Transport: bare-as-module3 first (compatible), libcurl+wisp fallback ───
   try {
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
     const origin = location.origin;
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+
+    let transportSet = false;
+
     try {
       await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
+      transportSet = true;
       emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
-    } catch {
-      // fallback: libcurl+wisp
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+    } catch { /* fall through */ }
+
+    if (!transportSet) {
+      try {
+        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+        transportSet = true;
+        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+      } catch { /* fall through */ }
+    }
+
+    if (!transportSet) {
+      emitStatus({ phase: "error", message: "No transport available" });
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -349,6 +406,122 @@ function useProxyStatus(): ProxyState {
   return s;
 }
 
+// ─── Magic Cursor ─────────────────────────────────────────────────────────────
+
+function MagicCursor() {
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+
+  const springConfig = { damping: 25, stiffness: 250 };
+  const cursorX = useSpring(mouseX, springConfig);
+  const cursorY = useSpring(mouseY, springConfig);
+
+  const spinControls = useAnimation();
+  const [isHovering, setIsHovering] = useState(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseX.set(e.clientX);
+      mouseY.set(e.clientY);
+    };
+    const handleIframeMouseMove = (e: Event) => {
+      const { clientX, clientY, iframeRect } = (e as CustomEvent).detail;
+      mouseX.set(clientX + iframeRect.left);
+      mouseY.set(clientY + iframeRect.top);
+    };
+
+    const handleHoverEvent = (e: Event) => setIsHovering((e as CustomEvent).detail.hovering);
+    const handleParentOver = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || window.getComputedStyle(target).cursor === "pointer")) {
+        setIsHovering(true);
+      }
+    };
+    const handleParentOut = () => setIsHovering(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("iframe-mousemove", handleIframeMouseMove);
+    window.addEventListener("iframe-hover", handleHoverEvent);
+    window.addEventListener("mouseover", handleParentOver);
+    window.addEventListener("mouseout", handleParentOut);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("iframe-mousemove", handleIframeMouseMove);
+      window.removeEventListener("iframe-hover", handleHoverEvent);
+      window.removeEventListener("mouseover", handleParentOver);
+      window.removeEventListener("mouseout", handleParentOut);
+    };
+  }, [mouseX, mouseY]);
+
+  // Only spin once when hovered over a button
+  useEffect(() => {
+    if (isHovering) {
+      spinControls.start({
+        rotate: [0, 360],
+        transition: { duration: 0.5, ease: "easeInOut" }
+      });
+    } else {
+      spinControls.set({ rotate: 0 });
+    }
+  }, [isHovering, spinControls]);
+
+  return (
+    <>
+      <motion.div
+        animate={spinControls}
+        style={{
+          position: "fixed",
+          left: 0,
+          top: 0,
+          x: cursorX,
+          y: cursorY,
+          pointerEvents: "none",
+          zIndex: 999999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        <motion.div
+          animate={{
+            scale: isHovering ? 1.2 : 1,
+            opacity: isHovering ? 0.8 : 0.4,
+          }}
+          transition={{ duration: 0.2 }}
+          style={{
+            position: "absolute",
+            width: "120px",
+            height: "120px",
+            background: "radial-gradient(circle, rgba(100,150,255,0.4) 0%, rgba(150,100,255,0.2) 40%, transparent 70%)",
+            borderRadius: "50%",
+            filter: "blur(10px)",
+          }}
+        />
+
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          style={{
+            transform: "translate(6px, 6px)",
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+          }}
+        >
+          <path
+            d="M5.5 3.5L5.5 20.5L10.5 15.5H18.5L5.5 3.5Z"
+            fill="white"
+            stroke="white"
+            strokeWidth="1"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </motion.div>
+    </>
+  );
+}
+
 // ─── StatusBar ────────────────────────────────────────────────────────────────
 
 function EngineBadge({ label, status }: { label: string; status: EngineStatus }) {
@@ -371,10 +544,10 @@ function StatusBar({ visible }: { visible: boolean }) {
 
   const phaseLabel = s.phase === "idle" ? "initializing…"
     : s.phase === "loading" ? "starting proxy…"
-    : s.switching ? `switching ws${s.bare}…`
-    : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : `bare ws${s.bare}`)
-    : isError ? `err: ${s.message.slice(0, 40)}`
-    : "…";
+      : s.switching ? `switching ws${s.bare}…`
+        : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : `bare ws${s.bare}`)
+          : isError ? `err: ${s.message.slice(0, 40)}`
+            : "…";
   const phaseColor = isReady ? green : isError ? red : amber;
 
   return (
@@ -407,7 +580,6 @@ function StatusBar({ visible }: { visible: boolean }) {
 }
 
 // ─── Server-side password check ───────────────────────────────────────────────
-// POST /api/auth/check → 200 ok | 401 wrong | 503 {dev:true} (no PASSWORD set, dev mode)
 
 async function verifyPassword(pw: string): Promise<boolean> {
   try {
@@ -418,13 +590,8 @@ async function verifyPassword(pw: string): Promise<boolean> {
     });
     if (res.ok) return true;
     if (res.status === 401) return false;
-    if (res.status === 503) {
-      // Server has no PASSWORD configured — dev mode, fall back to local check
-      return pw === CORRECT_PASSWORD;
-    }
-    return false;
+    return pw === CORRECT_PASSWORD;
   } catch {
-    // Network error or dev server not running — fall back to local check
     return pw === CORRECT_PASSWORD;
   }
 }
@@ -443,9 +610,19 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
     else { setErr(true); setShaking(true); setPw(""); setTimeout(() => setShaking(false), 500); }
   }
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
+    >
       <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "360px", padding: "0 1.5rem" }}>
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.2, duration: 0.5 }}
+        style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "360px", padding: "0 1.5rem" }}
+      >
         <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable</p>
         <form onSubmit={submit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <div style={{ animation: shaking ? "shake 0.5s ease-in-out" : "none" }}>
@@ -455,14 +632,17 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
           {err && <p style={{ color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em", textTransform: "uppercase", margin: 0, textAlign: "center" }}>incorrect password</p>}
-          <button type="submit" disabled={checking} style={{ width: "100%", background: checking ? "#555" : "#e8e8e8", color: checking ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: checking ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
-            onMouseEnter={e => { if (!checking) (e.target as HTMLButtonElement).style.background = "#bbb"; }}
-            onMouseLeave={e => { if (!checking) (e.target as HTMLButtonElement).style.background = "#e8e8e8"; }}
-          >{checking ? "checking…" : "enter"}</button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit"
+            disabled={checking}
+            style={{ width: "100%", background: checking ? "#555" : "#e8e8e8", color: checking ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: checking ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
+          >{checking ? "checking…" : "enter"}</motion.button>
         </form>
-      </div>
+      </motion.div>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
-    </div>
+    </motion.div>
   );
 }
 
@@ -477,18 +657,27 @@ function CreditsPage() {
     ["Space Grotesk", "typeface"],
   ];
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}
+    >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable — credits</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", width: "100%", maxWidth: "320px", padding: "0 2rem" }}>
         {items.map(([name, desc]) => (
-          <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid #111", paddingBottom: "0.4rem" }}>
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            key={name}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid #111", paddingBottom: "0.4rem" }}
+          >
             <span style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{name}</span>
             <span style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.04em" }}>{desc}</span>
-          </div>
+          </motion.div>
         ))}
       </div>
       <p style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em", margin: 0 }}>type unstable://credits in the url bar</p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -496,7 +685,11 @@ function CreditsPage() {
 
 function ToSPage() {
   return (
-    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+    >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
         ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
@@ -504,14 +697,20 @@ function ToSPage() {
         ["No logging", "This instance does not store logs of sites you visit, passwords you enter, or any other personally identifiable information beyond what is necessary for the proxy connection to function."],
         ["Third-party content", "Unstable acts as a transparent proxy. The operators of this service are not responsible for the content of third-party websites accessed through it."],
         ["Changes", "These terms may be updated at any time without prior notice. Continued use of the service constitutes acceptance of the updated terms."],
-      ].map(([title, body]) => (
-        <div key={title} style={{ marginBottom: "1.5rem" }}>
+      ].map(([title, body], i) => (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.1 }}
+          key={title}
+          style={{ marginBottom: "1.5rem" }}
+        >
           <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(255,255,255,0.55)", margin: "0 0 0.35rem", letterSpacing: "0.04em" }}>{title}</p>
           <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.32)", margin: 0, lineHeight: 1.65 }}>{body}</p>
-        </div>
+        </motion.div>
       ))}
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://tos in the url bar</p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -519,7 +718,11 @@ function ToSPage() {
 
 function PrivacyPage() {
   return (
-    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+    >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
         ["What we collect", "Nothing beyond what is strictly required for a WebSocket proxy connection to function. We do not store browsing history, search queries, usernames, or passwords on any server we control."],
@@ -528,14 +731,20 @@ function PrivacyPage() {
         ["Cookies", "We do not set any tracking or analytics cookies. Third-party sites you visit through the proxy may set their own cookies in the proxied context."],
         ["Third parties", "We do not share, sell, or transmit any data to third-party analytics, advertising, or data-broker services."],
         ["Changes", "This policy may be updated at any time. The current version is always available at unstable://privacy."],
-      ].map(([title, body]) => (
-        <div key={title} style={{ marginBottom: "1.5rem" }}>
+      ].map(([title, body], i) => (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.1 }}
+          key={title}
+          style={{ marginBottom: "1.5rem" }}
+        >
           <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(255,255,255,0.55)", margin: "0 0 0.35rem", letterSpacing: "0.04em" }}>{title}</p>
           <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.32)", margin: 0, lineHeight: 1.65 }}>{body}</p>
-        </div>
+        </motion.div>
       ))}
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://privacy in the url bar</p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -561,15 +770,18 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
   const inputBase: React.CSSProperties = {
     background: "none", border: "1px solid #222", borderRadius: "2px",
     color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
-    padding: "0.3rem 0.6rem", letterSpacing: "0.04em",
+    padding: "0.3rem 0.65rem", letterSpacing: "0.04em",
   };
 
   return (
-    <div style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+    >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
 
-      {/* Proxy engine section */}
-      <section style={{ marginBottom: "2.5rem" }}>
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Choose which rewriting engine handles proxied pages. Auto tries Scramjet first, falls back to Ultraviolet.
@@ -579,41 +791,51 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
             const labels: Record<ProxyEngine, string> = { auto: "Auto", scramjet: "Scramjet", uv: "Ultraviolet" };
             const active = settings.proxyEngine === id;
             return (
-              <button key={id} onClick={() => onSettingsChange({ ...settings, proxyEngine: id })} style={{
-                background: active ? "#e8e8e8" : "#111",
-                color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                transition: "all 0.15s",
-              }}>{labels[id]}</button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, proxyEngine: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
             );
           })}
         </div>
-      </section>
+      </motion.section>
 
-      {/* Cloak section */}
-      <section style={{ marginBottom: "2.5rem" }}>
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Makes the browser tab containing Unstable look like another site.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
           {(Object.keys(CLOAK_PRESETS) as CloakId[]).map(id => (
-            <button key={id} onClick={() => onSettingsChange({ ...settings, cloak: id })} style={{
-              background: settings.cloak === id ? "#e8e8e8" : "#111",
-              color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-              border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
-              padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-              transition: "all 0.15s",
-            }}>{CLOAK_PRESETS[id].label}</button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={id}
+              onClick={() => onSettingsChange({ ...settings, cloak: id })}
+              style={{
+                background: settings.cloak === id ? "#e8e8e8" : "#111",
+                color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
+                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                transition: "all 0.15s",
+              }}
+            >{CLOAK_PRESETS[id].label}</motion.button>
           ))}
         </div>
-      </section>
+      </motion.section>
 
-      {/* Key shortcuts section */}
-      <section>
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>keyboard shortcuts</p>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
           {Object.keys(SHORTCUT_LABELS).map(key => {
@@ -625,26 +847,302 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
                 <span style={{ ...inputBase, minWidth: "80px", textAlign: "center", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.5)", borderColor: isRec ? "#555" : "#222", background: isRec ? "#161616" : "none" }}>
                   {isRec ? "press keys…" : val}
                 </span>
-                <button onClick={() => setRecording(isRec ? null : key)} style={{
-                  background: isRec ? "rgba(220,80,80,0.15)" : "none",
-                  border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
-                  color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
-                  padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                }}>{isRec ? "cancel" : "record"}</button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setRecording(isRec ? null : key)}
+                  style={{
+                    background: isRec ? "rgba(220,80,80,0.15)" : "none",
+                    border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
+                    color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
+                    padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  }}
+                >{isRec ? "cancel" : "record"}</motion.button>
               </div>
             );
           })}
         </div>
-        <button onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })} style={{
-          marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
-          padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-          letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-        }}>reset to defaults</button>
-      </section>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })}
+          style={{
+            marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
+            padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >reset to defaults</motion.button>
+      </motion.section>
 
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
-    </div>
+    </motion.div>
+  );
+}
+
+// ─── AI page ──────────────────────────────────────────────────────────────────
+
+function AIPage() {
+  const starterMessages = useMemo<AIMessage[]>(() => [
+    {
+      id: aiMessageId(),
+      role: "assistant",
+      content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help.",
+    },
+  ], []);
+
+  const suggestions = useMemo(() => [
+    "Write a clean apology email for a late assignment.",
+    "Summarize the differences between UV and Scramjet here.",
+    "Brainstorm a stealthy tab-cloak landing page concept.",
+    "Explain a TypeScript error in plain English.",
+  ], []);
+
+  const [messages, setMessages] = useState<AIMessage[]>(starterMessages);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
+
+  async function submitPrompt(rawPrompt?: string) {
+    const prompt = (rawPrompt ?? input).trim();
+    if (!prompt || loading) return;
+
+    const userMessage: AIMessage = { id: aiMessageId(), role: "user", content: prompt };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
+    setInput("");
+    setError("");
+    setLoading(true);
+
+    try {
+      const content = await sendAiChat(nextMessages);
+      setMessages(prev => [...prev, { id: aiMessageId(), role: "assistant", content }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to get a response right now.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        height: "100%",
+        overflow: "hidden",
+        background:
+          "radial-gradient(circle at top left, rgba(120,170,255,0.14), transparent 28%), radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 22%), #0d0d0d",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}
+    >
+      <div style={{ height: "100%", maxWidth: 1120, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
+        <motion.aside
+          initial={{ opacity: 0, x: -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          style={{
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))",
+            borderRadius: "18px",
+            padding: "1rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem",
+            boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
+          }}
+        >
+          <div>
+            <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — ai</p>
+            <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Fast Groq chat, styled to live here.</p>
+            <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
+              Powered by `llama-3.1-8b-instant` for low-latency replies without breaking the Unstable aesthetic.
+            </p>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
+            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Quick starts</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => submitPrompt(suggestion)}
+                  style={{
+                    textAlign: "left",
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    color: "rgba(255,255,255,0.74)",
+                    borderRadius: "12px",
+                    padding: "0.7rem 0.75rem",
+                    fontSize: "0.7rem",
+                    lineHeight: 1.45,
+                    cursor: "pointer",
+                    transition: "border-color 0.15s, transform 0.15s, background 0.15s",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                  }}
+                  onMouseEnter={e => {
+                    const target = e.currentTarget;
+                    target.style.borderColor = "rgba(120,170,255,0.32)";
+                    target.style.background = "rgba(120,170,255,0.08)";
+                    target.style.transform = "translateY(-1px)";
+                  }}
+                  onMouseLeave={e => {
+                    const target = e.currentTarget;
+                    target.style.borderColor = "rgba(255,255,255,0.07)";
+                    target.style.background = "rgba(255,255,255,0.02)";
+                    target.style.transform = "translateY(0)";
+                  }}
+                >{suggestion}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Model</p>
+            <p style={{ margin: 0, fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>Groq · llama-3.1-8b-instant</p>
+          </div>
+        </motion.aside>
+
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))",
+            borderRadius: "22px",
+            overflow: "hidden",
+            boxShadow: "0 24px 80px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>AI console</p>
+              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://ai in the url bar</p>
+            </div>
+            <button
+              onClick={() => { setMessages(starterMessages); setError(""); }}
+              style={{
+                background: "none",
+                border: "1px solid rgba(255,255,255,0.09)",
+                color: "rgba(255,255,255,0.45)",
+                borderRadius: "999px",
+                padding: "0.45rem 0.8rem",
+                fontSize: "0.62rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}
+            >reset</button>
+          </div>
+
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.1rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+            {messages.map((message, index) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.03 }}
+                style={{
+                  alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+                  width: "min(100%, 760px)",
+                  borderRadius: message.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+                  background: message.role === "user"
+                    ? "linear-gradient(135deg, rgba(116,164,255,0.95), rgba(91,125,224,0.95))"
+                    : "linear-gradient(180deg, rgba(23,23,23,0.98), rgba(16,16,16,0.98))",
+                  border: message.role === "user" ? "1px solid rgba(142,184,255,0.45)" : "1px solid rgba(255,255,255,0.07)",
+                  padding: "0.9rem 1rem",
+                  boxShadow: message.role === "user" ? "0 10px 30px rgba(91,125,224,0.2)" : "none",
+                }}
+              >
+                <p style={{ margin: "0 0 0.35rem", fontSize: "0.57rem", letterSpacing: "0.14em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.28)" }}>
+                  {message.role === "user" ? "you" : "unstable ai"}
+                </p>
+                <p style={{ margin: 0, color: message.role === "user" ? "#ffffff" : "rgba(255,255,255,0.82)", fontSize: "0.76rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                  {message.content}
+                </p>
+              </motion.div>
+            ))}
+
+            {loading && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ alignSelf: "flex-start", borderRadius: "18px 18px 18px 6px", background: "linear-gradient(180deg, rgba(23,23,23,0.98), rgba(16,16,16,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem" }}>
+                <p style={{ margin: "0 0 0.35rem", fontSize: "0.57rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>unstable ai</p>
+                <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.76rem" }}>thinking fast…</p>
+              </motion.div>
+            )}
+          </div>
+
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
+            {error && (
+              <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>
+                {error}
+              </p>
+            )}
+            <form
+              onSubmit={(e) => { e.preventDefault(); submitPrompt(); }}
+              style={{
+                display: "flex",
+                gap: "0.8rem",
+                alignItems: "flex-end",
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                borderRadius: "18px",
+                padding: "0.8rem",
+              }}
+            >
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder="Ask anything..."
+                rows={3}
+                style={{
+                  flex: 1,
+                  resize: "none",
+                  background: "transparent",
+                  border: "none",
+                  color: "#eef2f7",
+                  fontSize: "0.78rem",
+                  lineHeight: 1.6,
+                  outline: "none",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                }}
+              />
+              <motion.button
+                whileHover={{ scale: loading ? 1 : 1.03 }}
+                whileTap={{ scale: loading ? 1 : 0.98 }}
+                type="submit"
+                disabled={loading || !input.trim()}
+                style={{
+                  alignSelf: "stretch",
+                  minWidth: 120,
+                  background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8",
+                  color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d",
+                  border: "none",
+                  borderRadius: "14px",
+                  cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: "0.68rem",
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                }}
+              >
+                {loading ? "sending" : "launch"}
+              </motion.button>
+            </form>
+          </div>
+        </motion.section>
+      </div>
+    </motion.div>
   );
 }
 
@@ -670,7 +1168,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
     e.preventDefault();
     const name = newName.trim(), rawUrl = newUrl.trim(); if (!name || !rawUrl) return;
     const url = normalizeUrl(rawUrl);
-    let domain = ""; try { domain = new URL(url).hostname; } catch {}
+    let domain = ""; try { domain = new URL(url).hostname; } catch { }
     const sc: Shortcut = { id: Math.random().toString(36).slice(2), name, url, favicon: newImg.trim() || faviconUrl(domain) };
     const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
     setAdding(false); setNewName(""); setNewUrl(""); setNewImg("");
@@ -683,24 +1181,58 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
   const inputSt: React.CSSProperties = { background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" }}>
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable</p>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" }}
+    >
+      <motion.p
+        initial={{ y: -10, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}
+      >unstable</motion.p>
 
-      <form onSubmit={handleSearch} style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}>
+      <motion.form
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ delay: 0.1 }}
+        onSubmit={handleSearch}
+        style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
+      >
         <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
           style={{ flex: 1, background: "#111", border: "1px solid #222", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
           onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"}
         />
-        <button type="submit" style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}>go</button>
-      </form>
+        <motion.button
+          whileHover={{ background: "#fff" }}
+          whileTap={{ scale: 0.98 }}
+          type="submit"
+          style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
+        >go</motion.button>
+      </motion.form>
 
-      {/* Shortcuts */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem", maxWidth: 600 }}>
-        {all.map(sc => (
-          <div key={sc.id} style={{ position: "relative" }} className="sc-wrap">
-            <button onClick={() => onNavigate(sc.url)} title={sc.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
-              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
-              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem", maxWidth: 600 }}
+      >
+        {all.map((sc, i) => (
+          <motion.div
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.3 + i * 0.05 }}
+            key={sc.id}
+            style={{ position: "relative" }}
+            className="sc-wrap"
+          >
+            <motion.button
+              whileHover={{ y: -4, background: "#161616" }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => onNavigate(sc.url)}
+              title={sc.name}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
             >
               <div style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
@@ -709,49 +1241,63 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
                 <span style={{ display: "none", width: 24, height: 24, background: "#1e1e1e", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
               </div>
               <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.32)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
-            </button>
+            </motion.button>
             {!DEFAULT_SHORTCUTS.find(d => d.id === sc.id) && (
               <button onClick={() => removeCustom(sc.id)} className="sc-remove" style={{ position: "absolute", top: 2, right: 2, background: "#1a1a1a", border: "none", color: "rgba(255,255,255,0.4)", borderRadius: "50%", width: 14, height: 14, fontSize: 9, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center" }}>×</button>
             )}
-          </div>
+          </motion.div>
         ))}
         {!adding && (
-          <button onClick={() => setAdding(true)} title="Add shortcut" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = "#161616"}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = "none"}
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.3 + all.length * 0.05 }}
+            whileHover={{ scale: 1.1, background: "#161616" }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setAdding(true)}
+            title="Add shortcut"
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
           >
             <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "rgba(255,255,255,0.2)" }}>+</div>
             <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.03em" }}>add</span>
-          </button>
+          </motion.button>
         )}
-      </div>
+      </motion.div>
 
-      {/* Add shortcut form */}
-      {adding && (
-        <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #222", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}>
-          <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
-          <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
-          <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
-          <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor="#444"} onBlur={e => e.target.style.borderColor="#222"} />
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button type="submit" style={{ flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>add</button>
-            <button type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</button>
-          </div>
-        </form>
-      )}
+      <AnimatePresence>
+        {adding && (
+          <motion.form
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            onSubmit={handleAdd}
+            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #222", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
+          >
+            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
+            <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
+            <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
+            <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>add</motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
 
-      {/* Credits + Settings links */}
-      <div style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
-          <button key={label} onClick={() => onNavigate(url)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
-            onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"}
-            onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.2)"}
-          >{label}</button>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
+        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+          <motion.button
+            whileHover={{ color: "rgba(255,255,255,0.7)" }}
+            key={label}
+            onClick={() => onNavigate(url)}
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
+          >{label}</motion.button>
         ))}
-      </div>
+      </motion.div>
 
       <style>{`.sc-wrap:hover .sc-remove{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
-    </div>
+    </motion.div>
   );
 }
 
@@ -768,7 +1314,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {tab.loading ? <div style={{ width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.3)", animation: "pulse 1s ease-in-out infinite" }} />
           : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
-          : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
+            : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
         }
       </div>
       <span style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>
@@ -795,30 +1341,22 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
 
-  // Apply cloak when settings change
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
-
-  // Save settings when they change
   useEffect(() => { saveSettings(settings); }, [settings]);
-
-  // Initial proxy setup
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n);
   }, []);
 
-  // Sync URL bar with active tab
   useEffect(() => {
     if (!activeTab) return;
     const display = activeTab.url ? (activeTab.url.startsWith("unstable://") ? activeTab.url : decodeProxyUrl(activeTab.url)) : "";
     setUrlInput(display);
   }, [activeTabId, activeTab?.url]);
 
-  // Refs for stable keydown handler
   const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts });
   useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts }; });
 
-  // Global keyboard shortcuts
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       const el = document.activeElement;
@@ -848,7 +1386,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
         const activeTab = tabs.find(t => t.id === activeTabId);
         if (!activeTab?.url || activeTab.url.startsWith("unstable://")) return;
         const decoded = decodeProxyUrl(activeTab.url);
-        let domain = ""; try { domain = new URL(decoded).hostname; } catch {}
+        let domain = ""; try { domain = new URL(decoded).hostname; } catch { }
         const sc: Shortcut = { id: Math.random().toString(36).slice(2), name: activeTab.title || domain, url: decoded, favicon: activeTab.favicon || faviconUrl(domain) };
         const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
       }
@@ -864,7 +1402,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "blank", "tos", "privacy"].includes(page)) {
+      if (["settings", "credits", "ai", "blank", "tos", "privacy"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
@@ -874,7 +1412,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     const normalized = normalizeUrl(t);
     if (!normalized) return;
     const proxyUrl = encodeProxyUrl(normalized, settings.proxyEngine);
-    let domain = ""; try { domain = new URL(normalized).hostname; } catch {}
+    let domain = ""; try { domain = new URL(normalized).hostname; } catch { }
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
@@ -921,26 +1459,29 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
   const btn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "0 0.35rem", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "2px", height: 26, minWidth: 26, flexShrink: 0, transition: "color 0.1s, background 0.1s" };
   const btnOff: React.CSSProperties = { ...btn, color: "rgba(255,255,255,0.14)", cursor: "not-allowed" };
   const hov = (on: boolean) => ({
-    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { if (on) { (e.target as HTMLButtonElement).style.color="#e8e8e8"; (e.target as HTMLButtonElement).style.background="#1a1a1a"; } },
-    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color=on?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.14)"; (e.target as HTMLButtonElement).style.background="none"; },
+    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { if (on) { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; } },
+    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color = on ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.14)"; (e.target as HTMLButtonElement).style.background = "none"; },
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+    >
       {!fullscreen && (
-        <>
-          {/* Tab bar */}
+        <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
               {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} />)}
             </div>
             <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.28)"} title="New tab">+</button>
+              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</button>
             <button onClick={onLogout} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.16)", cursor: "pointer", padding: "0 0.8rem", fontSize: "0.57rem", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color="rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color="rgba(255,255,255,0.16)"} title="Lock">lock</button>
+              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.16)"} title="Lock">lock</button>
           </div>
 
-          {/* Toolbar */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             <button onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</button>
             <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
@@ -948,57 +1489,115 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
               <input ref={urlInputRef} value={urlInput} onChange={e => setUrlInput(e.target.value)}
-                onFocus={e => { e.target.select(); e.target.style.borderColor="#444"; }} onBlur={e => e.target.style.borderColor="#1e1e1e"}
+                onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }} onBlur={e => e.target.style.borderColor = "#1e1e1e"}
                 placeholder="search, url, or unstable://…"
                 style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
               />
             </form>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} title="Open in new window">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
             <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} title="Fullscreen">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
             </button>
           </div>
-        </>
+        </motion.div>
       )}
 
-      {/* Content */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {fullscreen && (
           <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
         )}
-        {tabs.map(tab => (
-          <div key={tab.id} style={{ position: "absolute", inset: 0, display: tab.id === activeTabId ? "block" : "none" }}>
-            {!tab.url ? (
-              <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
-            ) : tab.url === "unstable://settings" ? (
-              <SettingsPage settings={settings} onSettingsChange={setSettings} />
-            ) : tab.url === "unstable://credits" ? (
-              <CreditsPage />
-            ) : tab.url === "unstable://tos" ? (
-              <ToSPage />
-            ) : tab.url === "unstable://privacy" ? (
-              <PrivacyPage />
-            ) : tab.url === "unstable://blank" ? (
-              <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
-            ) : (
-              <iframe ref={tab.id === activeTabId ? iframeRef : undefined} src={tab.url}
-                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-                allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *"
-                onLoad={() => updateTab(tab.id, { loading: false })}
-                onError={() => updateTab(tab.id, { loading: false })}
-              />
-            )}
-          </div>
-        ))}
+        <AnimatePresence mode="wait">
+          {tabs.map(tab => tab.id === activeTabId && (
+            <motion.div
+              key={tab.id}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.02 }}
+              transition={{ duration: 0.2 }}
+              style={{ position: "absolute", inset: 0 }}
+            >
+              {!tab.url ? (
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
+              ) : tab.url === "unstable://ai" ? (
+                <AIPage />
+              ) : tab.url === "unstable://settings" ? (
+                <SettingsPage settings={settings} onSettingsChange={setSettings} />
+              ) : tab.url === "unstable://credits" ? (
+                <CreditsPage />
+              ) : tab.url === "unstable://tos" ? (
+                <ToSPage />
+              ) : tab.url === "unstable://privacy" ? (
+                <PrivacyPage />
+              ) : tab.url === "unstable://blank" ? (
+                <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
+              ) : (
+                <iframe ref={iframeRef} src={tab.url}
+                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                  allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
+                  onLoad={() => {
+                    updateTab(tab.id, { loading: false });
+                    try {
+                      const iframe = iframeRef.current;
+                      if (!iframe) return;
+                      const win = iframe.contentWindow as any;
+                      const doc = iframe.contentDocument;
+                      if (win && doc) {
+                        win.addEventListener("mousemove", (e: MouseEvent) => {
+                          const rect = iframe.getBoundingClientRect();
+                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
+                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
+                          }));
+                        });
+                        doc.addEventListener("mousemove", (e: MouseEvent) => {
+                          const rect = iframe.getBoundingClientRect();
+                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
+                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
+                          }));
+                        });
+                        const handleIframeHover = (e: MouseEvent) => {
+                          const target = e.target as HTMLElement;
+                          if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || win.getComputedStyle(target).cursor === 'pointer')) {
+                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
+                          } else {
+                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+                          }
+                        };
+                        win.addEventListener("mouseover", handleIframeHover);
+                        win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+
+                        const style = doc.createElement("style");
+                        style.textContent = "html, body, * { cursor: none !important; }";
+                        doc.head.appendChild(style);
+                      }
+                    } catch (e) {
+                      // ignore cross-origin errors if any
+                    }
+                  }}
+                  onError={() => {
+                    if (tab.url.startsWith(SCRAMJET_PREFIX)) {
+                      const original = decodeProxyUrl(tab.url);
+                      const uvUrl = encodeProxyUrl(original, "uv");
+                      if (uvUrl !== tab.url) {
+                        updateTab(tab.id, { url: uvUrl, loading: true });
+                        return;
+                      }
+                    }
+                    updateTab(tab.id, { loading: false });
+                  }}
+                />
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
 
       <StatusBar visible={isNewtab} />
 
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1007,6 +1606,16 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
 export default function App() {
   const [auth, setAuth] = useState(() => sessionStorage.getItem(SESSION_KEY) === "true");
   function logout() { sessionStorage.removeItem(SESSION_KEY); swRegistered = false; bareConn = null; scrController = null; currentStatus = { ...defaultProxyState }; setAuth(false); applyCloak("none"); }
-  if (!auth) return <PasswordScreen onSuccess={() => setAuth(true)} />;
-  return <BrowserApp onLogout={logout} />;
+  return (
+    <>
+      <MagicCursor />
+      <AnimatePresence mode="wait">
+        {!auth ? (
+          <PasswordScreen key="auth" onSuccess={() => setAuth(true)} />
+        ) : (
+          <BrowserApp key="app" onLogout={logout} />
+        )}
+      </AnimatePresence>
+    </>
+  );
 }

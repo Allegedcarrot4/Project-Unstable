@@ -1,0 +1,12 @@
+[2m11:17:35 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/check[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m11:17:39 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/check[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m11:17:42 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/check[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

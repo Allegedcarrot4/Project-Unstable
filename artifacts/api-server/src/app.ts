@@ -16,15 +16,15 @@ const require = createRequire(import.meta.url);
 
 // Disable keep-alive on outgoing connections so target servers (e.g. Google)
 // don't reject with "Too many keep-alive connections from this IP address"
-http.globalAgent = new http.Agent({ keepAlive: false });
-https.globalAgent = new https.Agent({ keepAlive: false });
+const httpAgent = new http.Agent({ keepAlive: false });
+const httpsAgent = new https.Agent({ keepAlive: false });
 
 // ─── Bare servers (1-5) ───────────────────────────────────────────────────────
-export const bare1 = createBareServer("/api/bare/",  { logErrors: false, blockLocal: false });
-export const bare2 = createBareServer("/api/bare2/", { logErrors: false, blockLocal: false });
-export const bare3 = createBareServer("/api/bare3/", { logErrors: false, blockLocal: false });
-export const bare4 = createBareServer("/api/bare4/", { logErrors: false, blockLocal: false });
-export const bare5 = createBareServer("/api/bare5/", { logErrors: false, blockLocal: false });
+export const bare1 = createBareServer("/api/bare/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare2 = createBareServer("/api/bare2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare3 = createBareServer("/api/bare3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare4 = createBareServer("/api/bare4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare5 = createBareServer("/api/bare5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 
 export const bares = [bare1, bare2, bare3, bare4, bare5];
 
@@ -69,18 +69,16 @@ app.use(
 
 app.use("/api", router);
 
-// ─── Static frontend (production only) ───────────────────────────────────────
-if (process.env.NODE_ENV === "production") {
-  const staticDir = path.join(__dirname, "../public");
-  app.use(express.static(staticDir));
-  app.use((req, res, next) => {
-    const p = req.path;
-    if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/ham") && !p.startsWith("/baremux")) {
-      res.sendFile(path.join(staticDir, "index.html"));
-    } else {
-      next();
-    }
-  });
-}
+// ─── Static frontend ───────────────────────────────────────
+const staticDir = path.resolve(__dirname, "../../app/dist/public");
+app.use(express.static(staticDir));
+app.use((req, res, next) => {
+  const p = req.path;
+  if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/ham") && !p.startsWith("/baremux")) {
+    res.sendFile(path.join(staticDir, "index.html"));
+  } else {
+    next();
+  }
+});
 
 export default app;

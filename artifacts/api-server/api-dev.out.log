@@ -1,0 +1,7 @@
+
+> @workspace/api-server@0.0.0 build C:\Users\arjun\Desktop\PROJECT-UNSTABLENODE\artifacts\api-server
+> node ./build.mjs
+
+[11:27:55.362] [32mINFO[39m (29764): [36mWisp protocol enabled at /api/wisp/[39m
+[11:27:55.379] [32mINFO[39m (29764): [36mServer listening[39m
+    [35mport[39m: 8080
