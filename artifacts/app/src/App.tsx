@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
+import type { Session, User } from "@supabase/supabase-js";
+import { supabase } from "./supabase";
 
 declare global {
   interface Window {
@@ -42,9 +44,35 @@ interface AIMessage {
   content: string;
 }
 
+type AIMode = "fast" | "think";
+
+interface Profile {
+  id: string;
+  username: string;
+}
+
+interface AIConversationRecord {
+  id: string;
+  title: string | null;
+  created_at: string;
+}
+
+interface ChatMessageRecord {
+  id: string;
+  user_id: string;
+  username: string;
+  content: string;
+  created_at: string;
+}
+
+interface ParsedChatMessage {
+  replyUsername: string | null;
+  replySnippet: string | null;
+  body: string;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CORRECT_PASSWORD = "ripmoonlight";
 const SESSION_KEY = "unstable_auth";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const UV_PREFIX = "/service/";
@@ -116,11 +144,42 @@ function clearAuthSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-async function sendAiChat(messages: AIMessage[]): Promise<string> {
+function buildConversationTitle(text: string) {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
+}
+
+function normalizeUsername(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
+function usernameToAuthEmail(username: string) {
+  return `${normalizeUsername(username)}@unstableuser.com`;
+}
+
+function buildReplyPayload(message: ChatMessageRecord, content: string) {
+  const snippet = message.content.trim().replace(/\s+/g, " ").slice(0, 72);
+  return `[[reply:${message.username}|${snippet}]]\n${content}`;
+}
+
+function parseChatMessageContent(content: string): ParsedChatMessage {
+  const match = content.match(/^\[\[reply:([^|\]]+)\|([\s\S]*?)\]\]\n([\s\S]*)$/);
+  if (!match) {
+    return { replyUsername: null, replySnippet: null, body: content };
+  }
+  return {
+    replyUsername: match[1] ?? null,
+    replySnippet: match[2] ?? null,
+    body: match[3] ?? "",
+  };
+}
+
+async function sendAiChat(messages: AIMessage[], mode: AIMode): Promise<string> {
   const res = await fetch("/api/ai/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      mode,
       messages: messages.map(({ role, content }) => ({ role, content })),
     }),
   });
@@ -129,6 +188,29 @@ async function sendAiChat(messages: AIMessage[]): Promise<string> {
   if (!res.ok) throw new Error(data?.error || "The AI request failed.");
   if (!data?.content) throw new Error("The AI response was empty.");
   return data.content;
+}
+
+async function fetchProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function createProfile(userId: string, username: string): Promise<Profile> {
+  const trimmed = username.trim();
+  const { data, error } = await supabase
+    .from("profiles")
+    .insert({ id: userId, username: trimmed })
+    .select("id, username")
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
 function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
@@ -606,18 +688,18 @@ function StatusBar({ visible }: { visible: boolean }) {
 
 // ─── Server-side password check ───────────────────────────────────────────────
 
-async function verifyPassword(pw: string): Promise<boolean> {
+async function verifyPassword(pw: string): Promise<"ok" | "invalid" | "unavailable"> {
   try {
     const res = await fetch("/api/auth/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: pw }),
     });
-    if (res.ok) return true;
-    if (res.status === 401) return false;
-    return pw === CORRECT_PASSWORD;
+    if (res.ok) return "ok";
+    if (res.status === 401) return "invalid";
+    return "unavailable";
   } catch {
-    return pw === CORRECT_PASSWORD;
+    return "unavailable";
   }
 }
 
@@ -625,14 +707,29 @@ async function verifyPassword(pw: string): Promise<boolean> {
 
 function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
   const [pw, setPw] = useState(""); const [err, setErr] = useState(false); const [shaking, setShaking] = useState(false);
+  const [serverIssue, setServerIssue] = useState(false);
   const [checking, setChecking] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setChecking(true);
-    const ok = await verifyPassword(pw);
+    const result = await verifyPassword(pw);
     setChecking(false);
-    if (ok) { saveAuthSession(); onSuccess(); }
-    else { setErr(true); setShaking(true); setPw(""); setTimeout(() => setShaking(false), 500); }
+    if (result === "ok") {
+      setServerIssue(false);
+      saveAuthSession();
+      onSuccess();
+      return;
+    }
+    if (result === "unavailable") {
+      setErr(false);
+      setServerIssue(true);
+      return;
+    }
+    setServerIssue(false);
+    setErr(true);
+    setShaking(true);
+    setPw("");
+    setTimeout(() => setShaking(false), 500);
   }
   return (
     <motion.div
@@ -651,12 +748,13 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
         <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable</p>
         <form onSubmit={submit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <div style={{ animation: shaking ? "shake 0.5s ease-in-out" : "none" }}>
-            <input type="password" value={pw} autoFocus onChange={e => { setPw(e.target.value); setErr(false); }} placeholder="enter password"
+            <input type="password" value={pw} autoFocus onChange={e => { setPw(e.target.value); setErr(false); setServerIssue(false); }} placeholder="enter password"
               style={{ width: "100%", background: "#111", border: `1px solid ${err ? "#8b2b2b" : "#222"}`, color: "#e8e8e8", padding: "0.875rem 1rem", fontSize: "0.9rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", outline: "none", borderRadius: "2px", transition: "border-color 0.2s", boxSizing: "border-box" }}
               onFocus={e => { if (!err) e.target.style.borderColor = "#444"; }} onBlur={e => { if (!err) e.target.style.borderColor = "#222"; }}
             />
           </div>
           {err && <p style={{ color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em", textTransform: "uppercase", margin: 0, textAlign: "center" }}>incorrect password</p>}
+          {serverIssue && <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.68rem", letterSpacing: "0.06em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>access password verification is unavailable right now. Configure the server-side `PASSWORD` env to enable this gate safely.</p>}
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -667,6 +765,173 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
         </form>
       </motion.div>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+    </motion.div>
+  );
+}
+
+function AccountAuthScreen({
+  onAuthenticated,
+}: {
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile }) => void;
+}) {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (loading) return;
+
+    setError("");
+    setNotice("");
+    setLoading(true);
+
+    try {
+      if (username.includes("@")) throw new Error("Enter your username only, not an email address.");
+      const cleanUsername = normalizeUsername(username);
+      if (cleanUsername.length < 3) throw new Error("Username must be at least 3 valid characters.");
+      const authEmail = usernameToAuthEmail(cleanUsername);
+
+      if (mode === "signup") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: authEmail,
+          password,
+        });
+        if (signUpError) throw signUpError;
+
+        if (!data.user) throw new Error("Sign up did not return a user.");
+        if (!data.session) {
+          setNotice("Account created, but Supabase email confirmation is still on. Disable email confirmation for username-only instant sign-in.");
+          return;
+        }
+
+        let profile = await fetchProfile(data.user.id);
+        if (!profile) {
+          profile = await createProfile(data.user.id, cleanUsername);
+        }
+        onAuthenticated({ session: data.session, user: data.user, profile });
+        return;
+      }
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password,
+      });
+      if (signInError) throw signInError;
+      if (!data.session || !data.user) throw new Error("Sign in failed.");
+
+      const profile = await fetchProfile(data.user.id);
+      if (!profile) {
+        throw new Error("No profile found for this account. Sign up again or create the profile in Supabase.");
+      }
+
+      onAuthenticated({ session: data.session, user: data.user, profile });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    background: "#111",
+    border: "1px solid #222",
+    color: "#e8e8e8",
+    padding: "0.875rem 1rem",
+    fontSize: "0.85rem",
+    fontFamily: "'Space Grotesk', sans-serif",
+    letterSpacing: "0.04em",
+    outline: "none",
+    borderRadius: "2px",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
+    >
+      <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.15, duration: 0.5 }}
+        style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem", width: "100%", maxWidth: "400px", padding: "0 1.5rem" }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable account</p>
+          <p style={{ margin: "0.85rem 0 0", fontSize: "0.78rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.6 }}>
+            Access password accepted. Sign in to sync AI history and use realtime chat across devices.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: "0.45rem", width: "100%" }}>
+          {(["signin", "signup"] as const).map((currentMode) => {
+            const active = mode === currentMode;
+            return (
+              <button
+                key={currentMode}
+                onClick={() => { setMode(currentMode); setError(""); setNotice(""); }}
+                style={{
+                  flex: 1,
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.7rem 0.9rem",
+                  fontSize: "0.66rem",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontWeight: 600,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  borderRadius: "2px",
+                }}
+              >
+                {currentMode === "signin" ? "sign in" : "sign up"}
+              </button>
+            );
+          })}
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <input
+            value={username}
+            autoFocus
+            onChange={e => { setUsername(e.target.value); setError(""); setNotice(""); }}
+            placeholder="username"
+            style={inputStyle}
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={e => { setPassword(e.target.value); setError(""); setNotice(""); }}
+            placeholder="password"
+            style={inputStyle}
+          />
+
+          {error && <p style={{ color: "#b94a4a", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center" }}>{error}</p>}
+          {notice && <p style={{ color: "rgba(200,200,200,0.7)", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>{notice}</p>}
+          <p style={{ margin: 0, color: "rgba(255,255,255,0.24)", fontSize: "0.62rem", lineHeight: 1.5, textAlign: "center" }}>
+            Username is used as your sign-in identity here. Under the hood, Supabase still needs email-style auth.
+          </p>
+
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit"
+            disabled={loading}
+            style={{ width: "100%", background: loading ? "#555" : "#e8e8e8", color: loading ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: loading ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
+          >
+            {loading ? "working…" : mode === "signin" ? "enter account" : "create account"}
+          </motion.button>
+        </form>
+      </motion.div>
     </motion.div>
   );
 }
@@ -717,10 +982,11 @@ function ToSPage() {
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
-        ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
-        ["Acceptable use", "You agree not to use Unstable to access, distribute, or transmit content that is illegal in your jurisdiction. Circumventing network restrictions may violate your school, employer, or ISP's acceptable-use policy — you are solely responsible for compliance."],
-        ["No logging", "This instance does not store logs of sites you visit, passwords you enter, or any other personally identifiable information beyond what is necessary for the proxy connection to function."],
-        ["Third-party content", "Unstable acts as a transparent proxy. The operators of this service are not responsible for the content of third-party websites accessed through it."],
+        ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, security, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
+        ["Acceptable use", "You agree not to use Unstable to access, distribute, or transmit content that is illegal in your jurisdiction. Circumventing network restrictions may violate your school, employer, or ISP policies, and you are solely responsible for compliance."],
+        ["Public codebase", "Parts of this project may be published in a public repository. Public client code, build output, and documentation should be treated as inspectable by anyone. Do not assume any client-side value, request, or browser-stored setting is secret."],
+        ["Accounts and AI", "This app uses Supabase for account authentication, synced AI history, and chat. AI requests are proxied through a server-side route, and the server-side AI provider key must never be committed to a public repository."],
+        ["Third-party content", "Unstable acts as a transparent proxy and also depends on third-party services, including Supabase and external AI providers. The operators of this service are not responsible for the availability, content, or behavior of third-party systems."],
         ["Changes", "These terms may be updated at any time without prior notice. Continued use of the service constitutes acceptance of the updated terms."],
       ].map(([title, body], i) => (
         <motion.div
@@ -750,11 +1016,12 @@ function PrivacyPage() {
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
-        ["What we collect", "Nothing beyond what is strictly required for a WebSocket proxy connection to function. We do not store browsing history, search queries, usernames, or passwords on any server we control."],
-        ["Session storage", "Your authentication session is remembered in your browser for up to one week, then expires automatically. Shortcut and settings preferences are stored in localStorage on your device only."],
-        ["Proxy traffic", "Network requests made through the Unstable proxy pass through our bare servers. We do not log request URLs, response bodies, or IP addresses beyond the lifetime of a single connection."],
-        ["Cookies", "We do not set any tracking or analytics cookies. Third-party sites you visit through the proxy may set their own cookies in the proxied context."],
-        ["Third parties", "We do not share, sell, or transmit any data to third-party analytics, advertising, or data-broker services."],
+        ["What we collect", "This app stores account records, usernames, AI conversation history, and chat messages in Supabase. The browser also stores local UI preferences such as shortcuts, settings, lightweight reaction state, and temporary remembered access/account sessions."],
+        ["Access and account auth", "The access password should be verified server-side only. Account authentication is handled by Supabase Auth. Passwords are not stored directly in this repository or in client-side code and should never be committed to a public repository."],
+        ["AI data", "Messages you send to the AI page are stored in Supabase as conversation history and are also forwarded to the configured AI provider through a server-side route in order to generate responses."],
+        ["Chat data", "Messages sent in unstable://chat are stored in Supabase and delivered across devices using Supabase Realtime. Local emoji reactions may be stored in your browser even when they are not yet synced server-side."],
+        ["Public repo safety", "The Supabase anon key is designed to be public client configuration, but server secrets such as the AI provider key and server-side access password must remain outside the public repository. Client-side code, requests, and browser storage should be treated as inspectable."],
+        ["Third parties and retention", "Supabase and any configured AI provider process the data needed to provide accounts, sync, chat, and AI responses. Retention, backups, and operational logging may depend on those services and your deployment configuration."],
         ["Changes", "This policy may be updated at any time. The current version is always available at unstable://privacy."],
       ].map(([title, body], i) => (
         <motion.div
@@ -907,7 +1174,7 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
 
 // ─── AI page ──────────────────────────────────────────────────────────────────
 
-function AIPage() {
+function AIPage({ user, profile }: { user: User; profile: Profile }) {
   const starterMessages = useMemo<AIMessage[]>(() => [
     {
       id: aiMessageId(),
@@ -927,6 +1194,9 @@ function AIPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [mode, setMode] = useState<AIMode>("fast");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -943,9 +1213,72 @@ function AIPage() {
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [input]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConversation() {
+      setBooting(true);
+      setError("");
+      try {
+        const { data: conversations, error: convoError } = await supabase
+          .from("ai_conversations")
+          .select("id, title, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (convoError) throw convoError;
+        const latest = (conversations?.[0] ?? null) as AIConversationRecord | null;
+
+        if (!latest) {
+          if (!cancelled) {
+            setConversationId(null);
+            setMessages(starterMessages);
+          }
+          return;
+        }
+
+        const { data: storedMessages, error: messageError } = await supabase
+          .from("ai_messages")
+          .select("id, role, content")
+          .eq("conversation_id", latest.id)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true });
+
+        if (messageError) throw messageError;
+        if (cancelled) return;
+
+        setConversationId(latest.id);
+        if (storedMessages && storedMessages.length > 0) {
+          setMessages(
+            storedMessages.map((message) => ({
+              id: message.id,
+              role: message.role as "user" | "assistant",
+              content: message.content,
+            })),
+          );
+        } else {
+          setMessages(starterMessages);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unable to load AI history.");
+          setMessages(starterMessages);
+        }
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    }
+
+    loadConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [starterMessages, user.id]);
+
   async function submitPrompt(rawPrompt?: string) {
     const prompt = (rawPrompt ?? input).trim();
-    if (!prompt || loading) return;
+    if (!prompt || loading || booting) return;
 
     const userMessage: AIMessage = { id: aiMessageId(), role: "user", content: prompt };
     const nextMessages = [...messages, userMessage];
@@ -955,14 +1288,52 @@ function AIPage() {
     setLoading(true);
 
     try {
-      const content = await sendAiChat(nextMessages);
-      setMessages(prev => [...prev, { id: aiMessageId(), role: "assistant", content }]);
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        const { data: conversation, error: conversationError } = await supabase
+          .from("ai_conversations")
+          .insert({
+            user_id: user.id,
+            title: buildConversationTitle(prompt),
+          })
+          .select("id")
+          .single();
+
+        if (conversationError) throw conversationError;
+        activeConversationId = conversation.id;
+        setConversationId(activeConversationId);
+      }
+
+      const { error: userInsertError } = await supabase.from("ai_messages").insert({
+        conversation_id: activeConversationId,
+        user_id: user.id,
+        role: "user",
+        content: prompt,
+      });
+      if (userInsertError) throw userInsertError;
+
+      const content = await sendAiChat(nextMessages, mode);
+      const assistantMessage = { id: aiMessageId(), role: "assistant" as const, content };
+      setMessages(prev => [...prev, assistantMessage]);
+
+      const { error: assistantInsertError } = await supabase.from("ai_messages").insert({
+        conversation_id: activeConversationId,
+        user_id: user.id,
+        role: "assistant",
+        content,
+      });
+      if (assistantInsertError) throw assistantInsertError;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to get a response right now.");
     } finally {
       setLoading(false);
     }
   }
+
+  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
+    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
+    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
+  };
 
   return (
     <motion.div
@@ -993,9 +1364,38 @@ function AIPage() {
         >
           <div>
             <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — ai</p>
-            <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Fast Groq chat, styled to live here.</p>
-            <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
-              Powered by `llama-3.1-8b-instant` for low-latency replies without breaking the Unstable aesthetic.
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
+            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Mode</p>
+            <div style={{ display: "flex", gap: "0.45rem" }}>
+              {(["fast", "think"] as AIMode[]).map((currentMode) => {
+                const active = mode === currentMode;
+                return (
+                  <button
+                    key={currentMode}
+                    onClick={() => setMode(currentMode)}
+                    style={{
+                      flex: 1,
+                      background: active ? "#e8e8e8" : "#111",
+                      color: active ? "#0d0d0d" : "rgba(255,255,255,0.52)",
+                      border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                      padding: "0.65rem 0.8rem",
+                      fontSize: "0.64rem",
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      borderRadius: "10px",
+                    }}
+                  >
+                    {currentMode}
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ margin: "0.65rem 0 0", fontSize: "0.67rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.55 }}>
+              {modeMeta[mode].label} · {modeMeta[mode].hint}
             </p>
           </div>
 
@@ -1037,8 +1437,10 @@ function AIPage() {
           </div>
 
           <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Model</p>
-            <p style={{ margin: 0, fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>Groq · llama-3.1-8b-instant</p>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{profile.username}</p>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Active model</p>
+            <p style={{ margin: 0, fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{modeMeta[mode].label}</p>
           </div>
         </motion.aside>
 
@@ -1062,7 +1464,7 @@ function AIPage() {
               <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://ai in the url bar</p>
             </div>
             <button
-              onClick={() => { setMessages(starterMessages); setError(""); }}
+              onClick={() => { setMessages(starterMessages); setConversationId(null); setError(""); }}
               style={{
                 background: "none",
                 border: "1px solid rgba(255,255,255,0.09)",
@@ -1079,7 +1481,9 @@ function AIPage() {
           </div>
 
           <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem 1.2rem 1rem", display: "flex", flexDirection: "column", gap: "0.95rem", background: "linear-gradient(180deg, rgba(255,255,255,0.01), transparent 12%)" }}>
-            {messages.map((message, index) => (
+            {booting ? (
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem", padding: "0.4rem 0.2rem" }}>loading synced history…</div>
+            ) : messages.map((message, index) => (
               <motion.div
                 key={message.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1100,9 +1504,9 @@ function AIPage() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: message.role === "user" ? "linear-gradient(135deg, #dfe7ff, #90a8ff)" : "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
-                      border: message.role === "user" ? "1px solid rgba(174,194,255,0.5)" : "1px solid rgba(255,255,255,0.07)",
-                      color: message.role === "user" ? "#111827" : "rgba(255,255,255,0.8)",
+                      background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                      color: "rgba(255,255,255,0.8)",
                       fontSize: "0.56rem",
                       letterSpacing: "0.12em",
                       textTransform: "uppercase",
@@ -1115,18 +1519,16 @@ function AIPage() {
                     style={{
                       maxWidth: "min(100%, 680px)",
                       borderRadius: message.role === "user" ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
-                      background: message.role === "user"
-                        ? "linear-gradient(135deg, rgba(119,166,255,1), rgba(88,124,223,0.98))"
-                        : "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))",
-                      border: message.role === "user" ? "1px solid rgba(153,191,255,0.42)" : "1px solid rgba(255,255,255,0.07)",
+                      background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))",
+                      border: "1px solid rgba(255,255,255,0.07)",
                       padding: "0.9rem 1rem",
-                      boxShadow: message.role === "user" ? "0 14px 34px rgba(89,122,220,0.24)" : "0 10px 26px rgba(0,0,0,0.18)",
+                      boxShadow: "0 10px 26px rgba(0,0,0,0.18)",
                     }}
                   >
                     <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
                       {message.role === "user" ? "you" : "unstable ai"}
                     </p>
-                    <p style={{ margin: 0, color: message.role === "user" ? "#ffffff" : "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>
+                    <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>
                       {message.content}
                     </p>
                   </div>
@@ -1227,6 +1629,268 @@ function AIPage() {
             </form>
           </div>
         </motion.section>
+      </div>
+    </motion.div>
+  );
+}
+
+function ChatPage({ user, profile }: { user: User; profile: Profile }) {
+  const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [replyTarget, setReplyTarget] = useState<ChatMessageRecord | null>(null);
+  const [reactionPickerId, setReactionPickerId] = useState<string | null>(null);
+  const [recentOwnMessageId, setRecentOwnMessageId] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<Record<string, string[]>>(() => {
+    try {
+      const raw = localStorage.getItem(`unstable_chat_reactions_${user.id}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(`unstable_chat_reactions_${user.id}`, JSON.stringify(reactions));
+  }, [reactions, user.id]);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadMessages() {
+      setLoading(true);
+      setError("");
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("id, user_id, username, content, created_at")
+        .order("created_at", { ascending: true })
+        .limit(150);
+
+      if (!mounted) return;
+      if (error) setError(error.message);
+      else setMessages(data ?? []);
+      setLoading(false);
+    }
+
+    loadMessages();
+
+    const channel = supabase
+      .channel("unstable-chat")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages" },
+        (payload) => {
+          const incoming = payload.new as ChatMessageRecord;
+          setMessages((prev) => (prev.some((msg) => msg.id === incoming.id) ? prev : [...prev, incoming]));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function sendMessage(e?: React.FormEvent) {
+    e?.preventDefault();
+    const content = input.trim();
+    if (!content || sending) return;
+
+    setSending(true);
+    setError("");
+    try {
+      const payload = replyTarget ? buildReplyPayload(replyTarget, content) : content;
+      const { data, error } = await supabase.from("chat_messages").insert({
+        user_id: user.id,
+        username: profile.username,
+        content: payload,
+      }).select("id").single();
+      if (error) throw error;
+      setInput("");
+      setReplyTarget(null);
+      setRecentOwnMessageId(data?.id ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function undoLastMessage() {
+    if (!recentOwnMessageId) return;
+    setError("");
+    try {
+      const { error } = await supabase.from("chat_messages").delete().eq("id", recentOwnMessageId).eq("user_id", user.id);
+      if (error) throw error;
+      setMessages((prev) => prev.filter((message) => message.id !== recentOwnMessageId));
+      setRecentOwnMessageId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to undo that message.");
+    }
+  }
+
+  function toggleReaction(messageId: string, emoji: string) {
+    setReactions((prev) => {
+      const current = prev[messageId] ?? [];
+      const exists = current.includes(emoji);
+      return {
+        ...prev,
+        [messageId]: exists ? current.filter((item) => item !== emoji) : [...current, emoji],
+      };
+    });
+    setReactionPickerId(null);
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        height: "100%",
+        overflow: "hidden",
+        background:
+          "radial-gradient(circle at top right, rgba(120,170,255,0.1), transparent 24%), radial-gradient(circle at bottom left, rgba(255,255,255,0.05), transparent 22%), #0d0d0d",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}
+    >
+      <div style={{ height: "100%", maxWidth: 1000, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
+        <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", borderRadius: "18px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+          <div>
+            <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — chat</p>
+            <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Realtime room across devices.</p>
+            <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
+              Messages sync through Supabase Realtime. Everyone signed into this app sees the same room.
+            </p>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "#eef2f7" }}>{profile.username}</p>
+          </div>
+        </aside>
+
+        <section style={{ minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>Global chat</p>
+              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://chat in the url bar</p>
+            </div>
+          </div>
+
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+            {loading ? (
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>loading chat…</div>
+            ) : messages.length === 0 ? (
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
+            ) : (
+              messages.map((message) => {
+                const isOwn = message.user_id === user.id;
+                const parsed = parseChatMessageContent(message.content);
+                const messageReactions = reactions[message.id] ?? [];
+                return (
+                  <div key={message.id} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                    <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
+                      <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
+                        {message.username.slice(0, 2)}
+                      </div>
+                      <div style={{ position: "relative" }}>
+                        <div style={{ borderRadius: isOwn ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
+                          <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isOwn ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
+                            {isOwn ? "you" : message.username}
+                          </p>
+                          {parsed.replySnippet && (
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById(`chat-message-${message.id}`);
+                                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                              }}
+                              style={{ display: "block", width: "100%", textAlign: "left", margin: "0 0 0.55rem", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", color: "rgba(255,255,255,0.62)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.67rem", cursor: "pointer" }}
+                            >
+                              <span style={{ display: "block", fontSize: "0.54rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "0.22rem" }}>
+                                replying to {parsed.replyUsername}
+                              </span>
+                              {parsed.replySnippet}
+                            </button>
+                          )}
+                          <p id={`chat-message-${message.id}`} style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>{parsed.body}</p>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                          <button onClick={() => setReplyTarget(message)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>reply</button>
+                          <button onClick={() => setReactionPickerId((prev) => prev === message.id ? null : message.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>react</button>
+                          {recentOwnMessageId === message.id && isOwn && (
+                            <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
+                          )}
+                        </div>
+                        {reactionPickerId === message.id && (
+                          <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
+                            {["👍", "🔥", "😂", "😮", "🖤"].map((emoji) => (
+                              <button key={emoji} onClick={() => toggleReaction(message.id, emoji)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: 0 }}>{emoji}</button>
+                            ))}
+                          </div>
+                        )}
+                        {messageReactions.length > 0 && (
+                          <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                            {messageReactions.map((emoji, index) => (
+                              <span key={`${message.id}-${emoji}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", fontSize: "0.8rem" }}>{emoji}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
+            {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem" }}>{error}</p>}
+            {replyTarget && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.7rem", padding: "0.65rem 0.8rem", borderRadius: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: "0 0 0.18rem", fontSize: "0.54rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)" }}>replying to {replyTarget.user_id === user.id ? "yourself" : replyTarget.username}</p>
+                  <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.68rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {parseChatMessageContent(replyTarget.content).body}
+                  </p>
+                </div>
+                <button onClick={() => setReplyTarget(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.38)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", padding: 0 }}>cancel</button>
+              </div>
+            )}
+            <form onSubmit={sendMessage} style={{ display: "flex", gap: "0.8rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.8rem" }}>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+                placeholder="Send a message to everyone signed in..."
+                rows={1}
+                style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 180, overflowY: "auto" }}
+              />
+              <motion.button
+                whileHover={{ scale: sending ? 1 : 1.03 }}
+                whileTap={{ scale: sending ? 1 : 0.98 }}
+                type="submit"
+                disabled={sending || !input.trim()}
+                style={{ alignSelf: "stretch", minWidth: 104, background: sending || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: sending || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: sending || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
+              >
+                {sending ? "sending" : "send"}
+              </motion.button>
+            </form>
+          </div>
+        </section>
       </div>
     </motion.div>
   );
@@ -1372,11 +2036,11 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
       </AnimatePresence>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <motion.button
             whileHover={{ color: "rgba(255,255,255,0.7)" }}
             key={label}
-            onClick={() => onNavigate(label === "ai" ? "unstable://ai" : url)}
+            onClick={() => onNavigate(label === "ai" ? "unstable://ai" : label === "chat" ? "unstable://chat" : url)}
             style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
           >{label}</motion.button>
         ))}
@@ -1414,7 +2078,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 
 // ─── Browser app ──────────────────────────────────────────────────────────────
 
-function BrowserApp({ onLogout }: { onLogout: () => void }) {
+function BrowserApp({ onLogout, user, profile }: { onLogout: () => void; user: User; profile: Profile }) {
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
@@ -1488,7 +2152,7 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "ai", "blank", "tos", "privacy"].includes(page)) {
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
@@ -1608,7 +2272,9 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
               {!tab.url ? (
                 <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
               ) : tab.url === "unstable://ai" ? (
-                <AIPage />
+                <AIPage user={user} profile={profile} />
+              ) : tab.url === "unstable://chat" ? (
+                <ChatPage user={user} profile={profile} />
               ) : tab.url === "unstable://settings" ? (
                 <SettingsPage settings={settings} onSettingsChange={setSettings} />
               ) : tab.url === "unstable://credits" ? (
@@ -1690,16 +2356,97 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [auth, setAuth] = useState(() => hasValidAuthSession());
-  function logout() { clearAuthSession(); swRegistered = false; bareConn = null; scrController = null; currentStatus = { ...defaultProxyState }; setAuth(false); applyCloak("none"); }
+  const [accessGranted, setAccessGranted] = useState(() => hasValidAuthSession());
+  const [accountLoading, setAccountLoading] = useState(true);
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [accountError, setAccountError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function syncSession(nextSession: Session | null) {
+      if (!mounted) return;
+      setSession(nextSession);
+      const nextUser = nextSession?.user ?? null;
+      setUser(nextUser);
+
+      if (!nextUser) {
+        setProfile(null);
+        setAccountLoading(false);
+        return;
+      }
+
+      setAccountLoading(true);
+      try {
+        const nextProfile = await fetchProfile(nextUser.id);
+        if (!mounted) return;
+        setProfile(nextProfile);
+        setAccountError(nextProfile ? "" : "Account signed in, but no profile was found.");
+      } catch (err) {
+        if (!mounted) return;
+        setProfile(null);
+        setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
+      } finally {
+        if (mounted) setAccountLoading(false);
+      }
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      void syncSession(data.session);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void syncSession(nextSession);
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function logout() {
+    clearAuthSession();
+    await supabase.auth.signOut();
+    swRegistered = false;
+    bareConn = null;
+    scrController = null;
+    currentStatus = { ...defaultProxyState };
+    setAccessGranted(false);
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    applyCloak("none");
+  }
+
   return (
     <>
       <MagicCursor />
       <AnimatePresence mode="wait">
-        {!auth ? (
-          <PasswordScreen key="auth" onSuccess={() => setAuth(true)} />
+        {!accessGranted ? (
+          <PasswordScreen key="auth" onSuccess={() => setAccessGranted(true)} />
+        ) : accountLoading ? (
+          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
+            syncing account…
+          </motion.div>
+        ) : !session || !user || !profile ? (
+          <div key="account-auth">
+            <AccountAuthScreen onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile }) => {
+              setSession(nextSession);
+              setUser(nextUser);
+              setProfile(nextProfile);
+              setAccountError("");
+            }} />
+            {accountError && (
+              <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "rgba(235,120,120,0.9)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.04em", textAlign: "center", maxWidth: 420, padding: "0 1rem" }}>
+                {accountError}
+              </div>
+            )}
+          </div>
         ) : (
-          <BrowserApp key="app" onLogout={logout} />
+          <BrowserApp key="app" onLogout={() => { void logout(); }} user={user} profile={profile} />
         )}
       </AnimatePresence>
     </>

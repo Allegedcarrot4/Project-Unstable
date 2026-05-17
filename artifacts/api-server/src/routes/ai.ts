@@ -8,9 +8,12 @@ type ChatMessage = {
   content: string;
 };
 
+type ChatMode = "fast" | "think";
+
 router.post("/ai/chat", async (req, res) => {
   const apiKey = process.env.GROQ_API_KEY?.trim();
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  const mode: ChatMode = req.body?.mode === "think" ? "think" : "fast";
 
   if (!apiKey) {
     res.status(503).json({ error: "AI is not configured on this server." });
@@ -25,7 +28,7 @@ router.post("/ai/chat", async (req, res) => {
       if (!["system", "user", "assistant"].includes(role)) return null;
       return { role, content };
     })
-    .filter((message): message is ChatMessage => Boolean(message))
+    .filter((message: ChatMessage | null): message is ChatMessage => Boolean(message))
     .slice(-16);
 
   if (!sanitizedMessages.length) {
@@ -34,6 +37,9 @@ router.post("/ai/chat", async (req, res) => {
   }
 
   try {
+    const model = mode === "think" ? "openai/gpt-oss-20b" : "llama-3.1-8b-instant";
+    const temperature = mode === "think" ? 0.3 : 0.6;
+    const maxTokens = mode === "think" ? 1100 : 700;
     const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -41,14 +47,16 @@ router.post("/ai/chat", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        temperature: 0.6,
-        max_tokens: 700,
+        model,
+        temperature,
+        max_tokens: maxTokens,
         messages: [
           {
             role: "system",
             content:
-              "You are Unstable AI, a fast, stylish assistant inside a minimalist browser UI. Be concise, helpful, and confident. Use plain text only.",
+              mode === "think"
+                ? "You are Unstable AI in think mode. Spend more effort on reasoning, stay concise where possible, and use plain text only."
+                : "You are Unstable AI in fast mode. Be concise, helpful, and confident. Use plain text only.",
           },
           ...sanitizedMessages,
         ],
@@ -71,7 +79,7 @@ router.post("/ai/chat", async (req, res) => {
       return;
     }
 
-    res.json({ content, model: "llama-3.1-8b-instant" });
+    res.json({ content, model, mode });
   } catch (err) {
     logger.error({ err }, "Groq chat request failed");
     res.status(502).json({ error: "Unable to reach Groq right now." });
