@@ -46,6 +46,7 @@ interface AIMessage {
 
 const CORRECT_PASSWORD = "ripmoonlight";
 const SESSION_KEY = "unstable_auth";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const UV_PREFIX = "/service/";
 const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
@@ -89,6 +90,30 @@ function faviconUrl(domain: string) {
 
 function aiMessageId() {
   return Math.random().toString(36).slice(2);
+}
+
+function hasValidAuthSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { expiresAt?: number } | null;
+    if (!parsed?.expiresAt || Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return false;
+  }
+}
+
+function saveAuthSession() {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ expiresAt: Date.now() + SESSION_TTL_MS }));
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function sendAiChat(messages: AIMessage[]): Promise<string> {
@@ -606,7 +631,7 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
     setChecking(true);
     const ok = await verifyPassword(pw);
     setChecking(false);
-    if (ok) { sessionStorage.setItem(SESSION_KEY, "true"); onSuccess(); }
+    if (ok) { saveAuthSession(); onSuccess(); }
     else { setErr(true); setShaking(true); setPw(""); setTimeout(() => setShaking(false), 500); }
   }
   return (
@@ -726,7 +751,7 @@ function PrivacyPage() {
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
         ["What we collect", "Nothing beyond what is strictly required for a WebSocket proxy connection to function. We do not store browsing history, search queries, usernames, or passwords on any server we control."],
-        ["Session storage", "Your authentication session is stored in your browser's sessionStorage and is erased when you close the tab. Shortcut and settings preferences are stored in localStorage on your device only."],
+        ["Session storage", "Your authentication session is remembered in your browser for up to one week, then expires automatically. Shortcut and settings preferences are stored in localStorage on your device only."],
         ["Proxy traffic", "Network requests made through the Unstable proxy pass through our bare servers. We do not log request URLs, response bodies, or IP addresses beyond the lifetime of a single connection."],
         ["Cookies", "We do not set any tracking or analytics cookies. Third-party sites you visit through the proxy may set their own cookies in the proxied context."],
         ["Third parties", "We do not share, sell, or transmit any data to third-party analytics, advertising, or data-broker services."],
@@ -903,12 +928,20 @@ function AIPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [input]);
 
   async function submitPrompt(rawPrompt?: string) {
     const prompt = (rawPrompt ?? input).trim();
@@ -1045,7 +1078,7 @@ function AIPage() {
             >reset</button>
           </div>
 
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.1rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem 1.2rem 1rem", display: "flex", flexDirection: "column", gap: "0.95rem", background: "linear-gradient(180deg, rgba(255,255,255,0.01), transparent 12%)" }}>
             {messages.map((message, index) => (
               <motion.div
                 key={message.id}
@@ -1053,35 +1086,77 @@ function AIPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.03 }}
                 style={{
-                  alignSelf: message.role === "user" ? "flex-end" : "flex-start",
-                  width: "min(100%, 760px)",
-                  borderRadius: message.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
-                  background: message.role === "user"
-                    ? "linear-gradient(135deg, rgba(116,164,255,0.95), rgba(91,125,224,0.95))"
-                    : "linear-gradient(180deg, rgba(23,23,23,0.98), rgba(16,16,16,0.98))",
-                  border: message.role === "user" ? "1px solid rgba(142,184,255,0.45)" : "1px solid rgba(255,255,255,0.07)",
-                  padding: "0.9rem 1rem",
-                  boxShadow: message.role === "user" ? "0 10px 30px rgba(91,125,224,0.2)" : "none",
+                  display: "flex",
+                  justifyContent: message.role === "user" ? "flex-end" : "flex-start",
                 }}
               >
-                <p style={{ margin: "0 0 0.35rem", fontSize: "0.57rem", letterSpacing: "0.14em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.28)" }}>
-                  {message.role === "user" ? "you" : "unstable ai"}
-                </p>
-                <p style={{ margin: 0, color: message.role === "user" ? "#ffffff" : "rgba(255,255,255,0.82)", fontSize: "0.76rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                  {message.content}
-                </p>
+                <div style={{ display: "flex", flexDirection: message.role === "user" ? "row-reverse" : "row", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
+                  <div
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: message.role === "user" ? "linear-gradient(135deg, #dfe7ff, #90a8ff)" : "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
+                      border: message.role === "user" ? "1px solid rgba(174,194,255,0.5)" : "1px solid rgba(255,255,255,0.07)",
+                      color: message.role === "user" ? "#111827" : "rgba(255,255,255,0.8)",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {message.role === "user" ? "you" : "ai"}
+                  </div>
+                  <div
+                    style={{
+                      maxWidth: "min(100%, 680px)",
+                      borderRadius: message.role === "user" ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
+                      background: message.role === "user"
+                        ? "linear-gradient(135deg, rgba(119,166,255,1), rgba(88,124,223,0.98))"
+                        : "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))",
+                      border: message.role === "user" ? "1px solid rgba(153,191,255,0.42)" : "1px solid rgba(255,255,255,0.07)",
+                      padding: "0.9rem 1rem",
+                      boxShadow: message.role === "user" ? "0 14px 34px rgba(89,122,220,0.24)" : "0 10px 26px rgba(0,0,0,0.18)",
+                    }}
+                  >
+                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
+                      {message.role === "user" ? "you" : "unstable ai"}
+                    </p>
+                    <p style={{ margin: 0, color: message.role === "user" ? "#ffffff" : "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>
+                      {message.content}
+                    </p>
+                  </div>
+                </div>
               </motion.div>
             ))}
 
             {loading && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ alignSelf: "flex-start", borderRadius: "18px 18px 18px 6px", background: "linear-gradient(180deg, rgba(23,23,23,0.98), rgba(16,16,16,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem" }}>
-                <p style={{ margin: "0 0 0.35rem", fontSize: "0.57rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>unstable ai</p>
-                <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.76rem" }}>thinking fast…</p>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
+                  <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>ai</div>
+                  <div style={{ borderRadius: "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
+                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" }}>unstable ai</p>
+                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", minHeight: 20 }}>
+                      {[0, 1, 2].map((dot) => (
+                        <motion.span
+                          key={dot}
+                          animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
+                          transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }}
+                          style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(255,255,255,0.6)", display: "block" }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             )}
           </div>
 
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem", background: "linear-gradient(180deg, rgba(11,11,11,0.96), rgba(8,8,8,0.98))" }}>
             {error && (
               <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>
                 {error}
@@ -1100,10 +1175,17 @@ function AIPage() {
               }}
             >
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitPrompt();
+                  }
+                }}
                 placeholder="Ask anything..."
-                rows={3}
+                rows={1}
                 style={{
                   flex: 1,
                   resize: "none",
@@ -1114,6 +1196,9 @@ function AIPage() {
                   lineHeight: 1.6,
                   outline: "none",
                   fontFamily: "'Space Grotesk', sans-serif",
+                  minHeight: 24,
+                  maxHeight: 220,
+                  overflowY: "auto",
                 }}
               />
               <motion.button
@@ -1123,20 +1208,21 @@ function AIPage() {
                 disabled={loading || !input.trim()}
                 style={{
                   alignSelf: "stretch",
-                  minWidth: 120,
+                  minWidth: 104,
                   background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8",
                   color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d",
                   border: "none",
-                  borderRadius: "14px",
+                  borderRadius: "999px",
                   cursor: loading || !input.trim() ? "not-allowed" : "pointer",
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontSize: "0.68rem",
                   letterSpacing: "0.18em",
                   textTransform: "uppercase",
                   fontWeight: 700,
+                  padding: "0 1rem",
                 }}
               >
-                {loading ? "sending" : "launch"}
+                {loading ? "sending" : "send"}
               </motion.button>
             </form>
           </div>
@@ -1290,7 +1376,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
           <motion.button
             whileHover={{ color: "rgba(255,255,255,0.7)" }}
             key={label}
-            onClick={() => onNavigate(url)}
+            onClick={() => onNavigate(label === "ai" ? "unstable://ai" : url)}
             style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
           >{label}</motion.button>
         ))}
@@ -1604,8 +1690,8 @@ function BrowserApp({ onLogout }: { onLogout: () => void }) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [auth, setAuth] = useState(() => sessionStorage.getItem(SESSION_KEY) === "true");
-  function logout() { sessionStorage.removeItem(SESSION_KEY); swRegistered = false; bareConn = null; scrController = null; currentStatus = { ...defaultProxyState }; setAuth(false); applyCloak("none"); }
+  const [auth, setAuth] = useState(() => hasValidAuthSession());
+  function logout() { clearAuthSession(); swRegistered = false; bareConn = null; scrController = null; currentStatus = { ...defaultProxyState }; setAuth(false); applyCloak("none"); }
   return (
     <>
       <MagicCursor />
