@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createServer } from "http";
 import app, { bares, wispHandler } from "./app";
 import { logger } from "./lib/logger";
