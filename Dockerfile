@@ -33,8 +33,8 @@ COPY --from=builder /app/artifacts/api-server/dist          ./dist
 COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
 
 # Runtime node_modules for the API server
-# Copy the root workspace node_modules so runtime package resolution works
-COPY --from=builder /app/node_modules  ./node_modules
+# Copy api-server's local node_modules where @mercuryworkshop/bare-as-module3 is actually installed
+COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
