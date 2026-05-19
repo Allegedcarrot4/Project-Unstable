@@ -33,8 +33,8 @@ COPY --from=builder /app/artifacts/api-server/dist          ./dist
 COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
 
 # Runtime node_modules for the API server
-# Use the built api-server node_modules tree so workspace deps resolve correctly
-COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
+# Copy the root workspace node_modules so runtime package resolution works
+COPY --from=builder /app/node_modules  ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
