@@ -1,0 +1,10 @@
+# Stormkit runtime configuration for Project-Unstable
+# This project uses Node.js 20 and pnpm 10 in a pnpm monorepo.
+
+[[toolchain]]
+name = "nodejs"
+version = "20"
+
+[[toolchain]]
+name = "pnpm"
+version = "10"
