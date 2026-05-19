@@ -29,6 +29,9 @@ WORKDIR /app
 # API server compiled bundle
 COPY --from=builder /app/artifacts/api-server/dist          ./dist
 
+# Runtime package metadata required by runtime libraries like bare-server-node
+COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
+
 # Runtime node_modules for the API server
 # (bare-server-node, bare-as-module3, pino, express, etc.)
 COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
