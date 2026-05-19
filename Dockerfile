@@ -14,6 +14,11 @@ COPY . .
 # Install all workspace dependencies
 RUN pnpm install --frozen-lockfile
 
+# Copy the actual bare-as-module3 package from pnpm's store into a dedicated runtime node_modules tree
+RUN mkdir -p /app/runtime_node_modules/@mercuryworkshop && \
+    pkg=$(find /app/node_modules/.pnpm -path '*/@mercuryworkshop/bare-as-module3' -type d | head -n 1) && \
+    cp -a "$pkg" /app/runtime_node_modules/@mercuryworkshop/bare-as-module3
+
 # Build the React frontend
 # BASE_PATH=/ because in Docker there is no path prefix
 RUN BASE_PATH=/ PORT=7860 NODE_ENV=production \
@@ -33,8 +38,8 @@ COPY --from=builder /app/artifacts/api-server/dist          ./dist
 COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
 
 # Runtime node_modules for the API server
-# Copy api-server's local node_modules where @mercuryworkshop/bare-as-module3 is actually installed
-COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
+# Copy the extracted bare-as-module3 package into the runtime root node_modules
+COPY --from=builder /app/runtime_node_modules  ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
