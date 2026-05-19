@@ -30,6 +30,24 @@ Go to **Settings → Variables and secrets** in your Space and add:
 | `PASSWORD` | **Yes** | The password users must enter to access Unstable. If not set, the Space will refuse all login attempts in production. |
 | `SESSION_SECRET` | No | An optional random string for future session signing. Recommended for hardening. |
 
+## Deployment — Stormkit
+
+When deploying with Stormkit, do not use the root workspace build script `pnpm run build` because it builds the entire monorepo.
+
+Use the app-only build command instead:
+
+```bash
+pnpm run build:app:stormkit
+```
+
+And set Stormkit's output directory to:
+
+```text
+artifacts/app/dist
+```
+
+This forces Stormkit to build only `@workspace/app` and then deploy only the actual frontend bundle.
+
 > **Security note:** Because the password is validated server-side against the `PASSWORD` secret, it is never exposed in the client bundle or source code. The Space can be public without leaking access credentials.
 
 ## Local Development (Replit)
