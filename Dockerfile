@@ -33,8 +33,8 @@ COPY --from=builder /app/artifacts/api-server/dist          ./dist
 COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
 
 # Runtime node_modules for the API server
-# (bare-server-node, bare-as-module3, pino, express, etc.)
-COPY --from=builder /app/artifacts/api-server/node_modules  ./node_modules
+# Copy the root workspace node_modules so pnpm workspace deps resolve correctly
+COPY --from=builder /app/node_modules  ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
