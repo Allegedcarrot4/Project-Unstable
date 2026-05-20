@@ -38,6 +38,7 @@ COPY --from=builder /app/.npmrc ./
 # Workspace package sources required by runtime dependencies
 COPY --from=builder /app/lib/db ./lib/db
 COPY --from=builder /app/lib/api-zod ./lib/api-zod
+COPY --from=builder /app/artifacts/api-server ./artifacts/api-server
 
 # Install runtime dependencies inside the final image
 RUN pnpm install --frozen-lockfile --prod --filter @workspace/api-server
