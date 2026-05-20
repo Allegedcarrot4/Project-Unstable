@@ -23,7 +23,7 @@ RUN BASE_PATH=/ PORT=7860 NODE_ENV=production \
 RUN pnpm --filter @workspace/api-server run build
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
-FROM node:20-slim AS runner
+FROM base AS runner
 WORKDIR /app
 
 # API server compiled bundle
@@ -32,8 +32,17 @@ COPY --from=builder /app/artifacts/api-server/dist          ./dist
 # Runtime package metadata required by runtime libraries like bare-server-node
 COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
 
-# Runtime node_modules for the API server
-COPY --from=builder /app/node_modules ./node_modules
+# Workspace metadata needed for pnpm to resolve workspace packages
+COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=builder /app/.npmrc ./
+
+# Workspace package sources required by runtime dependencies
+COPY --from=builder /app/lib/db ./lib/db
+COPY --from=builder /app/lib/api-zod ./lib/api-zod
+
+# Install runtime dependencies inside the final image
+RUN pnpm install --frozen-lockfile --prod
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
