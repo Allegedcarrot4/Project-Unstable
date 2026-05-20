@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { createBareServer } from "@tomphttp/bare-server-node";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -70,7 +71,15 @@ app.use(
 app.use("/api", router);
 
 // ─── Static frontend ───────────────────────────────────────
-const staticDir = path.resolve(__dirname, "../../app/dist/public");
+const staticCandidates = [
+  path.resolve(process.cwd(), "app/dist/public"),
+  path.resolve(__dirname, "../../app/dist/public"),
+  path.resolve(__dirname, "../../artifacts/app/dist/public"),
+];
+const staticDir = staticCandidates.find((candidate) => fs.existsSync(candidate));
+if (!staticDir) {
+  throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
+}
 app.use(express.static(staticDir));
 app.use((req, res, next) => {
   const p = req.path;
