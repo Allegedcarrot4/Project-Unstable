@@ -43,7 +43,7 @@ COPY --from=builder /app/runtime_node_modules  ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
-COPY --from=builder /app/artifacts/app/dist/public          ./public
+COPY --from=builder /app/artifacts/app/dist/public          ./app/dist/public
 
 EXPOSE 7860
 
