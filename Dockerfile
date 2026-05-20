@@ -29,10 +29,8 @@ WORKDIR /app
 # API server compiled bundle
 COPY --from=builder /app/artifacts/api-server/dist          ./dist
 
-# Runtime package metadata required by runtime libraries like bare-server-node
-COPY --from=builder /app/artifacts/api-server/package.json  ./package.json
-
-# Workspace metadata needed for pnpm to resolve workspace packages
+# Runtime workspace package metadata for pnpm
+COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=builder /app/.npmrc ./
@@ -42,7 +40,7 @@ COPY --from=builder /app/lib/db ./lib/db
 COPY --from=builder /app/lib/api-zod ./lib/api-zod
 
 # Install runtime dependencies inside the final image
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod --filter @workspace/api-server
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
