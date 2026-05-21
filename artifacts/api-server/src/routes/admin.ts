@@ -6,6 +6,19 @@ import {
 
 const router = Router();
 
+type MaybePostgrestError = {
+  code?: string;
+  message?: string;
+};
+
+function isMissingRelationError(error: MaybePostgrestError | null | undefined) {
+  return error?.code === "42P01";
+}
+
+function missingTableMessage(tableName: string) {
+  return `Supabase table "${tableName}" is missing. Run the admin setup SQL for this project.`;
+}
+
 async function requireAdmin(authorizationHeader: string | undefined) {
   const authed = await getAuthedUser(authorizationHeader);
   if (!authed) return null;
@@ -38,7 +51,13 @@ router.get("/admin/overview", async (req, res) => {
       return;
     }
 
-    const [{ data: profiles, error: profilesError }, { data: roles, error: rolesError }, { data: bans, error: bansError }, { data: devices, error: devicesError }, { data: messages, error: messagesError }] = await Promise.all([
+    const [
+      { data: profiles, error: profilesError },
+      { data: roles, error: rolesError },
+      { data: bans, error: bansError },
+      { data: devices, error: devicesError },
+      { data: messages, error: messagesError },
+    ] = await Promise.all([
       admin.supabase.from("profiles").select("id, username").order("username", { ascending: true }),
       admin.supabase.from("user_roles").select("user_id, role"),
       admin.supabase.from("user_bans").select("user_id, reason, banned_until, created_at"),
@@ -46,18 +65,58 @@ router.get("/admin/overview", async (req, res) => {
       admin.supabase.from("chat_messages").select("id, user_id, username, content, created_at").order("created_at", { ascending: false }).limit(150),
     ]);
 
-    if (profilesError || rolesError || bansError || devicesError || messagesError) {
-      throw profilesError || rolesError || bansError || devicesError || messagesError;
+    if (profilesError) {
+      throw new Error(
+        isMissingRelationError(profilesError)
+          ? missingTableMessage("profiles")
+          : profilesError.message || "Unable to read profiles.",
+      );
+    }
+
+    if (rolesError) {
+      throw new Error(
+        isMissingRelationError(rolesError)
+          ? missingTableMessage("user_roles")
+          : rolesError.message || "Unable to read admin roles.",
+      );
+    }
+
+    if (messagesError) {
+      throw new Error(
+        isMissingRelationError(messagesError)
+          ? missingTableMessage("chat_messages")
+          : messagesError.message || "Unable to read chat messages.",
+      );
     }
 
     const roleMap = new Map((roles ?? []).map((row) => [row.user_id, row.role]));
-    const banMap = new Map((bans ?? []).map((row) => [row.user_id, row]));
+    const safeBans = isMissingRelationError(bansError) ? [] : (bans ?? []);
+    const safeDevices = isMissingRelationError(devicesError) ? [] : (devices ?? []);
+
+    if (bansError && !isMissingRelationError(bansError)) {
+      throw new Error(bansError.message || "Unable to read banned users.");
+    }
+
+    if (devicesError && !isMissingRelationError(devicesError)) {
+      throw new Error(devicesError.message || "Unable to read registered devices.");
+    }
+
+    const warnings: string[] = [];
+    if (isMissingRelationError(bansError)) {
+      warnings.push(missingTableMessage("user_bans"));
+    }
+    if (isMissingRelationError(devicesError)) {
+      warnings.push(missingTableMessage("user_devices"));
+    }
+
+    const banMap = new Map(safeBans.map((row) => [row.user_id, row]));
     const deviceCountMap = new Map<string, number>();
-    for (const row of devices ?? []) {
+    for (const row of safeDevices) {
       deviceCountMap.set(row.user_id, (deviceCountMap.get(row.user_id) ?? 0) + 1);
     }
 
     res.json({
+      warnings,
       users: (profiles ?? []).map((profile) => ({
         id: profile.id,
         username: profile.username,

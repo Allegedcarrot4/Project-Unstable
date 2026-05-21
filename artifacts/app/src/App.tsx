@@ -88,6 +88,7 @@ interface AdminUserSummary {
 }
 
 interface AdminOverview {
+  warnings?: string[];
   users: AdminUserSummary[];
   messages: ChatMessageRecord[];
 }
@@ -291,6 +292,7 @@ async function fetchAdminOverview(accessToken: string): Promise<AdminOverview> {
   }
 
   return {
+    warnings: data.warnings ?? [],
     users: data.users ?? [],
     messages: data.messages ?? [],
   };
@@ -1935,6 +1937,13 @@ function AdminPage({
             {loading ? "loading…" : "refresh admin data"}
           </button>
           {error && <p style={{ margin: 0, color: "rgba(235,120,120,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{error}</p>}
+          {!error && (overview.warnings?.length ?? 0) > 0 && (
+            <div style={{ display: "grid", gap: "0.45rem" }}>
+              {overview.warnings!.map((warning) => (
+                <p key={warning} style={{ margin: 0, color: "rgba(255,210,140,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{warning}</p>
+              ))}
+            </div>
+          )}
         </aside>
 
         <section style={{ minWidth: 0, display: "grid", gap: "1rem" }}>
