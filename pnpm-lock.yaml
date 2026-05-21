@@ -152,6 +152,9 @@ importers:
       '@mercuryworkshop/wisp-js':
         specifier: ^0.4.1
         version: 0.4.1
+      '@supabase/supabase-js':
+        specifier: ^2.105.4
+        version: 2.105.4
       '@tomphttp/bare-server-node':
         specifier: ^2.0.6
         version: 2.0.6(bufferutil@4.1.0)

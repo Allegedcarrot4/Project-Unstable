@@ -12,6 +12,7 @@
   "dependencies": {
     "@mercuryworkshop/bare-as-module3": "^2.2.5",
     "@mercuryworkshop/wisp-js": "^0.4.1",
+    "@supabase/supabase-js": "^2.105.4",
     "@tomphttp/bare-server-node": "^2.0.6",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",

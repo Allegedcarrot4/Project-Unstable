@@ -51,6 +51,12 @@ interface Profile {
   username: string;
 }
 
+interface AppAuthContext {
+  isAdmin: boolean;
+  isBanned: boolean;
+  banReason: string | null;
+}
+
 interface AIConversationRecord {
   id: string;
   title: string | null;
@@ -71,6 +77,21 @@ interface ParsedChatMessage {
   body: string;
 }
 
+interface AdminUserSummary {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  isBanned: boolean;
+  banReason: string | null;
+  bannedUntil: string | null;
+  deviceCount: number;
+}
+
+interface AdminOverview {
+  users: AdminUserSummary[];
+  messages: ChatMessageRecord[];
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SESSION_KEY = "unstable_auth";
@@ -80,6 +101,7 @@ const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
 const BARE_KEY = "unstable_bare";
+const DEVICE_ID_KEY = "unstable_device_id";
 
 const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab1: "Alt+1", tab2: "Alt+2", tab3: "Alt+3", tab4: "Alt+4", tab5: "Alt+5",
@@ -145,6 +167,18 @@ function clearAuthSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+function getDeviceId() {
+  const existing = localStorage.getItem(DEVICE_ID_KEY);
+  if (existing) return existing;
+
+  const next =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(DEVICE_ID_KEY, next);
+  return next;
+}
+
 function buildConversationTitle(text: string) {
   const trimmed = text.trim().replace(/\s+/g, " ");
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
@@ -189,6 +223,129 @@ async function sendAiChat(messages: AIMessage[], mode: AIMode): Promise<string> 
   if (!res.ok) throw new Error(data?.error || "The AI request failed.");
   if (!data?.content) throw new Error("The AI response was empty.");
   return data.content;
+}
+
+async function readJson<T>(res: Response): Promise<T | null> {
+  return res.json().catch(() => null) as Promise<T | null>;
+}
+
+async function fetchDeviceBanStatus(): Promise<{ banned: boolean; reason: string | null }> {
+  const res = await fetch("/api/auth/device-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: getDeviceId() }),
+  });
+
+  const data = await readJson<{ banned?: boolean; reason?: string | null; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to verify whether this device is banned.");
+  }
+
+  return {
+    banned: Boolean(data?.banned),
+    reason: data?.reason ?? null,
+  };
+}
+
+async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
+  const res = await fetch("/api/auth/context", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const data = await readJson<{ isAdmin?: boolean; isBanned?: boolean; banReason?: string | null; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to load account access information.");
+  }
+
+  return {
+    isAdmin: Boolean(data?.isAdmin),
+    isBanned: Boolean(data?.isBanned),
+    banReason: data?.banReason ?? null,
+  };
+}
+
+async function registerCurrentDevice(accessToken: string) {
+  const res = await fetch("/api/auth/register-device", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ deviceId: getDeviceId() }),
+  });
+
+  const data = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to register this device.");
+  }
+}
+
+async function fetchAdminOverview(accessToken: string): Promise<AdminOverview> {
+  const res = await fetch("/api/admin/overview", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const data = await readJson<AdminOverview & { error?: string }>(res);
+  if (!res.ok || !data) {
+    throw new Error(data?.error || "Unable to load admin overview.");
+  }
+
+  return {
+    users: data.users ?? [],
+    messages: data.messages ?? [],
+  };
+}
+
+async function deleteAdminMessage(accessToken: string, messageId: string) {
+  const res = await fetch(`/api/admin/messages/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const data = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to delete message.");
+  }
+}
+
+async function banAdminUser(accessToken: string, userId: string, reason: string) {
+  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ reason }),
+  });
+
+  const data = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to ban user.");
+  }
+}
+
+async function unbanAdminUser(accessToken: string, userId: string) {
+  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/unban`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const data = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to unban user.");
+  }
+}
+
+async function deleteAdminUser(accessToken: string, userId: string) {
+  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const data = await readJson<{ ok?: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(data?.error || "Unable to delete user.");
+  }
 }
 
 async function fetchProfile(userId: string): Promise<Profile | null> {
@@ -757,7 +914,7 @@ function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
 function AccountAuthScreen({
   onAuthenticated,
 }: {
-  onAuthenticated: (payload: { session: Session; user: User; profile: Profile }) => void;
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [username, setUsername] = useState("");
@@ -779,6 +936,10 @@ function AccountAuthScreen({
       const cleanUsername = normalizeUsername(username);
       if (cleanUsername.length < 3) throw new Error("Username must be at least 3 valid characters.");
       const authEmail = usernameToAuthEmail(cleanUsername);
+      const deviceStatus = await fetchDeviceBanStatus();
+      if (deviceStatus.banned) {
+        throw new Error(deviceStatus.reason ? `This device is banned: ${deviceStatus.reason}` : "This device is banned.");
+      }
 
       if (mode === "signup") {
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -797,7 +958,13 @@ function AccountAuthScreen({
         if (!profile) {
           profile = await createProfile(data.user.id, cleanUsername);
         }
-        onAuthenticated({ session: data.session, user: data.user, profile });
+        await registerCurrentDevice(data.session.access_token);
+        const authContext = await fetchAuthContext(data.session.access_token);
+        if (authContext.isBanned) {
+          await supabase.auth.signOut();
+          throw new Error(authContext.banReason ? `This account is banned: ${authContext.banReason}` : "This account is banned.");
+        }
+        onAuthenticated({ session: data.session, user: data.user, profile, authContext });
         return;
       }
 
@@ -813,7 +980,14 @@ function AccountAuthScreen({
         throw new Error("No profile found for this account. Sign up again or create the profile in Supabase.");
       }
 
-      onAuthenticated({ session: data.session, user: data.user, profile });
+      await registerCurrentDevice(data.session.access_token);
+      const authContext = await fetchAuthContext(data.session.access_token);
+      if (authContext.isBanned) {
+        await supabase.auth.signOut();
+        throw new Error(authContext.banReason ? `This account is banned: ${authContext.banReason}` : "This account is banned.");
+      }
+
+      onAuthenticated({ session: data.session, user: data.user, profile, authContext });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {
@@ -1619,7 +1793,223 @@ function AIPage({ user, profile }: { user: User; profile: Profile }) {
   );
 }
 
-function ChatPage({ user, profile }: { user: User; profile: Profile }) {
+function AdminPage({
+  session,
+  currentUser,
+  isAdmin,
+}: {
+  session: Session;
+  currentUser: User;
+  isAdmin: boolean;
+}) {
+  const [overview, setOverview] = useState<AdminOverview>({ users: [], messages: [] });
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const accessToken = session.access_token;
+
+  const loadOverview = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoading(true);
+    setError("");
+    try {
+      const next = await fetchAdminOverview(accessToken);
+      setOverview(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load admin data.");
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, isAdmin]);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+
+  async function handleDeleteMessage(messageId: string) {
+    if (!window.confirm("Delete this message for everyone?")) return;
+    setWorking(`message:${messageId}`);
+    setError("");
+    try {
+      await deleteAdminMessage(accessToken, messageId);
+      setOverview((prev) => ({
+        ...prev,
+        messages: prev.messages.filter((message) => message.id !== messageId),
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete message.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function handleBanToggle(user: AdminUserSummary) {
+    const actionKey = `user:${user.id}:${user.isBanned ? "unban" : "ban"}`;
+    setWorking(actionKey);
+    setError("");
+    try {
+      if (user.isBanned) {
+        await unbanAdminUser(accessToken, user.id);
+      } else {
+        const reason = window.prompt(`Ban ${user.username}. Optional reason:`) ?? "";
+        await banAdminUser(accessToken, user.id, reason);
+      }
+      await loadOverview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update that user.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function handleDeleteUser(user: AdminUserSummary) {
+    if (user.id === currentUser.id) {
+      setError("You cannot delete the account you are currently using.");
+      return;
+    }
+    if (!window.confirm(`Delete ${user.username} permanently?`)) return;
+    setWorking(`delete-user:${user.id}`);
+    setError("");
+    try {
+      await deleteAdminUser(accessToken, user.id);
+      await loadOverview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete that user.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  if (!isAdmin) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "#e8e8e8", fontFamily: "'Space Grotesk', sans-serif" }}>
+        <div style={{ maxWidth: 480, padding: "2rem", textAlign: "center" }}>
+          <p style={{ margin: 0, fontSize: "0.64rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
+          <p style={{ margin: "0.9rem 0 0", fontSize: "1.2rem" }}>Admin role required.</p>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        height: "100%",
+        overflow: "auto",
+        background:
+          "radial-gradient(circle at top left, rgba(255,120,120,0.1), transparent 24%), radial-gradient(circle at bottom right, rgba(255,255,255,0.05), transparent 22%), #0d0d0d",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}
+    >
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(320px, 420px) minmax(0, 1fr)", gap: "1rem" }}>
+        <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(18,12,12,0.96), rgba(10,8,8,0.98))", borderRadius: "22px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.8rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+          <div>
+            <p style={{ margin: 0, fontSize: "0.62rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
+            <p style={{ margin: "0.6rem 0 0.35rem", color: "#f5f5f5", fontSize: "1.4rem", lineHeight: 1.05 }}>Moderation controls for real admin accounts.</p>
+            <p style={{ margin: 0, color: "rgba(255,255,255,0.45)", fontSize: "0.72rem", lineHeight: 1.6 }}>
+              Bans are stored in Supabase. Device bans are best-effort and follow the browser installation id saved on the device.
+            </p>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.8rem", display: "grid", gap: "0.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
+              <span>Users</span>
+              <span>{overview.users.length}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
+              <span>Banned</span>
+              <span>{overview.users.filter((user) => user.isBanned).length}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
+              <span>Recent messages</span>
+              <span>{overview.messages.length}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => void loadOverview()}
+            disabled={loading}
+            style={{ marginTop: "auto", background: loading ? "#231919" : "#f0e7e7", color: loading ? "rgba(255,255,255,0.35)" : "#140e0e", border: "none", borderRadius: "999px", padding: "0.8rem 1rem", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}
+          >
+            {loading ? "loading…" : "refresh admin data"}
+          </button>
+          {error && <p style={{ margin: 0, color: "rgba(235,120,120,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{error}</p>}
+        </aside>
+
+        <section style={{ minWidth: 0, display: "grid", gap: "1rem" }}>
+          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(8,8,8,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Users</p>
+              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://admin in the url bar</p>
+            </div>
+            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
+              {overview.users.map((user) => (
+                <div key={user.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "center", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.84rem" }}>{user.username}</p>
+                      {user.isAdmin && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>admin</span>}
+                      {user.isBanned && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(200,70,70,0.16)", color: "#ffb3b3", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>banned</span>}
+                    </div>
+                    <p style={{ margin: "0.28rem 0 0", color: "rgba(255,255,255,0.42)", fontSize: "0.67rem", lineHeight: 1.6 }}>
+                      {user.id === currentUser.id ? "Current account" : `Devices seen: ${user.deviceCount}`}
+                      {user.banReason ? ` • ${user.banReason}` : ""}
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      onClick={() => void handleBanToggle(user)}
+                      disabled={working === `user:${user.id}:${user.isBanned ? "unban" : "ban"}` || user.id === currentUser.id}
+                      style={{ background: user.isBanned ? "rgba(255,255,255,0.08)" : "rgba(200,70,70,0.14)", color: user.isBanned ? "#f2f2f2" : "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
+                    >
+                      {user.isBanned ? "unban" : "ban"}
+                    </button>
+                    <button
+                      onClick={() => void handleDeleteUser(user)}
+                      disabled={working === `delete-user:${user.id}` || user.id === currentUser.id}
+                      style={{ background: "transparent", color: "rgba(255,255,255,0.72)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
+                    >
+                      delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Recent chat messages</p>
+            </div>
+            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
+              {overview.messages.map((message) => {
+                const parsed = parseChatMessageContent(message.content);
+                return (
+                  <div key={message.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "start", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.8rem" }}>{message.username}</p>
+                      <p style={{ margin: "0.3rem 0 0", color: "rgba(255,255,255,0.72)", fontSize: "0.72rem", lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parsed.body}</p>
+                    </div>
+                    <button
+                      onClick={() => void handleDeleteMessage(message.id)}
+                      disabled={working === `message:${message.id}`}
+                      style={{ background: "rgba(200,70,70,0.14)", color: "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
+                    >
+                      delete
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      </div>
+    </motion.div>
+  );
+}
+
+function ChatPage({ user, profile, session, isAdmin }: { user: User; profile: Profile; session: Session; isAdmin: boolean }) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1678,6 +2068,17 @@ function ChatPage({ user, profile }: { user: User; profile: Profile }) {
           setMessages((prev) => (prev.some((msg) => msg.id === incoming.id) ? prev : [...prev, incoming]));
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "chat_messages" },
+        (payload) => {
+          const deletedId = String((payload.old as { id?: string } | null)?.id ?? "");
+          if (!deletedId) return;
+          setMessages((prev) => prev.filter((message) => message.id !== deletedId));
+          setReactionPickerId((prev) => (prev === deletedId ? null : prev));
+          setReplyTarget((prev) => (prev?.id === deletedId ? null : prev));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -1721,6 +2122,21 @@ function ChatPage({ user, profile }: { user: User; profile: Profile }) {
       setRecentOwnMessageId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to undo that message.");
+    }
+  }
+
+  async function adminDeleteMessage(messageId: string) {
+    if (!isAdmin) return;
+    if (!window.confirm("Delete this message for everyone?")) return;
+    setError("");
+    try {
+      await deleteAdminMessage(session.access_token, messageId);
+      setMessages((prev) => prev.filter((message) => message.id !== messageId));
+      if (recentOwnMessageId === messageId) {
+        setRecentOwnMessageId(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete that message.");
     }
   }
 
@@ -1814,6 +2230,9 @@ function ChatPage({ user, profile }: { user: User; profile: Profile }) {
                           {recentOwnMessageId === message.id && isOwn && (
                             <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
                           )}
+                          {isAdmin && (
+                            <button onClick={() => void adminDeleteMessage(message.id)} style={{ background: "none", border: "none", color: "rgba(255,160,160,0.72)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>delete</button>
+                          )}
                         </div>
                         {reactionPickerId === message.id && (
                           <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
@@ -1883,10 +2302,11 @@ function ChatPage({ user, profile }: { user: User; profile: Profile }) {
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, isAdmin = false }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
+  isAdmin?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -2021,7 +2441,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
       </AnimatePresence>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ...(isAdmin ? [["admin", "unstable://admin"]] as const : []), ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <motion.button
             whileHover={{ color: "rgba(255,255,255,0.7)" }}
             key={label}
@@ -2063,7 +2483,19 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 
 // ─── Browser app ──────────────────────────────────────────────────────────────
 
-function BrowserApp({ onLogout, user, profile }: { onLogout: () => void; user: User; profile: Profile }) {
+function BrowserApp({
+  onLogout,
+  session,
+  user,
+  profile,
+  authContext,
+}: {
+  onLogout: () => void;
+  session: Session;
+  user: User;
+  profile: Profile;
+  authContext: AppAuthContext;
+}) {
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
@@ -2137,7 +2569,11 @@ function BrowserApp({ onLogout, user, profile }: { onLogout: () => void; user: U
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy"].includes(page)) {
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin"].includes(page)) {
+        if (page === "admin" && !authContext.isAdmin) {
+          updateTab(tabId, { url: "unstable://settings", title: "Settings", favicon: "", loading: false });
+          return;
+        }
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         updateTab(tabId, { url: t, title, favicon: "", loading: false });
         setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
@@ -2255,13 +2691,15 @@ function BrowserApp({ onLogout, user, profile }: { onLogout: () => void; user: U
               style={{ position: "absolute", inset: 0 }}
             >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} isAdmin={authContext.isAdmin} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} />
               ) : tab.url === "unstable://chat" ? (
-                <ChatPage user={user} profile={profile} />
+                <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} />
               ) : tab.url === "unstable://settings" ? (
                 <SettingsPage settings={settings} onSettingsChange={setSettings} />
+              ) : tab.url === "unstable://admin" ? (
+                <AdminPage session={session} currentUser={user} isAdmin={authContext.isAdmin} />
               ) : tab.url === "unstable://credits" ? (
                 <CreditsPage />
               ) : tab.url === "unstable://tos" ? (
@@ -2346,6 +2784,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [authContext, setAuthContext] = useState<AppAuthContext>({ isAdmin: false, isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
 
   useEffect(() => {
@@ -2359,19 +2798,42 @@ export default function App() {
 
       if (!nextUser) {
         setProfile(null);
+        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
         setAccountLoading(false);
         return;
       }
 
       setAccountLoading(true);
       try {
-        const nextProfile = await fetchProfile(nextUser.id);
+        const [nextProfile, nextAuthContext] = await Promise.all([
+          fetchProfile(nextUser.id),
+          fetchAuthContext(nextSession!.access_token),
+        ]);
         if (!mounted) return;
+
+        if (nextAuthContext.isBanned) {
+          setProfile(null);
+          setAuthContext(nextAuthContext);
+          setAccountError(nextAuthContext.banReason ? `This account is banned: ${nextAuthContext.banReason}` : "This account is banned.");
+          await supabase.auth.signOut();
+          return;
+        }
+
+        try {
+          await registerCurrentDevice(nextSession!.access_token);
+        } catch (err) {
+          if (mounted) {
+            setAccountError(err instanceof Error ? err.message : "Unable to register this device.");
+          }
+        }
+
         setProfile(nextProfile);
+        setAuthContext(nextAuthContext);
         setAccountError(nextProfile ? "" : "Account signed in, but no profile was found.");
       } catch (err) {
         if (!mounted) return;
         setProfile(null);
+        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
       } finally {
         if (mounted) setAccountLoading(false);
@@ -2403,6 +2865,7 @@ export default function App() {
     setSession(null);
     setUser(null);
     setProfile(null);
+    setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
     applyCloak("none");
   }
 
@@ -2418,10 +2881,11 @@ export default function App() {
           </motion.div>
         ) : !session || !user || !profile ? (
           <div key="account-auth">
-            <AccountAuthScreen onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile }) => {
+            <AccountAuthScreen onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
               setSession(nextSession);
               setUser(nextUser);
               setProfile(nextProfile);
+              setAuthContext(nextAuthContext);
               setAccountError("");
             }} />
             {accountError && (
@@ -2431,7 +2895,7 @@ export default function App() {
             )}
           </div>
         ) : (
-          <BrowserApp key="app" onLogout={() => { void logout(); }} user={user} profile={profile} />
+          <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext} />
         )}
       </AnimatePresence>
     </>
