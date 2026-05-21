@@ -1,15 +1,28 @@
 # Dependencies (will be installed fresh inside Docker)
 **/node_modules
+**/.pnpm-store
+**/.npm
+**/.yarn
 
 # Build outputs (will be built fresh inside Docker)
 **/dist
+**/.next
+**/.turbo
+**/.cache
+**/.parcel-cache
 artifacts/app/dist
+tmp
+out-tsc
+*.tsbuildinfo
 
 # Dev / editor files
 .git
 .gitignore
 .env*
 *.local
+.agents/
+.vscode/
+.vercel/
 
 # Replit-specific files
 .replit
@@ -32,6 +45,7 @@ coverage/
 .nyc_output/
 
 # Large media / assets that are not needed for the build
+*.zip
 *.mp4
 *.mov
 *.psd

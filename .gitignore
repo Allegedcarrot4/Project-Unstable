@@ -5,11 +5,19 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+.turbo
+.cache
+.parcel-cache
+.next
+.vercel
 .expo
 .expo-shared
 
 # dependencies
 node_modules
+.pnpm-store
+.npm
+.yarn/
 
 # IDEs and editors
 /.idea
@@ -32,8 +40,11 @@ node_modules
 /connect.lock
 /coverage
 /libpeerconnection.log
-npm-debug.log
-yarn-error.log
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 testem.log
 /typings
 
@@ -47,8 +58,16 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+.agents/
 
 # Environment Variables
 .env
 .env.*
 !.env.example
+
+# Local archives and generated attachments
+*.zip
+attached_assets/branding-*.json
+attached_assets/content-*.md
+attached_assets/image_*.png
+attached_assets/screenshot-*.png
