@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 let adminClient: ReturnType<typeof createClient> | null = null;
 
@@ -26,6 +27,7 @@ export function getSupabaseAdmin() {
 
   adminClient = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: ws },
   });
 
   return adminClient;
@@ -64,4 +66,3 @@ export function requireDeviceId(raw: unknown): string {
   }
   return deviceId;
 }
-

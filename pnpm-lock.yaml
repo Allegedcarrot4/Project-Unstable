@@ -185,6 +185,9 @@ importers:
       pino-http:
         specifier: ^10
         version: 10.5.0
+      ws:
+        specifier: ^8.18.3
+        version: 8.20.0(bufferutil@4.1.0)
     devDependencies:
       '@types/cookie-parser':
         specifier: ^1.4.10

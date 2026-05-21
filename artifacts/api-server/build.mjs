@@ -30,6 +30,7 @@ async function buildAll() {
     external: [
       "*.node",
       "wisp-server-node",
+      "ws",
       "sharp",
       "better-sqlite3",
       "sqlite3",
