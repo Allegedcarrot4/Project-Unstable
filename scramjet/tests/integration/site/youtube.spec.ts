@@ -1,8 +1,9 @@
+// @ts-ignore: Ignore missing Playwright types in this environment
 import { test, expect } from "@playwright/test";
 import { setupPage } from "../../util/setupPage";
 
 test.describe("YouTube", () => {
-	test("The front page can load.", async ({ page }) => {
+	test("The front page can load.", async ({ page }: { page: any }) => {
 		const frame = await setupPage(page, "https://www.youtube.com/");
 
 		// Wait for the page inside the iframe to load
@@ -14,7 +15,7 @@ test.describe("YouTube", () => {
 		expect(logo).not.toBeNull();
 	});
 
-	test("The search page can load.", async ({ page }) => {
+	test("The search page can load.", async ({ page }: { page: any }) => {
 		const frame = await setupPage(
 			page,
 			"https://www.youtube.com/results?search_query=bad+apple"

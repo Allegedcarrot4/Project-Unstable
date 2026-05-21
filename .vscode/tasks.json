@@ -1,0 +1,59 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Commit and push Docker fix",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile artifacts/api-server/src/app.ts && git commit -m \"fix: include runtime node_modules and robust staticPath resolution\" && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		},
+		{
+			"label": "Commit and push Docker fix 2",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile artifacts/api-server/src/app.ts && git commit -m 'fix: include runtime node_modules and robust staticPath resolution' && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		},
+		{
+			"label": "Commit and push runtime install fix",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile && git commit -m 'fix: install runtime dependencies in runner image' && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		},
+		{
+			"label": "Commit and push filtered pnpm install fix",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile && git commit -m 'fix: use root package manifest and filter api-server runtime install' && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		},
+		{
+			"label": "Commit and push workspace package copy fix",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile && git commit -m 'fix: copy artifacts/api-server workspace package into runner for filtered install' && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		},
+		{
+			"label": "Commit and push bare-as-module3 copy fix",
+			"type": "shell",
+			"command": "git status --short && git add Dockerfile && git commit -m 'fix: copy bare-as-module3 into runner node_modules from builder' && git push hf main --force",
+			"isBackground": false,
+			"problemMatcher": [
+				"$git"
+			]
+		}
+	]
+}

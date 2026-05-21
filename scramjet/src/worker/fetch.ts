@@ -204,15 +204,11 @@ export async function handleFetch(
 		}
 
 		if (client && new URL(client.url).pathname.startsWith(config.prefix)) {
-			// TODO: i was against cors emulation but we might actually break stuff if we send full origin/referrer always
+			// Force referrer/origin for all proxied requests.
+			// Without a real Referer/Origin, some sites render degraded or inconsistent content.
 			const clientURL = new URL(unrewriteUrl(client.url));
-			if (clientURL.toString().includes("youtube.com")) {
-				// console.log(headers);
-			} else {
-				// Force referrer to unsafe-url for all requests
-				headers.set("Referer", clientURL.href);
-				headers.set("Origin", clientURL.origin);
-			}
+			headers.set("Referer", clientURL.href);
+			headers.set("Origin", clientURL.origin);
 		}
 
 		const cookies = this.cookieStore.getCookies(url, false);

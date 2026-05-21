@@ -30,6 +30,8 @@ Go to **Settings → Variables and secrets** in your Space and add:
 | `PASSWORD` | **Yes** | The password users must enter to access Unstable. If not set, the Space will refuse all login attempts in production. |
 | `SESSION_SECRET` | No | An optional random string for future session signing. Recommended for hardening. |
 
+Copy `.env.example` to `.env` and fill in your own values for local development. `.env` files are ignored by git and should never be committed.
+
 ## Deployment — Stormkit
 
 When deploying with Stormkit, do not use the root workspace build script `pnpm run build` because it builds the entire monorepo.

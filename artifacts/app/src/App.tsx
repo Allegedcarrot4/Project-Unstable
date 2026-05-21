@@ -105,6 +105,7 @@ const SHORTCUT_LABELS: Record<string, string> = {
 const DEFAULT_SHORTCUTS: Shortcut[] = [
   { id: "google", name: "Google", url: "https://google.com", favicon: faviconUrl("google.com") },
   { id: "discord", name: "Discord", url: "https://discord.com", favicon: faviconUrl("discord.com") },
+  { id: "youtube", name: "YouTube", url: "https://www.youtube.com", favicon: faviconUrl("youtube.com") },
   { id: "github", name: "GitHub", url: "https://github.com", favicon: faviconUrl("github.com") },
   { id: "spotify", name: "Spotify", url: "https://open.spotify.com", favicon: faviconUrl("open.spotify.com") },
   { id: "twitch", name: "Twitch", url: "https://twitch.tv", favicon: faviconUrl("twitch.tv") },
@@ -214,28 +215,12 @@ async function createProfile(userId: string, username: string): Promise<Profile>
 }
 
 function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
-  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null && !shouldForceUv(url);
+  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
   if (useScramjet) {
     try { return scrController!.encodeUrl(url); } catch { /* fall through */ }
   }
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
   return UV_PREFIX + encodeURIComponent(url);
-}
-
-function shouldForceUv(rawUrl: string): boolean {
-  try {
-    const host = new URL(rawUrl).hostname.toLowerCase();
-    return (
-      host === "youtube.com" ||
-      host.endsWith(".youtube.com") ||
-      host === "youtu.be" ||
-      host.endsWith(".googlevideo.com") ||
-      host === "smashkarts.io" ||
-      host.endsWith(".smashkarts.io")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function normalizeUrl(input: string): string {
