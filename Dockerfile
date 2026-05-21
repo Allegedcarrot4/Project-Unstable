@@ -14,10 +14,12 @@ COPY . .
 # Install all workspace dependencies
 RUN pnpm install --frozen-lockfile
 
-# Extract the runtime package from the pnpm store so it can be copied into the runner
+# Extract runtime packages from the pnpm store so they can be copied into the runner
 RUN mkdir -p /app/runtime_node_modules/@mercuryworkshop && \
     pkg=$(find /app/node_modules/.pnpm -path '*/@mercuryworkshop/bare-as-module3' -type d | head -n 1) && \
-    cp -aL "$pkg" /app/runtime_node_modules/@mercuryworkshop/bare-as-module3
+    cp -aL "$pkg" /app/runtime_node_modules/@mercuryworkshop/bare-as-module3 && \
+    wspkg=$(find /app/node_modules/.pnpm -path '*/node_modules/ws' -type d | head -n 1) && \
+    cp -aL "$wspkg" /app/runtime_node_modules/ws
 
 # Build the React frontend
 # BASE_PATH=/ because in Docker there is no path prefix
