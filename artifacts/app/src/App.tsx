@@ -1097,6 +1097,298 @@ function AccountAuthScreen({
   );
 }
 
+// ─── Games page ──────────────────────────────────────────────────────────────
+
+const GAMES_LIST = [
+  { id: 0, name: "Bowmasters", cover: "https://raw.githack.com/gn-math/covers/main/0.png", url: "https://raw.githack.com/gn-math/html/main/0.html", author: "Azur Games, Playgendary", authorLink: "https://azurgames.com" },
+  { id: 1, name: "OvO", cover: "https://raw.githack.com/gn-math/covers/main/1.png", url: "https://raw.githack.com/gn-math/html/main/1-fde.html", author: "Dedra Games", authorLink: "https://dedragames.com" },
+  { id: 2, name: "OvO 2", cover: "https://raw.githack.com/gn-math/covers/main/2.png", url: "https://raw.githack.com/gn-math/html/main/2e.html", author: "Dedra Games", authorLink: "https://dedragames.com" },
+  { id: 3, name: "OvO 3 Dimensions", cover: "https://raw.githack.com/gn-math/covers/main/3.png", url: "https://raw.githack.com/gn-math/html/main/3.html", author: "Dedra Games", authorLink: "https://dedragames.com" },
+  { id: 4, name: "Gladihoppers", cover: "https://raw.githack.com/gn-math/covers/main/4.png", url: "https://raw.githack.com/gn-math/html/main/4.html", author: "Dreamon Studios", authorLink: "https://dreamonstudios.itch.io/gladihoppers" },
+  { id: 5, name: "Ice Dodo", cover: "https://raw.githack.com/gn-math/covers/main/5.png", url: "https://raw.githack.com/gn-math/html/main/5.html", author: "Onionfist Studio", authorLink: "https://onionfist.com" },
+  { id: 6, name: "Block Blast", cover: "https://raw.githack.com/gn-math/covers/main/6.png", url: "https://raw.githack.com/gn-math/html/main/6.html", author: "reunbozdo", authorLink: "https://reunbozdo.github.io" },
+  { id: 7, name: "Jetpack Joyride", cover: "https://raw.githack.com/gn-math/covers/main/7.png", url: "https://raw.githack.com/gn-math/html/main/7.html", author: "Halfbrick Studios", authorLink: "https://www.halfbrick.com" },
+  { id: 8, name: "Friday Night Funkin", cover: "https://raw.githack.com/gn-math/covers/main/8.png", url: "https://raw.githack.com/gn-math/html/main/8-wow.html", author: "ninja-muffin24", authorLink: "https://ninja-muffin24.itch.io/funkin" },
+  { id: 9, name: "Sprunki", cover: "https://raw.githack.com/gn-math/covers/main/9.png", url: "https://raw.githack.com/gn-math/html/main/9.html", author: "NyankoBfLol", authorLink: "https://www.cocrea.world/@NyankoBfLmao" },
+  { id: 10, name: "Temple Run 2", cover: "https://raw.githack.com/gn-math/covers/main/10.png", url: "https://raw.githack.com/gn-math/html/main/10.html", author: "Imangi STUDIOS", authorLink: "https://imangistudios.com" },
+  { id: 11, name: "Stickman Hook", cover: "https://raw.githack.com/gn-math/covers/main/11.png", url: "https://raw.githack.com/gn-math/html/main/11.html", author: "Madbox", authorLink: "https://madbox.io" },
+  { id: 13, name: "Attack Hole", cover: "https://raw.githack.com/gn-math/covers/main/13.png", url: "https://raw.githack.com/gn-math/html/main/13.html", author: "Homa Games", authorLink: "https://www.homagames.com" },
+  { id: 14, name: "Bridge Race", cover: "https://raw.githack.com/gn-math/covers/main/14.png", url: "https://raw.githack.com/gn-math/html/main/14.html", author: "QubicGames", authorLink: "https://qubicgames.com" },
+  { id: 15, name: "Color Water Sort 3D", cover: "https://raw.githack.com/gn-math/covers/main/15.png", url: "https://raw.githack.com/gn-math/html/main/15.html", author: "Tapnation", authorLink: "https://www.tap-nation.io" },
+  { id: 16, name: "Hide N Seek", cover: "https://raw.githack.com/gn-math/covers/main/16.png", url: "https://raw.githack.com/gn-math/html/main/16.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/developer?id=Supersonic+Studios+LTD" },
+  { id: 17, name: "Magic Tiles 3", cover: "https://raw.githack.com/gn-math/covers/main/17.png", url: "https://raw.githack.com/gn-math/html/main/17.html", author: "AmaNotes", authorLink: "https://play.google.com/store/apps/details?id=com.youmusic.magictiles" },
+  { id: 18, name: "Stacky Dash", cover: "https://raw.githack.com/gn-math/covers/main/18.png", url: "https://raw.githack.com/gn-math/html/main/18.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/details?id=com.Born2Play.StackyDash" },
+  { id: 19, name: "Supreme Duelist", cover: "https://raw.githack.com/gn-math/covers/main/19.png", url: "https://raw.githack.com/gn-math/html/main/19.html", author: "Neron's Brother", authorLink: "https://neronsbrother.com" },
+  { id: 20, name: "Tall Man Run", cover: "https://raw.githack.com/gn-math/covers/main/20.png", url: "https://raw.githack.com/gn-math/html/main/20a.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/details?id=com.VectorUpGames.TallManRun" },
+  { id: 21, name: "Turbo Stars", cover: "https://raw.githack.com/gn-math/covers/main/21.png", url: "https://raw.githack.com/gn-math/html/main/21.html", author: "SayGames", authorLink: "https://play.google.com/store/apps/details?id=com.turbo.stars" },
+  { id: 22, name: "Mob Control HTML5", cover: "https://raw.githack.com/gn-math/covers/main/22.png", url: "https://raw.githack.com/gn-math/html/main/22.html", author: "Voodoo", authorLink: "https://voodoo.io" },
+  { id: 23, name: "Pou", cover: "https://raw.githack.com/gn-math/covers/main/23.png", url: "https://raw.githack.com/gn-math/html/main/23.html", author: "Zakeh", authorLink: "https://play.google.com/store/apps/details?id=me.pou.app" },
+  { id: 24, name: "Crossy Road", cover: "https://raw.githack.com/gn-math/covers/main/24.png", url: "https://raw.githack.com/gn-math/html/main/24.html", author: "Hipster Whale", authorLink: "https://www.hipsterwhale.com" },
+  { id: 25, name: "Basket Battle", cover: "https://raw.githack.com/gn-math/covers/main/25.png", url: "https://raw.githack.com/gn-math/html/main/25.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/details?id=com.noorgames.basketbattle" },
+  { id: 26, name: "Amaze", cover: "https://raw.githack.com/gn-math/covers/main/26.png", url: "https://raw.githack.com/gn-math/html/main/26.html", author: "CrazyLabs", authorLink: "https://play.google.com/store/apps/details?id=com.crazylabs.amaze.game" },
+  { id: 27, name: "Geometry Dash Lite (REMAKE)", cover: "https://raw.githack.com/gn-math/covers/main/27.png", url: "https://raw.githack.com/gn-math/html/main/27-f.html", author: "RobTop Games", authorLink: "https://play.google.com/store/apps/details?id=com.robtopx.geometryjumplite" },
+  { id: 28, name: "Basketball Frvr", cover: "https://raw.githack.com/gn-math/covers/main/28.png", url: "https://raw.githack.com/gn-math/html/main/28.html", author: "FRVR", authorLink: "https://play.google.com/store/apps/details?id=com.frvr.basketball" },
+  { id: 29, name: "Bazooka Boy", cover: "https://raw.githack.com/gn-math/covers/main/29.png", url: "https://raw.githack.com/gn-math/html/main/29.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/details?id=com.Lightneer.BazookaBoy" },
+  { id: 30, name: "Bottle Jump 3D", cover: "https://raw.githack.com/gn-math/covers/main/30.png", url: "https://raw.githack.com/gn-math/html/main/30.html", author: "CASUAL AZUR GAMES", authorLink: "https://play.google.com/store/apps/details?id=com.games.bottle" },
+  { id: 31, name: "Color Match", cover: "https://raw.githack.com/gn-math/covers/main/31.png", url: "https://raw.githack.com/gn-math/html/main/31.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/developer?id=Supersonic+Studios+LTD" },
+  { id: 32, name: "Dig Deep", cover: "https://raw.githack.com/gn-math/covers/main/32.png", url: "https://raw.githack.com/gn-math/html/main/32.html", author: "CrazyLabs LTD", authorLink: "https://play.google.com/store/apps/dev?id=6443412597262225303" },
+  { id: 33, name: "Retro Bowl", cover: "https://raw.githack.com/gn-math/covers/main/33.png", url: "https://raw.githack.com/gn-math/html/main/33.html", author: "New Star Games", authorLink: "https://www.newstargames.com/" },
+  { id: 34, name: "Retro Bowl College", cover: "https://raw.githack.com/gn-math/covers/main/34.png", url: "https://raw.githack.com/gn-math/html/main/34-fixed.html", author: "New Star Games", authorLink: "https://www.newstargames.com/" },
+  { id: 36, name: "Monster Tracks", cover: "https://raw.githack.com/gn-math/covers/main/36.png", url: "https://raw.githack.com/gn-math/html/main/36.html", author: "Fancade", authorLink: "https://fancade.com/" },
+  { id: 37, name: "Gobble", cover: "https://raw.githack.com/gn-math/covers/main/37.png", url: "https://raw.githack.com/gn-math/html/main/37.html", author: "Fancade", authorLink: "https://fancade.com/" },
+  { id: 38, name: "Five Nights at Freddy's", cover: "https://raw.githack.com/gn-math/covers/main/38.png", url: "https://raw.githack.com/gn-math/html/main/38.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 39, name: "Five Nights at Freddy's 2", cover: "https://raw.githack.com/gn-math/covers/main/39.png", url: "https://raw.githack.com/gn-math/html/main/39.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 40, name: "Five Nights at Freddy's 3", cover: "https://raw.githack.com/gn-math/covers/main/40.png", url: "https://raw.githack.com/gn-math/html/main/40.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 41, name: "Five Nights at Freddy's 4", cover: "https://raw.githack.com/gn-math/covers/main/41.png", url: "https://raw.githack.com/gn-math/html/main/41.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 42, name: "Road of Fury", cover: "https://raw.githack.com/gn-math/covers/main/42.png", url: "https://raw.githack.com/gn-math/html/main/42.html", author: "IriySoft", authorLink: "https://iriysoft.newgrounds.com/" },
+  { id: 43, name: "Driven Wild", cover: "https://raw.githack.com/gn-math/covers/main/43.png", url: "https://raw.githack.com/gn-math/html/main/43.html", author: "KilledByAPixel", authorLink: "https://killedbyapixel.newgrounds.com/" },
+  { id: 44, name: "Ragdoll Hit", cover: "https://raw.githack.com/gn-math/covers/main/44.png", url: "https://raw.githack.com/gn-math/html/main/44-fix.html", author: "Kids Games LLC", authorLink: "https://play.google.com/store/apps/dev?id=6566434917716295659" },
+  { id: 45, name: "Vex 1", cover: "https://raw.githack.com/gn-math/covers/main/45.png", url: "https://raw.githack.com/gn-math/html/main/45.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 46, name: "Vex 2", cover: "https://raw.githack.com/gn-math/covers/main/46.png", url: "https://raw.githack.com/gn-math/html/main/46.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 47, name: "Vex 3", cover: "https://raw.githack.com/gn-math/covers/main/47.png", url: "https://raw.githack.com/gn-math/html/main/47.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 48, name: "Vex 3 XMAS", cover: "https://raw.githack.com/gn-math/covers/main/48.png", url: "https://raw.githack.com/gn-math/html/main/48.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 49, name: "Vex 4", cover: "https://raw.githack.com/gn-math/covers/main/49.png", url: "https://raw.githack.com/gn-math/html/main/49.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 50, name: "Vex 5", cover: "https://raw.githack.com/gn-math/covers/main/50.png", url: "https://raw.githack.com/gn-math/html/main/50.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 51, name: "Vex 6", cover: "https://raw.githack.com/gn-math/covers/main/51.png", url: "https://raw.githack.com/gn-math/html/main/51.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 52, name: "Vex 7", cover: "https://raw.githack.com/gn-math/covers/main/52.png", url: "https://raw.githack.com/gn-math/html/main/52.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 53, name: "Vex 8", cover: "https://raw.githack.com/gn-math/covers/main/53.png", url: "https://raw.githack.com/gn-math/html/main/53.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 54, name: "Vex Challenges", cover: "https://raw.githack.com/gn-math/covers/main/54.png", url: "https://raw.githack.com/gn-math/html/main/54.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 55, name: "Vex X3M", cover: "https://raw.githack.com/gn-math/covers/main/55.png", url: "https://raw.githack.com/gn-math/html/main/55.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 56, name: "Vex X3M 2", cover: "https://raw.githack.com/gn-math/covers/main/56.png", url: "https://raw.githack.com/gn-math/html/main/56.html", author: "Lorenzo De Carlo", authorLink: "https://nl.linkedin.com/in/lorenzodecarlo" },
+  { id: 58, name: "1v1.LoL", cover: "https://raw.githack.com/gn-math/covers/main/58.png", url: "https://raw.githack.com/gn-math/html/main/58.html", author: "JustPlay.LOL", authorLink: "https://play.google.com/store/apps/dev?id=7065081805875144950" },
+  { id: 59, name: "A Dance of Fire and Ice", cover: "https://raw.githack.com/gn-math/covers/main/59.png", url: "https://raw.githack.com/gn-math/html/main/59.html", author: "fizzd", authorLink: "https://fizzd.itch.io/" },
+  { id: 60, name: "Achievement Unlocked", cover: "https://raw.githack.com/gn-math/covers/main/60.png", url: "https://raw.githack.com/gn-math/html/main/60.html", author: "jmtb02", authorLink: "https://jmtb02.newgrounds.com/" },
+  { id: 61, name: "Achievement Unlocked 2", cover: "https://raw.githack.com/gn-math/covers/main/61.png", url: "https://raw.githack.com/gn-math/html/main/61.html", author: "jmtb02", authorLink: "https://jmtb02.newgrounds.com/" },
+  { id: 62, name: "Achievement Unlocked 3", cover: "https://raw.githack.com/gn-math/covers/main/62.png", url: "https://raw.githack.com/gn-math/html/main/62.html", author: "jmtb02", authorLink: "https://jmtb02.newgrounds.com/" },
+  { id: 63, name: "Angry Birds", cover: "https://raw.githack.com/gn-math/covers/main/63.png", url: "https://raw.githack.com/gn-math/html/main/63.html", author: "Rovio Entertainment", authorLink: "https://www.rovio.com/" },
+  { id: 64, name: "Backrooms", cover: "https://raw.githack.com/gn-math/covers/main/64.png", url: "https://raw.githack.com/gn-math/html/main/64-fix.html", author: "Esyverse", authorLink: "https://esyverse.itch.io/" },
+  { id: 65, name: "Baldi's Basics", cover: "https://raw.githack.com/gn-math/covers/main/65.png", url: "https://raw.githack.com/gn-math/html/main/65-fixed.html", author: "Basically Games", authorLink: "https://basically-games.itch.io/baldis-basics" },
+  { id: 66, name: "Basket Random", cover: "https://raw.githack.com/gn-math/covers/main/66.png", url: "https://raw.githack.com/gn-math/html/main/66.html", author: "RHM Interactive OÜ", authorLink: "https://play.google.com/store/apps/dev?id=9182049342574405049" },
+  { id: 67, name: "Big Tower Tiny Square", cover: "https://raw.githack.com/gn-math/covers/main/67.png", url: "https://raw.githack.com/gn-math/html/main/67-f.html", author: "EvilObjective", authorLink: "https://evilobjective.itch.io" },
+  { id: 68, name: "Big NEON Tower Tiny Square", cover: "https://raw.githack.com/gn-math/covers/main/68.png", url: "https://raw.githack.com/gn-math/html/main/68.html", author: "EvilObjective", authorLink: "https://evilobjective.itch.io" },
+  { id: 69, name: "Big ICE Tower Tiny Square", cover: "https://raw.githack.com/gn-math/covers/main/69.png", url: "https://raw.githack.com/gn-math/html/main/69.html", author: "EvilObjective", authorLink: "https://evilobjective.itch.io" },
+  { id: 70, name: "BitLife", cover: "https://raw.githack.com/gn-math/covers/main/70.png", url: "https://raw.githack.com/gn-math/html/main/70.html", author: "Candywriter", authorLink: "https://candywriter.com" },
+  { id: 71, name: "Bloons TD", cover: "https://raw.githack.com/gn-math/covers/main/71.png", url: "https://raw.githack.com/gn-math/html/main/71.html", author: "Ninja Kiwi", authorLink: "https://ninjakiwi.com" },
+  { id: 72, name: "Bloons TD 2", cover: "https://raw.githack.com/gn-math/covers/main/72.png", url: "https://raw.githack.com/gn-math/html/main/72.html", author: "Ninja Kiwi", authorLink: "https://ninjakiwi.com" },
+  { id: 73, name: "Bloons TD 3", cover: "https://raw.githack.com/gn-math/covers/main/73.png", url: "https://raw.githack.com/gn-math/html/main/73.html", author: "Ninja Kiwi", authorLink: "https://ninjakiwi.com" },
+  { id: 74, name: "Bloons TD 4", cover: "https://raw.githack.com/gn-math/covers/main/74.png", url: "https://raw.githack.com/gn-math/html/main/74.html", author: "Ninja Kiwi", authorLink: "https://ninjakiwi.com" },
+  { id: 75, name: "Bloons TD 5", cover: "https://raw.githack.com/gn-math/covers/main/75.png", url: "https://raw.githack.com/gn-math/html/main/75-fix.html", author: "Ninja Kiwi", authorLink: "https://ninjakiwi.com" },
+  { id: 76, name: "Bob The Robber 2", cover: "https://raw.githack.com/gn-math/covers/main/76.png", url: "https://raw.githack.com/gn-math/html/main/76-fix.html", author: "Meow Beast", authorLink: "https://www.newgrounds.com/portal/view/585767" },
+  { id: 77, name: "Boxing Random", cover: "https://raw.githack.com/gn-math/covers/main/77.png", url: "https://raw.githack.com/gn-math/html/main/77.html", author: "RHM Interactive", authorLink: "https://www.twoplayergames.org" },
+  { id: 78, name: "Burrito Bison: Launcha Libre", cover: "https://raw.githack.com/gn-math/covers/main/78.png", url: "https://raw.githack.com/gn-math/html/main/78.html", author: "Juicy Beast", authorLink: "https://juicybeast.com" },
+  { id: 79, name: "Cannon Basketball", cover: "https://raw.githack.com/gn-math/covers/main/79.png", url: "https://raw.githack.com/gn-math/html/main/79.html", author: "Oleh Kuzyk", authorLink: "https://ua.linkedin.com/in/olehkuzyk" },
+  { id: 80, name: "Cannon Basketball 2", cover: "https://raw.githack.com/gn-math/covers/main/80.png", url: "https://raw.githack.com/gn-math/html/main/80.html", author: "Oleh Kuzyk", authorLink: "https://ua.linkedin.com/in/olehkuzyk" },
+  { id: 81, name: "Cluster Rush", cover: "https://raw.githack.com/gn-math/covers/main/81.png", url: "https://raw.githack.com/gn-math/html/main/81.html", author: "Landfall", authorLink: "https://landfall.se" },
+  { id: 82, name: "Cookie Clicker", cover: "https://raw.githack.com/gn-math/covers/main/82.png", url: "https://raw.githack.com/gn-math/html/main/82-u.html", author: "Orteil", authorLink: "https://orteil.dashnet.org" },
+  { id: 83, name: "Coreball", cover: "https://raw.githack.com/gn-math/covers/main/83.png", url: "https://raw.githack.com/gn-math/html/main/83.html", author: "Ben Vinegar", authorLink: "https://benv.ca/" },
+  { id: 84, name: "Cubefield", cover: "https://raw.githack.com/gn-math/covers/main/84.png", url: "https://raw.githack.com/gn-math/html/main/84.html", author: "Max Abernethy", authorLink: "https://max-abernethy.newgrounds.com/" },
+  { id: 85, name: "Cut the Rope", cover: "https://raw.githack.com/gn-math/covers/main/85.png", url: "https://raw.githack.com/gn-math/html/main/85-f.html", author: "ZeptoLab", authorLink: "https://www.zeptolab.com" },
+  { id: 86, name: "Draw Climber", cover: "https://raw.githack.com/gn-math/covers/main/86.png", url: "https://raw.githack.com/gn-math/html/main/86.html", author: "VOODOO", authorLink: "https://voodoo.io" },
+  { id: 87, name: "Emulator.JS", cover: "https://raw.githack.com/gn-math/covers/main/87.png", url: "https://raw.githack.com/gn-math/html/main/87.html", author: "Ethan O'Brien", authorLink: "https://emulatorjs.org/" },
+  { id: 88, name: "Fireboy and Watergirl 2", cover: "https://raw.githack.com/gn-math/covers/main/88.png", url: "https://raw.githack.com/gn-math/html/main/88.html", author: "Oslo Albet", authorLink: "https://www.osloalbet.com" },
+  { id: 89, name: "Fireboy and Watergirl 3", cover: "https://raw.githack.com/gn-math/covers/main/89.png", url: "https://raw.githack.com/gn-math/html/main/89.html", author: "Oslo Albet", authorLink: "https://www.osloalbet.com" },
+  { id: 90, name: "Granny", cover: "https://raw.githack.com/gn-math/covers/main/90.png", url: "https://raw.githack.com/gn-math/html/main/90-fix2.html", author: "DVloper", authorLink: "https://grannyhorror.com" },
+  { id: 91, name: "Gunspin", cover: "https://raw.githack.com/gn-math/covers/main/91.png", url: "https://raw.githack.com/gn-math/html/main/91.html", author: "minijuegos.com", authorLink: "https://www.minijuegos.com/" },
+  { id: 92, name: "Highway Racer 2", cover: "https://raw.githack.com/gn-math/covers/main/92.png", url: "https://raw.githack.com/gn-math/html/main/92.html", author: "Bone Cracker Games", authorLink: "https://www.bonecrackergames.com/" },
+  { id: 93, name: "Johnny Trigger", cover: "https://raw.githack.com/gn-math/covers/main/93.png", url: "https://raw.githack.com/gn-math/html/main/93.html", author: "SayGames", authorLink: "https://say.games" },
+  { id: 94, name: "Journey Downhill", cover: "https://raw.githack.com/gn-math/covers/main/94.png", url: "https://raw.githack.com/gn-math/html/main/94.html", author: "Megagon Industries", authorLink: "https://megagonindustries.com/" },
+  { id: 95, name: "Line Rider", cover: "https://raw.githack.com/gn-math/covers/main/95.png", url: "https://raw.githack.com/gn-math/html/main/95.html", author: "Boštjan Čadež", authorLink: "https://fsk.deviantart.com" },
+  { id: 96, name: "Moto X3M", cover: "https://raw.githack.com/gn-math/covers/main/96.png", url: "https://raw.githack.com/gn-math/html/main/96.html", author: "MadPuffers", authorLink: "https://www.madpuffers.com" },
+  { id: 97, name: "Moto X3M 2", cover: "https://raw.githack.com/gn-math/covers/main/97.png", url: "https://raw.githack.com/gn-math/html/main/97.html", author: "MadPuffers", authorLink: "https://www.madpuffers.com" },
+  { id: 98, name: "Moto X3M 3", cover: "https://raw.githack.com/gn-math/covers/main/98.png", url: "https://raw.githack.com/gn-math/html/main/98.html", author: "MadPuffers", authorLink: "https://www.madpuffers.com" },
+  { id: 99, name: "Moto X3M Spooky", cover: "https://raw.githack.com/gn-math/covers/main/99.png", url: "https://raw.githack.com/gn-math/html/main/99.html", author: "MadPuffers", authorLink: "https://www.madpuffers.com" },
+  { id: 100, name: "Moto X3M Winter", cover: "https://raw.githack.com/gn-math/covers/main/100.png", url: "https://raw.githack.com/gn-math/html/main/100-f.html", author: "MadPuffers", authorLink: "https://www.madpuffers.com" },
+  { id: 101, name: "Ninja vs EvilCorp", cover: "https://raw.githack.com/gn-math/covers/main/101.png", url: "https://raw.githack.com/gn-math/html/main/101.html", author: "Rémi Vansteelandt", authorLink: "https://remvst.com" },
+  { id: 102, name: "Paper.io 2", cover: "https://raw.githack.com/gn-math/covers/main/102.png", url: "https://raw.githack.com/gn-math/html/main/102.html", author: "VOODOO", authorLink: "https://voodoo.io" },
+  { id: 103, name: "The World's Hardest Game", cover: "https://raw.githack.com/gn-math/covers/main/103.png", url: "https://raw.githack.com/gn-math/html/main/103.html", author: "Stevie Critoph", authorLink: "https://stephencritoph.com/" },
+  { id: 104, name: "The World's Hardest Game 3", cover: "https://raw.githack.com/gn-math/covers/main/104.png", url: "https://raw.githack.com/gn-math/html/main/104.html", author: "Stevie Critoph", authorLink: "https://stephencritoph.com/" },
+  { id: 105, name: "The World's Hardest Game 4", cover: "https://raw.githack.com/gn-math/covers/main/105.png", url: "https://raw.githack.com/gn-math/html/main/105.html", author: "Stevie Critoph", authorLink: "https://stephencritoph.com/" },
+  { id: 106, name: "This Is The Only Level", cover: "https://raw.githack.com/gn-math/covers/main/106.png", url: "https://raw.githack.com/gn-math/html/main/106.html", author: "jmtb02", authorLink: "https://jmtb02.newgrounds.com/" },
+  { id: 107, name: "This Is The Only Level 2", cover: "https://raw.githack.com/gn-math/covers/main/107.png", url: "https://raw.githack.com/gn-math/html/main/107.html", author: "jmtb02", authorLink: "https://jmtb02.newgrounds.com/" },
+  { id: 108, name: "Tiny Fishing", cover: "https://raw.githack.com/gn-math/covers/main/108.png", url: "https://raw.githack.com/gn-math/html/main/108.html", author: "Winter Studio", authorLink: "https://winterstudio.com/" },
+  { id: 109, name: "Tomb Of The Mask", cover: "https://raw.githack.com/gn-math/covers/main/109.png", url: "https://raw.githack.com/gn-math/html/main/109.html", author: "Happymagenta UAB", authorLink: "https://happymagenta.com/" },
+  { id: 110, name: "Toss The Turtle", cover: "https://raw.githack.com/gn-math/covers/main/110.png", url: "https://raw.githack.com/gn-math/html/main/110-f.html", author: "GonzoSSM", authorLink: "https://gonzossm.com" },
+  { id: 111, name: "Tube Jumpers", cover: "https://raw.githack.com/gn-math/covers/main/111.png", url: "https://raw.githack.com/gn-math/html/main/111.html", author: "New Eich Games", authorLink: "https://www.neweichgames.com/" },
+  { id: 112, name: "Wordle", cover: "https://raw.githack.com/gn-math/covers/main/112.png", url: "https://raw.githack.com/gn-math/html/main/112-fix.html", author: "New York Times", authorLink: "https://www.nytimes.com/games/wordle/index.html" },
+  { id: 113, name: "Ruffle", cover: "https://raw.githack.com/gn-math/covers/main/113.png", url: "https://raw.githack.com/gn-math/html/main/113.html", author: "Mike Welsh", authorLink: "https://ruffle.rs/" },
+  { id: 114, name: "2048", cover: "https://raw.githack.com/gn-math/covers/main/114.png", url: "https://raw.githack.com/gn-math/html/main/114-f.html", author: "Gabriele Cirulli", authorLink: "https://github.com/gabrielecirulli" },
+  { id: 115, name: "8 Ball Pool", cover: "https://raw.githack.com/gn-math/covers/main/115.png", url: "https://raw.githack.com/gn-math/html/main/115.html", author: "Miniclip.com", authorLink: "https://miniclip.com/" },
+  { id: 116, name: "Offroad Mountain Bike", cover: "https://raw.githack.com/gn-math/covers/main/116.png", url: "https://raw.githack.com/gn-math/html/main/116.html", author: "RHM Interactive OÜ", authorLink: "https://play.google.com/store/apps/dev?id=9182049342574405049" },
+  { id: 117, name: "Space Waves", cover: "https://raw.githack.com/gn-math/covers/main/117.png", url: "https://raw.githack.com/gn-math/html/main/117-fix.html", author: "do.games", authorLink: "https://play.google.com/store/apps/dev?id=8163162718412732005" },
+  { id: 118, name: "Solar Smash", cover: "https://raw.githack.com/gn-math/covers/main/118.png", url: "https://raw.githack.com/gn-math/html/main/118.html", author: "Paradyme Games", authorLink: "https://play.google.com/store/apps/details?id=com.paradyme.solarsmash" },
+  { id: 119, name: "Snow Rider 3D", cover: "https://raw.githack.com/gn-math/covers/main/119.png", url: "https://raw.githack.com/gn-math/html/main/119.html", author: "gamebiz", authorLink: "https://gamebiz.com/" },
+  { id: 120, name: "Fortzone Battle Royale", cover: "https://raw.githack.com/gn-math/covers/main/120.png", url: "https://raw.githack.com/gn-math/html/main/120.html", author: "Mirra Games", authorLink: "https://mirragames.com/" },
+  { id: 121, name: "Brawl Guys.io", cover: "https://raw.githack.com/gn-math/covers/main/121.png", url: "https://raw.githack.com/gn-math/html/main/121.html", author: "Lagged", authorLink: "https://lagged.com" },
+  { id: 122, name: "Survival Race", cover: "https://raw.githack.com/gn-math/covers/main/122.png", url: "https://raw.githack.com/gn-math/html/main/122.html", author: "Brain Massage", authorLink: "https://play.google.com/store/apps/dev?id=7174485743246221107" },
+  { id: 123, name: "Poly Track", cover: "https://raw.githack.com/gn-math/covers/main/123.png", url: "https://raw.githack.com/gn-math/html/main/123-win.html", author: "Kodub", authorLink: "https://www.kodub.com" },
+  { id: 124, name: "Moto X3M Pool Party", cover: "https://raw.githack.com/gn-math/covers/main/124.png", url: "https://raw.githack.com/gn-math/html/main/124.html", author: "MadPuffers", authorLink: "http://madpuffers.com/" },
+  { id: 125, name: "Granny 2", cover: "https://raw.githack.com/gn-math/covers/main/125.png", url: "https://raw.githack.com/gn-math/html/main/125.html", author: "DVloper", authorLink: "https://play.google.com/store/apps/developer?id=DVloper" },
+  { id: 126, name: "Granny 3", cover: "https://raw.githack.com/gn-math/covers/main/126.png", url: "https://raw.githack.com/gn-math/html/main/126.html", author: "DVloper", authorLink: "https://play.google.com/store/apps/developer?id=DVloper" },
+  { id: 127, name: "Fashion Battle", cover: "https://raw.githack.com/gn-math/covers/main/127.png", url: "https://raw.githack.com/gn-math/html/main/127.html", author: "Apps Mobile Games", authorLink: "https://play.google.com/store/apps/dev?id=4672672872255695418" },
+  { id: 128, name: "Slice it All", cover: "https://raw.githack.com/gn-math/covers/main/128.png", url: "https://raw.githack.com/gn-math/html/main/128.html", author: "VOODOO", authorLink: "https://play.google.com/store/apps/developer?id=VOODOO" },
+  { id: 129, name: "Flappy Bird", cover: "https://raw.githack.com/gn-math/covers/main/129.png", url: "https://raw.githack.com/gn-math/html/main/129.html", author: "Dong Nguyen", authorLink: "https://x.com/dongatory" },
+  { id: 130, name: "osu!", cover: "https://raw.githack.com/gn-math/covers/main/130.png", url: "https://raw.githack.com/gn-math/html/main/130.html", author: "ppy", authorLink: "https://osu.ppy.sh/" },
+  { id: 146, name: "8 Ball Classic", cover: "https://raw.githack.com/gn-math/covers/main/146.png", url: "https://raw.githack.com/gn-math/html/main/146.html", author: "Famobi", authorLink: "https://play.google.com/store/apps/details?id=com.famobi.eightballbilliardsclassic" },
+  { id: 147, name: "Angry Birds Showdown", cover: "https://raw.githack.com/gn-math/covers/main/147.png", url: "https://raw.githack.com/gn-math/html/main/147.html", author: "Rovio Entertainment", authorLink: "https://www.rovio.com" },
+  { id: 148, name: "Archery World Tour", cover: "https://raw.githack.com/gn-math/covers/main/148.png", url: "https://raw.githack.com/gn-math/html/main/148.html", author: "Famobi", authorLink: "https://play.google.com/store/apps/details?id=com.famobi.archeryworldtour" },
+  { id: 149, name: "Ball Blast", cover: "https://raw.githack.com/gn-math/covers/main/149.png", url: "https://raw.githack.com/gn-math/html/main/149.html", author: "Voodoo", authorLink: "https://play.google.com/store/apps/details?id=com.nomonkeys.ballblast" },
+  { id: 150, name: "Cannon Balls 3D", cover: "https://raw.githack.com/gn-math/covers/main/150.png", url: "https://raw.githack.com/gn-math/html/main/150.html", author: "Famobi", authorLink: "https://play.google.com/store/apps/details?id=com.famobi.cannonballs3d" },
+  { id: 151, name: "Chess Classic", cover: "https://raw.githack.com/gn-math/covers/main/151.png", url: "https://raw.githack.com/gn-math/html/main/151.html", author: "Famobi", authorLink: "https://play.google.com/store/apps/details?id=com.famobi.chessclassic" },
+  { id: 152, name: "Draw the Line", cover: "https://raw.githack.com/gn-math/covers/main/152.png", url: "https://raw.githack.com/gn-math/html/main/152.html", author: "Supersonic Studios LTD", authorLink: "https://play.google.com/store/apps/details?id=com.friendsgamesincubator.drawtheline" },
+  { id: 153, name: "Flappy Dunk", cover: "https://raw.githack.com/gn-math/covers/main/153.png", url: "https://raw.githack.com/gn-math/html/main/153.html", author: "Voodoo", authorLink: "https://play.google.com/store/apps/details?id=com.acidcousins.fdunk" },
+  { id: 154, name: "Fork n Sausage", cover: "https://raw.githack.com/gn-math/covers/main/154.png", url: "https://raw.githack.com/gn-math/html/main/154.html", author: "SayGames", authorLink: "https://play.google.com/store/apps/details?id=com.kadka.forknsausage" },
+  { id: 155, name: "Guess Their Answer", cover: "https://raw.githack.com/gn-math/covers/main/155.png", url: "https://raw.githack.com/gn-math/html/main/155.html", author: "TapNation", authorLink: "https://play.google.com/store/apps/details?id=com.qoni.guesstheiranswer" },
+  { id: 156, name: "Harvest.io", cover: "https://raw.githack.com/gn-math/covers/main/156.png", url: "https://raw.githack.com/gn-math/html/main/156.html", author: "CASUAL AZUR GAMES", authorLink: "https://play.google.com/store/apps/details?id=com.harvest.io" },
+  { id: 157, name: "Hill Climb Racing Lite", cover: "https://raw.githack.com/gn-math/covers/main/157.png", url: "https://raw.githack.com/gn-math/html/main/157.html", author: "Fingersoft", authorLink: "https://play.google.com/store/apps/details?id=com.fingersoft.hillclimb" },
+  { id: 158, name: "Pac-Man Superfast", cover: "https://raw.githack.com/gn-math/covers/main/158.png", url: "https://raw.githack.com/gn-math/html/main/158.html", author: "RedFox Games", authorLink: "https://www.playredfox.com" },
+  { id: 159, name: "Parking Rush", cover: "https://raw.githack.com/gn-math/covers/main/159.png", url: "https://raw.githack.com/gn-math/html/main/159.html", author: "Nine&Nine", authorLink: "https://play.google.com/store/apps/details?id=com.tianninenine.parkingrush" },
+  { id: 160, name: "Race Master 3D", cover: "https://raw.githack.com/gn-math/covers/main/160.png", url: "https://raw.githack.com/gn-math/html/main/160.html", author: "Beresnev Games", authorLink: "https://play.google.com/store/apps/details?id=com.easygames.race" },
+  { id: 161, name: "State.io", cover: "https://raw.githack.com/gn-math/covers/main/161.png", url: "https://raw.githack.com/gn-math/html/main/161.html", author: "CASUAL AZUR GAMES", authorLink: "https://play.google.com/store/apps/details?id=io.state.fight" },
+  { id: 162, name: "Tower Crash 3D", cover: "https://raw.githack.com/gn-math/covers/main/162.png", url: "https://raw.githack.com/gn-math/html/main/162.html", author: "Famobi", authorLink: "https://play.google.com/store/apps/details?id=com.famobi.towercrash3d" },
+  { id: 163, name: "Trivia Crack", cover: "https://raw.githack.com/gn-math/covers/main/163.png", url: "https://raw.githack.com/gn-math/html/main/163.html", author: "etermax", authorLink: "https://play.google.com/store/apps/details?id=com.etermax.preguntados.lite" },
+  { id: 164, name: "Crazy Cattle 3D", cover: "https://raw.githack.com/gn-math/covers/main/164.png", url: "https://raw.githack.com/gn-math/html/main/164-temp2.html", author: "4nn4t4t", authorLink: "https://4nn4t4t.itch.io/crazycattle3d" },
+  { id: 165, name: "Cheese Chompers 3D", cover: "https://raw.githack.com/gn-math/covers/main/165.png", url: "https://raw.githack.com/gn-math/html/main/165.html", author: "NavaNoid", authorLink: "https://cheesechompers3d.itch.io/cheese-chompers-3d" },
+  { id: 166, name: "Bad Parenting 1", cover: "https://raw.githack.com/gn-math/covers/main/166.png", url: "https://raw.githack.com/gn-math/html/main/166.html", author: "98corbins", authorLink: "https://98corbins.netlify.app" },
+  { id: 167, name: "Blade Ball", cover: "https://raw.githack.com/gn-math/covers/main/167.png", url: "https://raw.githack.com/gn-math/html/main/167.html", author: "??", authorLink: "" },
+  { id: 168, name: "Blocky Snakes", cover: "https://raw.githack.com/gn-math/covers/main/168.png", url: "https://raw.githack.com/gn-math/html/main/168.html", author: "Beedo Games", authorLink: "https://poki.com/en/g/blocky-snakes" },
+  { id: 169, name: "Bloxorz", cover: "https://raw.githack.com/gn-math/covers/main/169.png", url: "https://raw.githack.com/gn-math/html/main/169.html", author: "Damien Clarke", authorLink: "https://damienclarke.me" },
+  { id: 170, name: "Big Tower Tiny Square 2", cover: "https://raw.githack.com/gn-math/covers/main/170.png", url: "https://raw.githack.com/gn-math/html/main/170.html", author: "EO Interactive", authorLink: "https://apps.apple.com/my/developer/eo-interactive-ltd/id457003279" },
+  { id: 171, name: "Candy Crush", cover: "https://raw.githack.com/gn-math/covers/main/171.png", url: "https://raw.githack.com/gn-math/html/main/171.html", author: "King.com", authorLink: "https://www.king.com/game/candycrush" },
+  { id: 172, name: "Melon Playground", cover: "https://raw.githack.com/gn-math/covers/main/172.png", url: "https://raw.githack.com/gn-math/html/main/172.html", author: "playducky.com", authorLink: "https://playducky.com" },
+  { id: 173, name: "Drift Hunters", cover: "https://raw.githack.com/gn-math/covers/main/173.png", url: "https://raw.githack.com/gn-math/html/main/173.html", author: "Illia Kaminetskyi", authorLink: "https://ilyakaminetsky.itch.io/drift-hunters" },
+  { id: 174, name: "World Box", cover: "https://raw.githack.com/gn-math/covers/main/174.png", url: "https://raw.githack.com/gn-math/html/main/174.html", author: "Kendja", authorLink: "https://www.newgrounds.com/portal/view/603435" },
+  { id: 175, name: "Run 1", cover: "https://raw.githack.com/gn-math/covers/main/175.png", url: "https://raw.githack.com/gn-math/html/main/175.html", author: "Joseph Cloutier", authorLink: "https://player03.com" },
+  { id: 176, name: "Run 2", cover: "https://raw.githack.com/gn-math/covers/main/176.png", url: "https://raw.githack.com/gn-math/html/main/176.html", author: "Joseph Cloutier", authorLink: "https://player03.com" },
+  { id: 177, name: "Run 3", cover: "https://raw.githack.com/gn-math/covers/main/177.png", url: "https://raw.githack.com/gn-math/html/main/177.html", author: "Joseph Cloutier", authorLink: "https://player03.com" },
+  { id: 178, name: "Swords and Souls", cover: "https://raw.githack.com/gn-math/covers/main/178.png", url: "https://raw.githack.com/gn-math/html/main/178.html", author: "Armor Games", authorLink: "https://armorgames.com/play/17817/swords-and-souls" },
+  { id: 179, name: "Soundboard", cover: "https://raw.githack.com/gn-math/covers/main/179.png", url: "https://raw.githack.com/gn-math/html/main/179-a.html", author: "genizy", authorLink: "https://github.com/genizy/soundboard/" },
+  { id: 180, name: "n-gon", cover: "https://raw.githack.com/gn-math/covers/main/180.png", url: "https://raw.githack.com/gn-math/html/main/180.html", author: "landgreen", authorLink: "https://github.com/landgreen/n-gon" },
+  { id: 181, name: "Minecraft 1.8.8", cover: "https://raw.githack.com/gn-math/covers/main/181.png", url: "https://raw.githack.com/gn-math/html/main/181.html", author: "lax1dude", authorLink: "https://eaglercraft.com" },
+  { id: 182, name: "Minecraft 1.12.2", cover: "https://raw.githack.com/gn-math/covers/main/182.png", url: "https://raw.githack.com/gn-math/html/main/182.html", author: "lax1dude", authorLink: "https://eaglercraft.com" },
+  { id: 183, name: "Minecraft 1.21.4", cover: "https://raw.githack.com/gn-math/covers/main/183.png", url: "https://raw.githack.com/gn-math/html/main/183.html", author: "zardoy", authorLink: "https://github.com/zardoy/minecraft-web-client" },
+  { id: 185, name: "Five Nights at Freddy's: Sister Location", cover: "https://raw.githack.com/gn-math/covers/main/185.png", url: "https://raw.githack.com/gn-math/html/main/185.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 186, name: "Ragdoll Archers", cover: "https://raw.githack.com/gn-math/covers/main/186.png", url: "https://raw.githack.com/gn-math/html/main/186.html", author: "Ericetto", authorLink: "https://www.snokido.com/author/ericetto" },
+  { id: 187, name: "Papers, Please", cover: "https://raw.githack.com/gn-math/covers/main/187.png", url: "https://raw.githack.com/gn-math/html/main/187.html", author: "Lucas Pope", authorLink: "https://dukope.com" },
+  { id: 188, name: "Scrap Metal 3", cover: "https://raw.githack.com/gn-math/covers/main/188.png", url: "https://raw.githack.com/gn-math/html/main/188e.html", author: "Ciorbyn", authorLink: "https://www.ciorbynstudio.com" },
+  { id: 190, name: "Five Nights at Freddy's: World", cover: "https://raw.githack.com/gn-math/covers/main/190.png", url: "https://raw.githack.com/gn-math/html/main/190.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+  { id: 191, name: "Five Nights at Freddy's: Pizza Simulator", cover: "https://raw.githack.com/gn-math/covers/main/191.png", url: "https://raw.githack.com/gn-math/html/main/191.html", author: "Scott Cawthon", authorLink: "https://scottgames.com" },
+];
+
+function GamesPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [search, setSearch] = useState("");
+  const filtered = search.trim()
+    ? GAMES_LIST.filter(g => g.name.toLowerCase().includes(search.toLowerCase()))
+    : GAMES_LIST;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+    >
+      {/* Header */}
+      <div style={{ padding: "1.5rem 2rem 1rem", flexShrink: 0, borderBottom: "1px solid #161616" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 0 1rem" }}>unstable — games</p>
+        <input
+          autoFocus
+          placeholder="search games…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            width: "100%", maxWidth: 360, background: "#111", border: "1px solid #222",
+            color: "#e0e0e0", padding: "0.45rem 0.9rem", fontSize: "0.78rem",
+            fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "8px",
+            letterSpacing: "0.01em", transition: "border-color 0.15s", boxSizing: "border-box",
+          }}
+          onFocus={e => (e.target.style.borderColor = "#444")}
+          onBlur={e => (e.target.style.borderColor = "#222")}
+        />
+        <p style={{ margin: "0.5rem 0 0", fontSize: "0.58rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.04em" }}>
+          {filtered.length} game{filtered.length !== 1 ? "s" : ""}
+        </p>
+      </div>
+
+      {/* Grid */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem 1.5rem" }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+          gap: "0.85rem",
+        }}>
+          {filtered.map((game, i) => (
+            <GameCard key={game.id} game={game} index={i} onNavigate={onNavigate} />
+          ))}
+        </div>
+        {filtered.length === 0 && (
+          <div style={{ textAlign: "center", marginTop: "4rem", color: "rgba(255,255,255,0.2)", fontSize: "0.75rem", letterSpacing: "0.06em" }}>
+            no games found
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        .game-card:hover .game-card-overlay { opacity: 1 !important; }
+        .game-card:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+      `}</style>
+    </motion.div>
+  );
+}
+
+function GameCard({ game, index, onNavigate }: { game: typeof GAMES_LIST[0]; index: number; onNavigate: (url: string) => void }) {
+  const [imgErr, setImgErr] = useState(false);
+  return (
+    <motion.div
+      className="game-card"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: Math.min(index * 0.015, 0.4) }}
+      onClick={() => onNavigate(game.url)}
+      style={{
+        position: "relative", borderRadius: "8px", overflow: "hidden",
+        background: "#111", border: "1px solid #1e1e1e", cursor: "pointer",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+      }}
+    >
+      {/* Cover image */}
+      <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#0a0a0a", overflow: "hidden", position: "relative" }}>
+        {!imgErr ? (
+          <img
+            src={game.cover}
+            alt={game.name}
+            onError={() => setImgErr(true)}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        ) : (
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem" }}>🎮</div>
+        )}
+        {/* Hover overlay */}
+        <div className="game-card-overlay" style={{
+          position: "absolute", inset: 0,
+          background: "rgba(0,0,0,0.65)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          opacity: 0, transition: "opacity 0.2s ease",
+        }}>
+          <div style={{
+            background: "rgba(255,255,255,0.92)", color: "#0d0d0d",
+            borderRadius: "50%", width: 36, height: 36,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "1rem", fontWeight: 700,
+          }}>▶</div>
+        </div>
+      </div>
+      {/* Info */}
+      <div style={{ padding: "0.5rem 0.6rem 0.55rem" }}>
+        <p style={{ margin: 0, fontSize: "0.68rem", fontWeight: 600, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{game.name}</p>
+        {game.author && (
+          <p style={{ margin: "0.15rem 0 0", fontSize: "0.56rem", color: "rgba(255,255,255,0.28)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.02em" }}>{game.author}</p>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Credits page ─────────────────────────────────────────────────────────────
 
 function CreditsPage() {
@@ -2450,7 +2742,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, isAdmin =
       </AnimatePresence>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ...(isAdmin ? [["admin", "unstable://admin"]] as const : []), ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+        {[["games", "unstable://games"], ["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ...(isAdmin ? [["admin", "unstable://admin"]] as const : []), ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <motion.button
             whileHover={{ color: "rgba(255,255,255,0.7)" }}
             key={label}
@@ -2578,7 +2870,7 @@ function BrowserApp({
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
       if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin"].includes(page)) {
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin", "games"].includes(page)) {
         if (page === "admin" && !authContext.isAdmin) {
           updateTab(tabId, { url: "unstable://settings", title: "Settings", favicon: "", loading: false });
           return;
@@ -2709,6 +3001,8 @@ function BrowserApp({
                 <SettingsPage settings={settings} onSettingsChange={setSettings} />
               ) : tab.url === "unstable://admin" ? (
                 <AdminPage session={session} currentUser={user} isAdmin={authContext.isAdmin} />
+              ) : tab.url === "unstable://games" ? (
+                <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://credits" ? (
                 <CreditsPage />
               ) : tab.url === "unstable://tos" ? (
