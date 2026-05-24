@@ -1028,7 +1028,7 @@ function AccountAuthScreen({
         <div style={{ textAlign: "center" }}>
           <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable account</p>
           <p style={{ margin: "0.85rem 0 0", fontSize: "0.78rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.6 }}>
-            Access password accepted. Sign in to sync AI history and use realtime chat across devices.
+            Sign in to sync AI history and use realtime chat across devices.
           </p>
         </div>
 
@@ -1625,9 +1625,59 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
   );
 }
 
+// ─── Inline auth screen (shown inside AI/Chat pages when not signed in) ────────
+
+function InlineAuthScreen({
+  onAuthenticated,
+  feature,
+}: {
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
+  feature: string;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0d0d0d",
+        fontFamily: "'Space Grotesk', sans-serif",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+      <motion.div
+        initial={{ y: 16, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.1, duration: 0.4 }}
+        style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem", marginBottom: "1.5rem", textAlign: "center" }}
+      >
+        <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable — {feature.toLowerCase()}</p>
+        <p style={{ margin: 0, fontSize: "0.82rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.6, maxWidth: 320 }}>
+          Sign in or create an account to use {feature}.
+        </p>
+      </motion.div>
+      <AccountAuthScreen onAuthenticated={onAuthenticated} />
+    </motion.div>
+  );
+}
+
 // ─── AI page ──────────────────────────────────────────────────────────────────
 
-function AIPage({ user, profile }: { user: User; profile: Profile }) {
+function AIPage({ user, profile, onAuthenticated }: { user: User | null; profile: Profile | null; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
+  if (!user || !profile) {
+    return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="AI" />;
+  }
+
+  return <AIPageInner user={user} profile={profile} />;
+}
+
+function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   const starterMessages = useMemo<AIMessage[]>(() => [
     {
       id: aiMessageId(),
@@ -2310,7 +2360,15 @@ function AdminPage({
   );
 }
 
-function ChatPage({ user, profile, session, isAdmin }: { user: User; profile: Profile; session: Session; isAdmin: boolean }) {
+function ChatPage({ user, profile, session, isAdmin, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; isAdmin: boolean; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
+  if (!user || !profile || !session) {
+    return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Chat" />;
+  }
+
+  return <ChatPageInner user={user} profile={profile} session={session} isAdmin={isAdmin} />;
+}
+
+function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profile: Profile; session: Session; isAdmin: boolean }) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2790,12 +2848,14 @@ function BrowserApp({
   user,
   profile,
   authContext,
+  onAuthenticated,
 }: {
   onLogout: () => void;
-  session: Session;
-  user: User;
-  profile: Profile;
+  session: Session | null;
+  user: User | null;
+  profile: Profile | null;
   authContext: AppAuthContext;
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
@@ -2994,9 +3054,9 @@ function BrowserApp({
               {!tab.url ? (
                 <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} isAdmin={authContext.isAdmin} />
               ) : tab.url === "unstable://ai" ? (
-                <AIPage user={user} profile={profile} />
+                <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
-                <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} />
+                <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://settings" ? (
                 <SettingsPage settings={settings} onSettingsChange={setSettings} />
               ) : tab.url === "unstable://admin" ? (
@@ -3082,7 +3142,6 @@ function BrowserApp({
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [accessGranted, setAccessGranted] = useState(() => hasValidAuthSession());
   const [accountLoading, setAccountLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -3164,7 +3223,6 @@ export default function App() {
     bareConn = null;
     scrController = null;
     currentStatus = { ...defaultProxyState };
-    setAccessGranted(false);
     setSession(null);
     setUser(null);
     setProfile(null);
@@ -3176,31 +3234,27 @@ export default function App() {
     <>
       <MagicCursor />
       <AnimatePresence mode="wait">
-        {!accessGranted ? (
-          <PasswordScreen key="auth" onSuccess={() => setAccessGranted(true)} />
-        ) : accountLoading ? (
+        {accountLoading ? (
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
             syncing account…
           </motion.div>
-        ) : !session || !user || !profile ? (
-          <div key="account-auth">
-            <AccountAuthScreen onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
+        ) : (
+          <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
+            onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
               setSession(nextSession);
               setUser(nextUser);
               setProfile(nextProfile);
               setAuthContext(nextAuthContext);
               setAccountError("");
-            }} />
-            {accountError && (
-              <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "rgba(235,120,120,0.9)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.04em", textAlign: "center", maxWidth: 420, padding: "0 1rem" }}>
-                {accountError}
-              </div>
-            )}
-          </div>
-        ) : (
-          <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext} />
+            }}
+          />
         )}
       </AnimatePresence>
+      {accountError && (
+        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "rgba(235,120,120,0.9)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.04em", textAlign: "center", maxWidth: 420, padding: "0 1rem" }}>
+          {accountError}
+        </div>
+      )}
     </>
   );
 }
