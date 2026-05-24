@@ -1,4 +1,4 @@
----
+﻿---
 title: Unstable
 emoji: 🌑
 colorFrom: gray
@@ -52,12 +52,12 @@ This forces Stormkit to build only `@workspace/app` and then deploy only the act
 
 > **Security note:** Because the password is validated server-side against the `PASSWORD` secret, it is never exposed in the client bundle or source code. The Space can be public without leaking access credentials.
 
-## Local Development (Replit)
+## Local Development
 
-The app runs on Replit as a pnpm monorepo. Two workflows handle the dev servers:
+This repo is a pnpm monorepo. The two dev servers are:
 
-- `artifacts/api-server` — Express + bare-server proxy (port assigned by Replit)
-- `artifacts/app` — Vite dev server (port assigned by Replit)
+- `artifacts/api-server` — Express + bare-server proxy
+- `artifacts/app` — Vite dev server
 
 When `PASSWORD` is not set, the server returns a `503 {dev:true}` response and the frontend falls back to the local development password (`ripmoonlight`).
 
@@ -70,3 +70,24 @@ pnpm --filter @workspace/api-server add wisp-server-node
 ```
 
 Restart the API server — the Wisp endpoint activates automatically at `/api/wisp`.
+
+### Commands
+
+```bash
+pnpm install
+pnpm --filter @workspace/app dev
+```
+
+In another terminal:
+
+```bash
+pnpm --filter @workspace/api-server build
+pnpm --filter @workspace/api-server start
+```
+
+If you want development behavior (`NODE_ENV=development`):
+
+- macOS/Linux: `NODE_ENV=development pnpm --filter @workspace/api-server start`
+- Windows PowerShell: `$env:NODE_ENV='development'; pnpm --filter @workspace/api-server start`
+
+

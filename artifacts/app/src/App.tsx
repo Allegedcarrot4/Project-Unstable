@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType } from "react";
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { Gamepad, MessageCircle, Settings, Shield, Atom, House } from "lucide-react";
 import gamesListData from "./data/games.json";
 
 declare global {
@@ -786,7 +787,7 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible }: { visible: boolean }) {
+function StatusBar({ visible, leftOffset = 12 }: { visible: boolean; leftOffset?: number }) {
   const s = useProxyStatus();
   if (!visible) return null;
 
@@ -803,7 +804,7 @@ function StatusBar({ visible }: { visible: boolean }) {
   const phaseColor = isReady ? green : isError ? red : amber;
 
   return (
-    <div style={{ position: "fixed", bottom: 10, left: 12, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
+    <div style={{ position: "fixed", bottom: 10, left: leftOffset, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
       <EngineBadge label="uv" status={s.uv} />
       <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
       <EngineBadge label="scr" status={s.scramjet} />
@@ -2489,11 +2490,10 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, isAdmin = false }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
-  isAdmin?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -2628,11 +2628,11 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, isAdmin =
       </AnimatePresence>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["games", "unstable://games"], ["credits", "unstable://credits"], ["ai", "unstable://ai"], ["chat", "unstable://chat"], ["settings", "unstable://settings"], ...(isAdmin ? [["admin", "unstable://admin"]] as const : []), ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+        {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <motion.button
             whileHover={{ color: "rgba(255,255,255,0.7)" }}
             key={label}
-            onClick={() => onNavigate(label === "ai" ? "unstable://ai" : label === "chat" ? "unstable://chat" : url)}
+            onClick={() => onNavigate(url)}
             style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
           >{label}</motion.button>
         ))}
@@ -2669,6 +2669,177 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 }
 
 // ─── Browser app ──────────────────────────────────────────────────────────────
+
+function CollapsedSidebar({
+  activeUrl,
+  isAdmin,
+  onNavigate,
+}: {
+  activeUrl: string;
+  isAdmin: boolean;
+  onNavigate: (url: string) => void;
+}) {
+  const items: Array<{
+    label: string;
+    url: string;
+    icon: ComponentType<{ size?: number; className?: string }>;
+    hidden?: boolean;
+  }> = [
+    { label: "Home", url: "unstable://newtab", icon: House },
+    { label: "Games", url: "unstable://games", icon: Gamepad },
+    { label: "AI", url: "unstable://ai", icon: Atom },
+    { label: "Chat", url: "unstable://chat", icon: MessageCircle },
+    { label: "Settings", url: "unstable://settings", icon: Settings },
+    { label: "Admin", url: "unstable://admin", icon: Shield, hidden: !isAdmin },
+  ];
+
+  const currentPage = activeUrl.startsWith("unstable://") ? activeUrl : "";
+
+  function isActive(url: string) {
+    if (url === "unstable://newtab") return !activeUrl;
+    return currentPage === url;
+  }
+
+  const games = items.find(i => i.url === "unstable://games");
+  const settings = items.find(i => i.url === "unstable://settings");
+  const middle = items.filter(i => i.url !== "unstable://games" && i.url !== "unstable://settings");
+
+  const buttonBase: React.CSSProperties = {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid transparent",
+    background: "none",
+    color: "rgba(255,255,255,0.28)",
+    cursor: "pointer",
+    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  };
+
+  return (
+    <div
+      style={{
+        width: 56,
+        flexShrink: 0,
+        background: "#080808",
+        borderRight: "1px solid #1a1a1a",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "0.65rem 0",
+        gap: "0.55rem",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {games && !games.hidden && (() => {
+          const active = isActive(games.url);
+          const Icon = games.icon;
+          return (
+            <motion.button
+              key={games.url}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onNavigate(games.url)}
+              title={games.label}
+              style={{
+                ...buttonBase,
+                background: active ? "#101010" : "none",
+                borderColor: active ? "#1f1f1f" : "transparent",
+                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+              }}
+              onMouseEnter={e => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
+                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
+                }
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
+                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
+              }}
+            >
+              <Icon size={18} />
+            </motion.button>
+          );
+        })()}
+      </div>
+
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+          const active = isActive(url);
+          return (
+            <motion.button
+              key={url}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onNavigate(url)}
+              title={label}
+              style={{
+                ...buttonBase,
+                background: active ? "#101010" : "none",
+                borderColor: active ? "#1f1f1f" : "transparent",
+                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+              }}
+              onMouseEnter={e => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
+                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
+                }
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
+                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
+              }}
+            >
+              <Icon size={18} />
+            </motion.button>
+          );
+        })}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {settings && !settings.hidden && (() => {
+          const active = isActive(settings.url);
+          const Icon = settings.icon;
+          return (
+            <motion.button
+              key={settings.url}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onNavigate(settings.url)}
+              title={settings.label}
+              style={{
+                ...buttonBase,
+                background: active ? "#101010" : "none",
+                borderColor: active ? "#1f1f1f" : "transparent",
+                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+              }}
+              onMouseEnter={e => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
+                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
+                }
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
+                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
+              }}
+            >
+              <Icon size={18} />
+            </motion.button>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
 
 function BrowserApp({
   onLogout,
@@ -2865,22 +3036,31 @@ function BrowserApp({
         </motion.div>
       )}
 
-      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-        {fullscreen && (
-          <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {!fullscreen && (
+          <CollapsedSidebar
+            activeUrl={activeTab?.url || ""}
+            isAdmin={authContext.isAdmin}
+            onNavigate={(url) => handleNavigate(url, activeTabId)}
+          />
         )}
-        <AnimatePresence mode="wait">
-          {tabs.map(tab => tab.id === activeTabId && (
-            <motion.div
-              key={tab.id}
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.02 }}
-              transition={{ duration: 0.2 }}
-              style={{ position: "absolute", inset: 0 }}
-            >
+
+        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          {fullscreen && (
+            <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
+          )}
+          <AnimatePresence mode="wait">
+            {tabs.map(tab => tab.id === activeTabId && (
+              <motion.div
+                key={tab.id}
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.02 }}
+                transition={{ duration: 0.2 }}
+                style={{ position: "absolute", inset: 0 }}
+              >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} isAdmin={authContext.isAdmin} />
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
@@ -2959,12 +3139,13 @@ function BrowserApp({
                   }}
                 />
               )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
       </div>
 
-      <StatusBar visible={isNewtab} />
+      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} />
 
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
     </motion.div>
