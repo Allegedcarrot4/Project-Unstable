@@ -65,6 +65,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Cloned repos
+Project-Unstable/
+
 # Local archives and generated attachments
 *.zip
 attached_assets/branding-*.json
