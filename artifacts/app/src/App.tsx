@@ -484,7 +484,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare";
+  transport: "none" | "libcurl" | "bare";  // libcurl = wisp (primary), bare = fallback
   bare: number;
   switching: boolean;
 }
@@ -611,17 +611,19 @@ async function setupProxy(bareNum = 1): Promise<void> {
 
     let transportSet = false;
 
+    // Primary: wisp (libcurl)
     try {
-      await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
       transportSet = true;
-      emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
+      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
     } catch { /* fall through */ }
 
+    // Fallback: bare
     if (!transportSet) {
       try {
-        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+        await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
         transportSet = true;
-        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+        emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
       } catch { /* fall through */ }
     }
 
@@ -641,11 +643,11 @@ async function switchBare(n: number): Promise<void> {
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     try {
-      await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
-      emitStatus({ switching: false, transport: "bare", bare: n });
-    } catch {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
       emitStatus({ switching: false, transport: "libcurl", bare: n });
+    } catch {
+      await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
+      emitStatus({ switching: false, transport: "bare", bare: n });
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
@@ -1223,8 +1225,8 @@ function GameCard({ game, index, onNavigate }: { game: typeof GAMES_LIST[0]; ind
 function CreditsPage() {
   const items = [
     ["Ultraviolet", "web proxy engine"], ["Scramjet", "web proxy engine (primary)"],
-    ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport"],
-    ["bare-server-node", "bare proxy backend"], ["bare-as-module3", "bare transport (fallback)"],
+    ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport (primary)"],
+    ["bare-server-node", "bare proxy backend (fallback)"], ["bare-as-module3", "bare transport module"],
     ["wisp-js", "wisp server"], ["React + Vite", "frontend"],
     ["Space Grotesk", "typeface"],
   ];
