@@ -6427,7 +6427,7 @@ var LibcurlClient = class {
   }
   async request(remote, method, body, headers, signal) {
     let headersObj = {};
-    for (let [key, value] of headers) {
+    for (let [key, value] of Object.entries(headers || {})) {
       headersObj[key] = value;
     }
     let payload = await this.session.fetch(remote.href, {
@@ -6446,7 +6446,7 @@ var LibcurlClient = class {
   }
   connect(url, protocols, requestHeaders, onopen, onmessage, onclose, onerror) {
     let headersObj = {};
-    for (let [key, value] of requestHeaders) {
+    for (let [key, value] of Object.entries(requestHeaders || {})) {
       headersObj[key] = value;
     }
     let socket = new libcurl.WebSocket(url.toString(), protocols, {
