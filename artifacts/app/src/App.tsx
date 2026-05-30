@@ -111,7 +111,7 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "auto" };
+const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "wisp" };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
@@ -382,7 +382,7 @@ function normalizeUrl(input: string): string {
   if (t.startsWith("unstable://")) return t;
   if (t.startsWith("http://") || t.startsWith("https://")) return t;
   if (t.includes(".") && !t.includes(" ")) return "https://" + t;
-  return "https://www.google.com/search?q=" + encodeURIComponent(t);
+  return "https://duckduckgo.com/?q=" + encodeURIComponent(t);
 }
 
 function decodeProxyUrl(url: string): string {
@@ -595,7 +595,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
   }
 
   try {
-    const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
+    const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
     const origin = location.origin;
@@ -644,7 +644,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
 async function switchBare(n: number, transportMode: TransportMode = "auto"): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
-    const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
+    const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     const mode = transportMode || "auto";

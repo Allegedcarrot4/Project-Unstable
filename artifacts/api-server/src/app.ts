@@ -34,7 +34,12 @@ type WispHandler = (req: IncomingMessage, socket: any, head?: Buffer) => void;
 export let wispHandler: WispHandler | null = null;
 
 try {
-  const { server: wisp } = await import("@mercuryworkshop/wisp-js/server");
+  const { server: wisp, logging } = await import("@mercuryworkshop/wisp-js/server");
+  Object.assign(wisp.options, {
+    dns_method: "resolve",
+    dns_servers: ["1.1.1.3", "1.0.0.3"],
+    dns_result_order: "ipv4first",
+  });
   wispHandler = wisp.routeRequest as WispHandler;
   logger.info("Wisp protocol enabled at /api/wisp/");
 } catch (err) {

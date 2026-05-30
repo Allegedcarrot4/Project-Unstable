@@ -8,7 +8,7 @@
         for (const node of document.querySelectorAll("#uvHostname")) node.textContent = ${JSON.stringify(location.hostname)};
         reload.addEventListener("click", () => location.reload());
         uvVersion.textContent = ${JSON.stringify("3.2.10")};
-        uvBuild.textContent = ${JSON.stringify("62afe61")};
+        uvBuild.textContent = ${JSON.stringify("6527337")};
     `;return`<!DOCTYPE html>
         <html>
         <head>
