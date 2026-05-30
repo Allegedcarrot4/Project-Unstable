@@ -98,8 +98,6 @@ interface AdminOverview {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SESSION_KEY = "unstable_auth";
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const ACCOUNT_BOOT_TIMEOUT_MS = 4000;
 const UV_PREFIX = "/service/";
 const SCRAMJET_PREFIX = "/ham/";
@@ -148,31 +146,7 @@ function aiMessageId() {
   return Math.random().toString(36).slice(2);
 }
 
-function hasValidAuthSession() {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as { expiresAt?: number } | null;
-    if (!parsed?.expiresAt || Date.now() > parsed.expiresAt) {
-      localStorage.removeItem(SESSION_KEY);
-      return false;
-    }
-    return true;
-  } catch {
-    localStorage.removeItem(SESSION_KEY);
-    return false;
-  }
-}
-
-function saveAuthSession() {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ expiresAt: Date.now() + SESSION_TTL_MS }));
-}
-
-function clearAuthSession() {
-  localStorage.removeItem(SESSION_KEY);
-}
-
-function getDeviceId() {
+function aiMessageId() {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
 
@@ -871,89 +845,6 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visib
         </>
       )}
     </div>
-  );
-}
-
-// ─── Server-side password check ───────────────────────────────────────────────
-
-async function verifyPassword(pw: string): Promise<"ok" | "invalid" | "unavailable"> {
-  try {
-    const res = await fetch("/api/auth/check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: pw }),
-    });
-    if (res.ok) return "ok";
-    if (res.status === 401) return "invalid";
-    return "unavailable";
-  } catch {
-    return "unavailable";
-  }
-}
-
-// ─── Password screen ──────────────────────────────────────────────────────────
-
-function PasswordScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [pw, setPw] = useState(""); const [err, setErr] = useState(false); const [shaking, setShaking] = useState(false);
-  const [serverIssue, setServerIssue] = useState(false);
-  const [checking, setChecking] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setChecking(true);
-    const result = await verifyPassword(pw);
-    setChecking(false);
-    if (result === "ok") {
-      setServerIssue(false);
-      saveAuthSession();
-      onSuccess();
-      return;
-    }
-    if (result === "unavailable") {
-      setErr(false);
-      setServerIssue(true);
-      return;
-    }
-    setServerIssue(false);
-    setErr(true);
-    setShaking(true);
-    setPw("");
-    setTimeout(() => setShaking(false), 500);
-  }
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
-    >
-      <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2, duration: 0.5 }}
-        style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "360px", padding: "0 1.5rem" }}
-      >
-        <p style={{ fontSize: "0.65rem", fontWeight: 500, letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", margin: 0 }}>unstable</p>
-        <form onSubmit={submit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <div style={{ animation: shaking ? "shake 0.5s ease-in-out" : "none" }}>
-            <input type="password" value={pw} autoFocus onChange={e => { setPw(e.target.value); setErr(false); setServerIssue(false); }} placeholder="enter password"
-              style={{ width: "100%", background: "#111", border: `1px solid ${err ? "#8b2b2b" : "#222"}`, color: "#e8e8e8", padding: "0.875rem 1rem", fontSize: "0.9rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", outline: "none", borderRadius: "2px", transition: "border-color 0.2s", boxSizing: "border-box" }}
-              onFocus={e => { if (!err) e.target.style.borderColor = "#444"; }} onBlur={e => { if (!err) e.target.style.borderColor = "#222"; }}
-            />
-          </div>
-          {err && <p style={{ color: "#a04040", fontSize: "0.68rem", letterSpacing: "0.15em", textTransform: "uppercase", margin: 0, textAlign: "center" }}>incorrect password</p>}
-          {serverIssue && <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.68rem", letterSpacing: "0.06em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>access password verification is unavailable right now. Configure the server-side `PASSWORD` env to enable this gate safely.</p>}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            type="submit"
-            disabled={checking}
-            style={{ width: "100%", background: checking ? "#555" : "#e8e8e8", color: checking ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: checking ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
-          >{checking ? "checking…" : "enter"}</motion.button>
-        </form>
-      </motion.div>
-      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
-    </motion.div>
   );
 }
 
@@ -3244,7 +3135,6 @@ function BrowserApp({
 
 export default function App() {
   const [accountLoading, setAccountLoading] = useState(true);
-  const [accessGranted, setAccessGranted] = useState(hasValidAuthSession);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -3336,8 +3226,6 @@ export default function App() {
   }, []);
 
   async function logout() {
-    clearAuthSession();
-    setAccessGranted(false);
     await supabase.auth.signOut();
     swRegistered = false;
     bareConn = null;
@@ -3358,8 +3246,6 @@ export default function App() {
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
             syncing account…
           </motion.div>
-        ) : !accessGranted ? (
-          <PasswordScreen key="password" onSuccess={() => setAccessGranted(true)} />
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
             onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
