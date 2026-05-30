@@ -34,8 +34,8 @@ type WispHandler = (req: IncomingMessage, socket: any, head?: Buffer) => void;
 export let wispHandler: WispHandler | null = null;
 
 try {
-  const { routeRequest } = await import("@mercuryworkshop/wisp-js/server");
-  wispHandler = routeRequest as WispHandler;
+  const { server: wisp } = await import("@mercuryworkshop/wisp-js/server");
+  wispHandler = wisp.routeRequest as WispHandler;
   logger.info("Wisp protocol enabled at /api/wisp/");
 } catch (err) {
   logger.warn({ err }, "wisp-js not available — Wisp disabled");

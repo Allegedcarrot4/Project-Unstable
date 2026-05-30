@@ -32,7 +32,8 @@ interface KeyShortcuts {
 }
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
-interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; }
+type TransportMode = "auto" | "wisp" | "bare";
+interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; transportMode: TransportMode; }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
 interface Tab {
@@ -99,6 +100,7 @@ interface AdminOverview {
 
 const SESSION_KEY = "unstable_auth";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const ACCOUNT_BOOT_TIMEOUT_MS = 4000;
 const UV_PREFIX = "/service/";
 const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
@@ -111,7 +113,7 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto" };
+const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "auto" };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
@@ -230,6 +232,22 @@ async function sendAiChat(messages: AIMessage[], mode: AIMode): Promise<string> 
 
 async function readJson<T>(res: Response): Promise<T | null> {
   return res.json().catch(() => null) as Promise<T | null>;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(`${label} timed out.`)), timeoutMs);
+    promise.then(
+      value => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      error => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function fetchDeviceBanStatus(): Promise<{ banned: boolean; reason: string | null }> {
@@ -402,7 +420,7 @@ function decodeProxyUrl(url: string): string {
     }
     if (url.startsWith(UV_PREFIX)) {
       const enc = url.slice(UV_PREFIX.length);
-      if (window.__uv$config) return window.__uv$config.decodeUrl(decodeURIComponent(enc));
+      if (window.__uv$config) return window.__uv$config.decodeUrl(enc);
       return decodeURIComponent(enc);
     }
   } catch { }
@@ -507,7 +525,7 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): Promise<void> {
   if (!("serviceWorker" in navigator)) {
     emitStatus({ phase: "error", message: "Service workers not supported" }); return;
   }
@@ -610,21 +628,34 @@ async function setupProxy(bareNum = 1): Promise<void> {
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
 
     let transportSet = false;
+    const mode = transportMode || "auto";
 
-    // Primary: wisp (libcurl)
-    try {
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      transportSet = true;
-      emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-    } catch { /* fall through */ }
-
-    // Fallback: bare
-    if (!transportSet) {
+    if (mode === "bare") {
       try {
         await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
         transportSet = true;
         emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
       } catch { /* fall through */ }
+    } else if (mode === "wisp") {
+      try {
+        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+        transportSet = true;
+        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+      } catch { /* fall through */ }
+    } else {
+      // auto: try wisp first, fallback to bare
+      try {
+        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+        transportSet = true;
+        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
+      } catch { /* fall through */ }
+      if (!transportSet) {
+        try {
+          await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
+          transportSet = true;
+          emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
+        } catch { /* fall through */ }
+      }
     }
 
     if (!transportSet) {
@@ -636,18 +667,27 @@ async function setupProxy(bareNum = 1): Promise<void> {
   }
 }
 
-async function switchBare(n: number): Promise<void> {
+async function switchBare(n: number, transportMode: TransportMode = "auto"): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("@mercuryworkshop/bare-mux");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
     const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
-    try {
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      emitStatus({ switching: false, transport: "libcurl", bare: n });
-    } catch {
+    const mode = transportMode || "auto";
+    const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
       emitStatus({ switching: false, transport: "bare", bare: n });
+    };
+    const tryWisp = async () => {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      emitStatus({ switching: false, transport: "libcurl", bare: n });
+    };
+    if (mode === "bare") {
+      await tryBare();
+    } else if (mode === "wisp") {
+      await tryWisp();
+    } else {
+      try { await tryWisp(); } catch { await tryBare(); }
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
@@ -789,7 +829,7 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible, leftOffset = 12 }: { visible: boolean; leftOffset?: number }) {
+function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode }) {
   const s = useProxyStatus();
   if (!visible) return null;
 
@@ -817,7 +857,7 @@ function StatusBar({ visible, leftOffset = 12 }: { visible: boolean; leftOffset?
           <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
           <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
             {[1, 2, 3, 4, 5].map(n => (
-              <button key={n} onClick={() => switchBare(n)} title={`Switch to bare server ${n}`} style={{
+              <button key={n} onClick={() => switchBare(n, transportMode)} title={`Switch to bare server ${n}`} style={{
                 background: "none", border: "none", padding: "0 2px", cursor: "pointer",
                 fontSize: "0.52rem", letterSpacing: "0.04em",
                 color: s.bare === n ? green : gray,
@@ -1372,6 +1412,35 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
                 whileTap={{ scale: 0.95 }}
                 key={id}
                 onClick={() => onSettingsChange({ ...settings, proxyEngine: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport mode</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["auto", "wisp", "bare"] as TransportMode[]).map(id => {
+            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", bare: "Bare" };
+            const active = settings.transportMode === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, transportMode: id })}
                 style={{
                   background: active ? "#e8e8e8" : "#111",
                   color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
@@ -2874,8 +2943,8 @@ function BrowserApp({
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n);
-  }, []);
+    setupProxy(n, settings.transportMode);
+  }, [settings.transportMode]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -3129,12 +3198,29 @@ function BrowserApp({
                     }
                   }}
                   onError={() => {
-                    if (tab.url.startsWith(SCRAMJET_PREFIX)) {
-                      const original = decodeProxyUrl(tab.url);
+                    const current = tab.url;
+                    if (current.startsWith(SCRAMJET_PREFIX)) {
+                      const original = decodeProxyUrl(current);
                       const uvUrl = encodeProxyUrl(original, "uv");
-                      if (uvUrl !== tab.url) {
+                      if (uvUrl !== current) {
                         updateTab(tab.id, { url: uvUrl, loading: true });
                         return;
+                      }
+                    } else if (current.startsWith(UV_PREFIX)) {
+                      const original = decodeProxyUrl(current);
+                      if (original && original.startsWith("http")) {
+                        const retryUrl = encodeProxyUrl(original, "uv");
+                        if (retryUrl !== current) {
+                          updateTab(tab.id, { url: retryUrl, loading: true });
+                          return;
+                        }
+                      }
+                      if (scrController) {
+                        const scramjetUrl = encodeProxyUrl(original || current, "scramjet");
+                        if (scramjetUrl !== current) {
+                          updateTab(tab.id, { url: scramjetUrl, loading: true });
+                          return;
+                        }
                       }
                     }
                     updateTab(tab.id, { loading: false });
@@ -3147,7 +3233,7 @@ function BrowserApp({
         </div>
       </div>
 
-      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} />
+      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} />
 
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
     </motion.div>
@@ -3158,6 +3244,7 @@ function BrowserApp({
 
 export default function App() {
   const [accountLoading, setAccountLoading] = useState(true);
+  const [accessGranted, setAccessGranted] = useState(hasValidAuthSession);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -3182,10 +3269,14 @@ export default function App() {
 
       setAccountLoading(true);
       try {
-        const [nextProfile, nextAuthContext] = await Promise.all([
-          fetchProfile(nextUser.id),
-          fetchAuthContext(nextSession!.access_token),
-        ]);
+        const [nextProfile, nextAuthContext] = await withTimeout(
+          Promise.all([
+            fetchProfile(nextUser.id),
+            fetchAuthContext(nextSession!.access_token),
+          ]),
+          ACCOUNT_BOOT_TIMEOUT_MS,
+          "Account sync",
+        );
         if (!mounted) return;
 
         if (nextAuthContext.isBanned) {
@@ -3217,9 +3308,22 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      void syncSession(data.session);
-    });
+    async function loadInitialSession() {
+      try {
+        const { data } = await withTimeout(supabase.auth.getSession(), ACCOUNT_BOOT_TIMEOUT_MS, "Session restore");
+        await syncSession(data.session);
+      } catch (err) {
+        if (!mounted) return;
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAccountError(err instanceof Error ? `${err.message} Continuing locally.` : "Account sync unavailable. Continuing locally.");
+        setAccountLoading(false);
+      }
+    }
+
+    void loadInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       void syncSession(nextSession);
@@ -3233,6 +3337,7 @@ export default function App() {
 
   async function logout() {
     clearAuthSession();
+    setAccessGranted(false);
     await supabase.auth.signOut();
     swRegistered = false;
     bareConn = null;
@@ -3253,6 +3358,8 @@ export default function App() {
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
             syncing account…
           </motion.div>
+        ) : !accessGranted ? (
+          <PasswordScreen key="password" onSuccess={() => setAccessGranted(true)} />
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
             onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {

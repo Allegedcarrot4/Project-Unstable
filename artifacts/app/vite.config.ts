@@ -36,10 +36,24 @@ export default defineConfig({
     host: "0.0.0.0",
     allowedHosts: true,
     proxy: {
-      "/api": "http://localhost:8080",
-      "/service": "http://localhost:8080",
-      "/ham": "http://localhost:8080",
-      "/baremux": "http://localhost:8080",
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        ws: true,
+      },
+      "/service": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/ham": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        ws: true,
+      },
+      "/baremux": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
     },
     fs: {
       strict: true,
