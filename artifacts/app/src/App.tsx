@@ -105,8 +105,6 @@ const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
 const BARE_KEY = "unstable_bare";
 const DEVICE_ID_KEY = "unstable_device_id";
-const TABS_KEY = "unstable_tabs";
-const ACTIVE_TAB_KEY = "unstable_active_tab";
 
 const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab1: "Alt+1", tab2: "Alt+2", tab3: "Alt+3", tab4: "Alt+4", tab5: "Alt+5",
@@ -445,24 +443,6 @@ function loadCustomShortcuts(): Shortcut[] {
   catch { return []; }
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
-
-function loadPersistedTabs(): { tabs: Tab[]; activeId: string } | null {
-  try {
-    const raw = localStorage.getItem(TABS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    const activeId = localStorage.getItem(ACTIVE_TAB_KEY);
-    return { tabs: parsed, activeId: activeId || parsed[0].id };
-  } catch { return null; }
-}
-function persistTabs(tabs: Tab[], activeId: string) {
-  try {
-    const serializable = tabs.map(t => ({ ...t, loading: false }));
-    localStorage.setItem(TABS_KEY, JSON.stringify(serializable));
-    localStorage.setItem(ACTIVE_TAB_KEY, activeId);
-  } catch { /* quota or serialization error */ }
-}
 
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
@@ -2839,15 +2819,8 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
-  const [tabs, setTabs] = useState<Tab[]>(() => {
-    const persisted = loadPersistedTabs();
-    return persisted?.tabs || [makeTab()];
-  });
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    const persisted = loadPersistedTabs();
-    if (persisted && persisted.tabs.some(t => t.id === persisted.activeId)) return persisted.activeId;
-    return tabs[0].id;
-  });
+  const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
+  const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -2861,8 +2834,6 @@ function BrowserApp({
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n, settings.transportMode);
   }, [settings.transportMode]);
-
-  useEffect(() => { persistTabs(tabs, activeTabId); }, [tabs, activeTabId]);
 
   useEffect(() => {
     if (!activeTab) return;
