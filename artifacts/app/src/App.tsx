@@ -2823,6 +2823,9 @@ function BrowserApp({
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
@@ -2924,10 +2927,9 @@ function BrowserApp({
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], historyIndex: idx, loading: true } : t));
   }
   function handleReload() {
-    const iframe = document.querySelector<HTMLIFrameElement>(`iframe[data-tab-id="${activeTabId}"]`);
-    if (!iframe) return;
-    const src = iframe.src; iframe.src = "";
-    setTimeout(() => { iframe.src = src; updateTab(activeTabId, { loading: true }); }, 50);
+    if (!iframeRef.current) return;
+    const src = iframeRef.current.src; iframeRef.current.src = "";
+    setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
   function handleNewTab() { const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
   function handleCloseTab(id: string) {
@@ -3010,10 +3012,15 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-            {tabs.map(tab => (
-              <div
+          <AnimatePresence mode="wait">
+            {tabs.map(tab => tab.id === activeTabId && (
+              <motion.div
                 key={tab.id}
-                style={{ position: "absolute", inset: 0, display: tab.id === activeTabId ? "block" : "none" }}
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.02 }}
+                transition={{ duration: 0.2 }}
+                style={{ position: "absolute", inset: 0 }}
               >
               {!tab.url ? (
                 <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
@@ -3040,13 +3047,13 @@ function BrowserApp({
               ) : tab.url === "unstable://blank" ? (
                 <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
               ) : (
-                <iframe data-tab-id={tab.id} src={tab.url}
+                <iframe ref={iframeRef} src={tab.url}
                   style={{ width: "100%", height: "100%", border: "none", display: "block" }}
                   allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
-                  onLoad={(e) => {
+                  onLoad={() => {
                     updateTab(tab.id, { loading: false });
                     try {
-                      const iframe = e.currentTarget;
+                      const iframe = iframeRef.current;
                       if (!iframe) return;
                       const win = iframe.contentWindow as any;
                       const doc = iframe.contentDocument;
@@ -3112,8 +3119,9 @@ function BrowserApp({
                   }}
                 />
               )}
-              </div>
+              </motion.div>
             ))}
+          </AnimatePresence>
         </div>
       </div>
 
