@@ -105,6 +105,8 @@ const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
 const BARE_KEY = "unstable_bare";
 const DEVICE_ID_KEY = "unstable_device_id";
+const TABS_KEY = "unstable_tabs";
+const ACTIVE_TAB_KEY = "unstable_active_tab";
 
 const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab1: "Alt+1", tab2: "Alt+2", tab3: "Alt+3", tab4: "Alt+4", tab5: "Alt+5",
@@ -443,6 +445,22 @@ function loadCustomShortcuts(): Shortcut[] {
   catch { return []; }
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
+
+function loadTabs(): Tab[] {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Tab[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  return undefined as any;
+}
+function saveTabs(tabs: Tab[]) { localStorage.setItem(TABS_KEY, JSON.stringify(tabs)); }
+function loadActiveTabId(): string | null {
+  try { return localStorage.getItem(ACTIVE_TAB_KEY); } catch { return null; }
+}
+function saveActiveTabId(id: string) { localStorage.setItem(ACTIVE_TAB_KEY, id); }
 
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
@@ -2819,13 +2837,16 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
-  const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
-  const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
+  const savedTabs = useMemo(() => loadTabs(), []);
+  const savedActiveId = useMemo(() => loadActiveTabId(), []);
+  const [tabs, setTabs] = useState<Tab[]>(savedTabs || [makeTab()]);
+  const [activeTabId, setActiveTabId] = useState<string>(
+    savedTabs && savedActiveId && savedTabs.some(t => t.id === savedActiveId)
+      ? savedActiveId
+      : (savedTabs ? savedTabs[0].id : tabs[0].id)
+  );
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
-  const [settings, setSettings] = useState<Settings>(loadSettings);
-  const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
@@ -2837,6 +2858,9 @@ function BrowserApp({
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n, settings.transportMode);
   }, [settings.transportMode]);
+
+  useEffect(() => { saveTabs(tabs); }, [tabs]);
+  useEffect(() => { saveActiveTabId(activeTabId); }, [activeTabId]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -2927,9 +2951,10 @@ function BrowserApp({
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], historyIndex: idx, loading: true } : t));
   }
   function handleReload() {
-    if (!iframeRef.current) return;
-    const src = iframeRef.current.src; iframeRef.current.src = "";
-    setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
+    const iframe = document.querySelector<HTMLIFrameElement>(`iframe[data-tab-id="${activeTabId}"]`);
+    if (!iframe) return;
+    const src = iframe.src; iframe.src = "";
+    setTimeout(() => { iframe.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
   function handleNewTab() { const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
   function handleCloseTab(id: string) {
@@ -3012,15 +3037,10 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          <AnimatePresence mode="wait">
-            {tabs.map(tab => tab.id === activeTabId && (
-              <motion.div
+            {tabs.map(tab => (
+              <div
                 key={tab.id}
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 1.02 }}
-                transition={{ duration: 0.2 }}
-                style={{ position: "absolute", inset: 0 }}
+                style={{ position: "absolute", inset: 0, display: tab.id === activeTabId ? "block" : "none" }}
               >
               {!tab.url ? (
                 <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
@@ -3047,13 +3067,13 @@ function BrowserApp({
               ) : tab.url === "unstable://blank" ? (
                 <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
               ) : (
-                <iframe ref={iframeRef} src={tab.url}
+                <iframe data-tab-id={tab.id} src={tab.url}
                   style={{ width: "100%", height: "100%", border: "none", display: "block" }}
                   allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
-                  onLoad={() => {
+                  onLoad={(e) => {
                     updateTab(tab.id, { loading: false });
                     try {
-                      const iframe = iframeRef.current;
+                      const iframe = e.currentTarget;
                       if (!iframe) return;
                       const win = iframe.contentWindow as any;
                       const doc = iframe.contentDocument;
@@ -3119,9 +3139,8 @@ function BrowserApp({
                   }}
                 />
               )}
-              </motion.div>
+              </div>
             ))}
-          </AnimatePresence>
         </div>
       </div>
 
