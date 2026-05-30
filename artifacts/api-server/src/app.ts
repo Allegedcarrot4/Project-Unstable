@@ -58,7 +58,18 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowed = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
+    // Allow requests with no origin (same-origin, curl, service workers)
+    if (!origin || allowed.length === 0) return callback(null, true);
+    if (allowed.some(o => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
+      return callback(null, true);
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

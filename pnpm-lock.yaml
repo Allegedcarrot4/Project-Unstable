@@ -220,8 +220,8 @@ importers:
         specifier: ^2.1.8
         version: 2.1.8
       '@mercuryworkshop/libcurl-transport':
-        specifier: ^2.0.5
-        version: 2.0.5
+        specifier: ^1.5.1
+        version: 1.5.1
       '@mercuryworkshop/scramjet':
         specifier: 2.0.2-alpha
         version: 2.0.2-alpha
@@ -815,11 +815,11 @@ packages:
     resolution: {integrity: sha512-rI3S7Osyr2ZWmG6J6v3MLS1ZT269lx1DrAjM47q0aoBYnfgUZTRvZqY0Globb8ipTi02d5x6dTJBeUBt6dZsag==}
 
   '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz':
-    resolution: {integrity: sha512-ecMUOBFosVNAAEykWTnep1n/y1ChAVRuPEnt98rjDllBaGm5Qq5C9LvbZ+x8gNAGam/g549GXQjtzVwRmdNi0w==, tarball: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz}
+    resolution: {tarball: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz}
     version: 2.1.8
 
-  '@mercuryworkshop/libcurl-transport@2.0.5':
-    resolution: {integrity: sha512-YkAPEAWTEUZZkEOejmRQJxNHw90+kNQnoiSqa5H2sExHBXXdGSXEtg7/35A53U8MDVaznpAwjVbXRONSsfatzw==}
+  '@mercuryworkshop/libcurl-transport@1.5.1':
+    resolution: {integrity: sha512-tNyH1HuQIJRQ2sBVeFmHcIPf15Mv5v6Zq/qrOp3ReE5oBswT13MKLSybzu2VbVRo/QNud18nbKvVz3JeSre79g==}
 
   '@mercuryworkshop/proxy-transports@1.0.2':
     resolution: {integrity: sha512-zgD+JMYNSx8LxVLWwGPPVnoDHjoh1GqqwUJIjhIwCwhy+Z7g+MhmiTJvCcRPAo7qXXbqJwIrpBJduRSOrjMV7g==}
@@ -3622,7 +3622,7 @@ snapshots:
 
   '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz': {}
 
-  '@mercuryworkshop/libcurl-transport@2.0.5':
+  '@mercuryworkshop/libcurl-transport@1.5.1':
     dependencies:
       libcurl.js: 0.7.4
 

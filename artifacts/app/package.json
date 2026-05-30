@@ -73,7 +73,7 @@
   },
   "dependencies": {
     "@mercuryworkshop/bare-mux": "^2.1.8",
-    "@mercuryworkshop/libcurl-transport": "^2.0.5",
+    "@mercuryworkshop/libcurl-transport": "^1.5.1",
     "@mercuryworkshop/scramjet": "2.0.2-alpha",
     "@supabase/supabase-js": "^2.105.4",
     "bare-mux-fork": "https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz",

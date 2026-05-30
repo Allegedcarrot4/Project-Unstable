@@ -134,6 +134,7 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
   { id: "github", name: "GitHub", url: "https://github.com", favicon: faviconUrl("github.com") },
   { id: "spotify", name: "Spotify", url: "https://open.spotify.com", favicon: faviconUrl("open.spotify.com") },
   { id: "twitch", name: "Twitch", url: "https://twitch.tv", favicon: faviconUrl("twitch.tv") },
+  { id: "vscode", name: "VS Code", url: "https://vscode.dev", favicon: faviconUrl("vscode.dev") },
 ];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────

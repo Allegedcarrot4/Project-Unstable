@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import {
   getAuthedUser,
   getSupabaseAdmin,
@@ -8,20 +9,30 @@ import {
 
 const router = Router();
 
+const expectedHash = (() => {
+  const raw = process.env.PASSWORD;
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/^['"]|['"]$/g, "");
+  return crypto.createHash("sha256").update(trimmed).digest("hex");
+})();
+
 router.post("/auth/check", (req, res) => {
   const { password } = req.body ?? {};
-  const expectedRaw = process.env.PASSWORD;
 
-  if (!expectedRaw) {
-    // PASSWORD not configured — tell the client to handle auth locally (dev mode)
+  if (!expectedHash) {
     res.status(503).json({ dev: true });
     return;
   }
 
-  const expected = expectedRaw.trim().replace(/^['"]|['"]$/g, "");
   const provided = typeof password === "string" ? password.trim() : "";
+  if (!provided) {
+    res.status(401).json({ ok: false });
+    return;
+  }
 
-  if (!provided || provided !== expected) {
+  const providedHash = crypto.createHash("sha256").update(provided).digest("hex");
+  const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
+  if (!valid) {
     res.status(401).json({ ok: false });
     return;
   }
