@@ -446,21 +446,23 @@ function loadCustomShortcuts(): Shortcut[] {
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
 
-function loadTabs(): Tab[] | null {
+function loadPersistedTabs(): { tabs: Tab[]; activeId: string } | null {
   try {
     const raw = localStorage.getItem(TABS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Tab[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch { /* ignore */ }
-  return null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const activeId = localStorage.getItem(ACTIVE_TAB_KEY);
+    return { tabs: parsed, activeId: activeId || parsed[0].id };
+  } catch { return null; }
 }
-function saveTabs(tabs: Tab[]) { localStorage.setItem(TABS_KEY, JSON.stringify(tabs)); }
-function loadActiveTabId(): string | null {
-  try { return localStorage.getItem(ACTIVE_TAB_KEY); } catch { return null; }
+function persistTabs(tabs: Tab[], activeId: string) {
+  try {
+    const serializable = tabs.map(t => ({ ...t, loading: false }));
+    localStorage.setItem(TABS_KEY, JSON.stringify(serializable));
+    localStorage.setItem(ACTIVE_TAB_KEY, activeId);
+  } catch { /* quota or serialization error */ }
 }
-function saveActiveTabId(id: string) { localStorage.setItem(ACTIVE_TAB_KEY, id); }
 
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
@@ -2837,13 +2839,14 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
-  const savedTabs = useMemo(() => loadTabs(), []);
-  const savedActiveId = useMemo(() => loadActiveTabId(), []);
-  const defaultTabs = [makeTab()];
-  const [tabs, setTabs] = useState<Tab[]>(() => savedTabs ?? defaultTabs);
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const persisted = loadPersistedTabs();
+    return persisted?.tabs || [makeTab()];
+  });
   const [activeTabId, setActiveTabId] = useState<string>(() => {
-    if (savedTabs && savedActiveId && savedTabs.some(t => t.id === savedActiveId)) return savedActiveId;
-    return savedTabs ? savedTabs[0].id : defaultTabs[0].id;
+    const persisted = loadPersistedTabs();
+    if (persisted && persisted.tabs.some(t => t.id === persisted.activeId)) return persisted.activeId;
+    return tabs[0].id;
   });
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -2859,8 +2862,7 @@ function BrowserApp({
     setupProxy(n, settings.transportMode);
   }, [settings.transportMode]);
 
-  useEffect(() => { saveTabs(tabs); }, [tabs]);
-  useEffect(() => { saveActiveTabId(activeTabId); }, [activeTabId]);
+  useEffect(() => { persistTabs(tabs, activeTabId); }, [tabs, activeTabId]);
 
   useEffect(() => {
     if (!activeTab) return;
