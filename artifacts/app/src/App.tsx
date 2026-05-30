@@ -446,7 +446,7 @@ function loadCustomShortcuts(): Shortcut[] {
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
 
-function loadTabs(): Tab[] {
+function loadTabs(): Tab[] | null {
   try {
     const raw = localStorage.getItem(TABS_KEY);
     if (raw) {
@@ -454,7 +454,7 @@ function loadTabs(): Tab[] {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch { /* ignore */ }
-  return undefined as any;
+  return null;
 }
 function saveTabs(tabs: Tab[]) { localStorage.setItem(TABS_KEY, JSON.stringify(tabs)); }
 function loadActiveTabId(): string | null {
@@ -2839,12 +2839,12 @@ function BrowserApp({
 }) {
   const savedTabs = useMemo(() => loadTabs(), []);
   const savedActiveId = useMemo(() => loadActiveTabId(), []);
-  const [tabs, setTabs] = useState<Tab[]>(savedTabs || [makeTab()]);
-  const [activeTabId, setActiveTabId] = useState<string>(
-    savedTabs && savedActiveId && savedTabs.some(t => t.id === savedActiveId)
-      ? savedActiveId
-      : (savedTabs ? savedTabs[0].id : tabs[0].id)
-  );
+  const defaultTabs = [makeTab()];
+  const [tabs, setTabs] = useState<Tab[]>(() => savedTabs ?? defaultTabs);
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    if (savedTabs && savedActiveId && savedTabs.some(t => t.id === savedActiveId)) return savedActiveId;
+    return savedTabs ? savedTabs[0].id : defaultTabs[0].id;
+  });
   const [urlInput, setUrlInput] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
