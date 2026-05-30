@@ -146,7 +146,7 @@ function aiMessageId() {
   return Math.random().toString(36).slice(2);
 }
 
-function aiMessageId() {
+function getDeviceId() {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
 
