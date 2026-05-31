@@ -3150,7 +3150,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    async function syncSession(nextSession: Session | null) {
+    async function syncSession(nextSession: Session | null, showLoading = true) {
       if (!mounted) return;
       setSession(nextSession);
       const nextUser = nextSession?.user ?? null;
@@ -3163,7 +3163,7 @@ export default function App() {
         return;
       }
 
-      setAccountLoading(true);
+      if (showLoading) setAccountLoading(true);
       try {
         const [nextProfile, nextAuthContext] = await withTimeout(
           Promise.all([
@@ -3222,7 +3222,7 @@ export default function App() {
     void loadInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void syncSession(nextSession);
+      void syncSession(nextSession, false);
     });
 
     return () => {
