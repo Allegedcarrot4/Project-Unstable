@@ -1,5 +1,13 @@
 [
     {
+        "id": -1,
+        "name": "Sugest a Game",
+        "cover": "https://cdn.phototourl.com/free/2026-05-31-c21f9c8c-897d-451a-b5ea-6fc459660cf0.png",
+        "url": "https://form.typeform.com/to/fRPFJlUH",
+        "author": "Unstable",
+        "authorLink": "https://allegedcarrot4-unstable-node.hf.space"
+    },
+    {
         "id": 0,
         "name": "Bowmasters",
         "cover": "https://raw.githack.com/gn-math/covers/main/0.png",
