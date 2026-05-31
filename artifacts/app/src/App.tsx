@@ -434,6 +434,7 @@ function loadSettings(): Settings {
       cloak: parsed.cloak ?? "none",
       shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
       proxyEngine: (parsed.proxyEngine ?? "auto") as ProxyEngine,
+      transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -2827,6 +2828,7 @@ function BrowserApp({
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
+  const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -2948,6 +2950,61 @@ function BrowserApp({
     win.document.close();
   }
 
+  function toggleDevTools() {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    const win = iframe.contentWindow;
+    if (!win) return;
+    const id = activeTabId;
+    const isOpen = !!devToolsOpen[id];
+
+    if (isOpen) {
+      try { (win as any).eruda.hide(); } catch {}
+      (win as any).__UNSTABLE_DEVTOOLS__ = false;
+      setDevToolsOpen(prev => ({ ...prev, [id]: false }));
+      return;
+    }
+
+    if ((win as any).eruda) {
+      try { (win as any).eruda.show(); } catch {}
+      (win as any).__UNSTABLE_DEVTOOLS__ = true;
+      setDevToolsOpen(prev => ({ ...prev, [id]: true }));
+      return;
+    }
+
+    fetch("https://cdn.jsdelivr.net/npm/eruda")
+      .then(r => r.text())
+      .then(code => {
+        const s = doc.createElement("script");
+        s.textContent = code;
+        doc.head.appendChild(s);
+        try {
+          (win as any).eruda.init({ useShadowDom: false });
+          (win as any).eruda.show();
+          (win as any).__UNSTABLE_DEVTOOLS__ = true;
+          const nukeLauncher = () => {
+            try {
+              doc.querySelectorAll("*").forEach((el: Element) => {
+                const cn = (el.className || "").toString();
+                if (cn.includes("launcher") || cn.includes("Launcher")) {
+                  (el as HTMLElement).style.cssText = "display:none!important";
+                }
+              });
+            } catch {}
+          };
+          nukeLauncher();
+          for (let i = 1; i <= 50; i++) setTimeout(nukeLauncher, i * 50);
+          const obs = new MutationObserver(() => nukeLauncher());
+          obs.observe(doc.body, { childList: true, subtree: true, attributes: true });
+          setTimeout(() => obs.disconnect(), 10000);
+        } catch (e) { console.error("eruda init failed", e); }
+      })
+      .catch(e => console.error("eruda fetch failed", e));
+    setDevToolsOpen(prev => ({ ...prev, [id]: true }));
+  }
+
   function handleUrlSubmit(e: React.FormEvent) { e.preventDefault(); handleNavigate(urlInput); urlInputRef.current?.blur(); }
 
   const canBack = (activeTab?.historyIndex ?? -1) > 0;
@@ -2992,6 +3049,9 @@ function BrowserApp({
               />
             </form>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
+            <button onClick={toggleDevTools} style={btn} {...hov(true)} title="DevTools">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></svg>
+            </button>
             <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} title="Open in new window">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
@@ -3085,6 +3145,15 @@ function BrowserApp({
                         };
                         win.addEventListener("mouseover", handleIframeHover);
                         win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+
+                        doc.addEventListener("keydown", (e: KeyboardEvent) => {
+                          const ae = doc.activeElement;
+                          if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || (ae as HTMLElement).isContentEditable)) return;
+                          window.dispatchEvent(new KeyboardEvent("keydown", {
+                            key: e.key, code: e.code, ctrlKey: e.ctrlKey, altKey: e.altKey,
+                            shiftKey: e.shiftKey, metaKey: e.metaKey, bubbles: true, cancelable: true,
+                          }));
+                        });
 
                         const style = doc.createElement("style");
                         style.textContent = "html, body, * { cursor: none !important; }";
