@@ -4,6 +4,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Shield, Atom, House } from "lucide-react";
 import gamesListData from "./data/games.json";
+import { makeCodec } from "./lib/codec";
 
 declare global {
   interface Window {
@@ -389,7 +390,7 @@ function normalizeUrl(input: string): string {
 function decodeProxyUrl(url: string): string {
   try {
     if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      try { return scrController.decodeUrl(url); } catch { }
+      try { return scrController.decodeUrl(location.origin + url); } catch { }
       const encoded = url.slice(SCRAMJET_PREFIX.length);
       return decodeURIComponent(encoded);
     }
@@ -538,6 +539,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
           sync: "/eggs/scramjet.sync.js",
         },
         flags: { rewriterLogs: false, cleanErrors: true },
+        codec: makeCodec(),
       });
       await scrController.init();
     }
