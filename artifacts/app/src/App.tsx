@@ -34,7 +34,123 @@ interface KeyShortcuts {
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
 type TransportMode = "auto" | "wisp" | "bare";
-interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; transportMode: TransportMode; }
+type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
+
+interface ThemeColors {
+  bg: string; bgSecondary: string; bgTertiary: string; bgHover: string;
+  text: string; textSecondary: string; textMuted: string;
+  border: string; borderLight: string;
+  accent: string; accentHover: string; accentText: string;
+  inputBg: string; inputBorder: string; inputText: string;
+  btnBg: string; btnHover: string; btnText: string;
+  scrollbar: string; scrollbarThumb: string;
+  tabActive: string; tabInactive: string; tabBorder: string;
+  cardBg: string; cardBorder: string;
+}
+
+const THEMES: Record<ThemeId, { label: string; wallpaper?: string; colors: ThemeColors }> = {
+  dark: {
+    label: "Dark",
+    colors: {
+      bg: "#0d0d0d", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
+      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
+      border: "#1e1e1e", borderLight: "#222",
+      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
+      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
+      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
+      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
+      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
+      cardBg: "#111", cardBorder: "#222",
+    },
+  },
+  midnight: {
+    label: "Midnight Blue",
+    colors: {
+      bg: "#0a0a1a", bgSecondary: "#101028", bgTertiary: "#161636", bgHover: "#1c1c42",
+      text: "#c8c8e0", textSecondary: "rgba(200,200,224,0.6)", textMuted: "rgba(200,200,224,0.35)",
+      border: "#1e1e3a", borderLight: "#2a2a4a",
+      accent: "#5588ff", accentHover: "#7799ff", accentText: "#fff",
+      inputBg: "#0e0e22", inputBorder: "#2a2a4a", inputText: "#c8c8e0",
+      btnBg: "#161636", btnHover: "#1e1e42", btnText: "rgba(200,200,224,0.5)",
+      scrollbar: "#1e1e3a", scrollbarThumb: "#3a3a5a",
+      tabActive: "#101028", tabInactive: "#08081a", tabBorder: "#1a1a3a",
+      cardBg: "#101028", cardBorder: "#2a2a4a",
+    },
+  },
+  ocean: {
+    label: "Ocean",
+    colors: {
+      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
+      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
+      border: "#1a3040", borderLight: "#243e50",
+      accent: "#00aacc", accentHover: "#22ccee", accentText: "#fff",
+      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
+      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
+      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
+      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
+      cardBg: "#0e1e2c", cardBorder: "#243e50",
+    },
+  },
+  sunset: {
+    label: "Sunset",
+    colors: {
+      bg: "#1a0e0e", bgSecondary: "#221414", bgTertiary: "#2a1818", bgHover: "#341e1e",
+      text: "#e8c8b8", textSecondary: "rgba(232,200,184,0.6)", textMuted: "rgba(232,200,184,0.35)",
+      border: "#3a2020", borderLight: "#4a2828",
+      accent: "#ff6644", accentHover: "#ff8866", accentText: "#fff",
+      inputBg: "#1e1010", inputBorder: "#3a2020", inputText: "#e8c8b8",
+      btnBg: "#2a1818", btnHover: "#342020", btnText: "rgba(232,200,184,0.5)",
+      scrollbar: "#3a2020", scrollbarThumb: "#5a3030",
+      tabActive: "#221414", tabInactive: "#140a0a", tabBorder: "#2a1818",
+      cardBg: "#221414", cardBorder: "#3a2020",
+    },
+  },
+  cyberpunk: {
+    label: "Cyberpunk",
+    colors: {
+      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
+      text: "#e0c0ff", textSecondary: "rgba(224,192,255,0.6)", textMuted: "rgba(224,192,255,0.35)",
+      border: "#2a1e44", borderLight: "#3a2858",
+      accent: "#ff00ff", accentHover: "#ff44ff", accentText: "#fff",
+      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#e0c0ff",
+      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(224,192,255,0.5)",
+      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
+      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
+      cardBg: "#15102a", cardBorder: "#2a1e44",
+    },
+  },
+  matrix: {
+    label: "Matrix",
+    colors: {
+      bg: "#0a0f0a", bgSecondary: "#0e160e", bgTertiary: "#121c12", bgHover: "#162216",
+      text: "#88cc88", textSecondary: "rgba(136,204,136,0.6)", textMuted: "rgba(136,204,136,0.35)",
+      border: "#1a2a1a", borderLight: "#243424",
+      accent: "#00ff41", accentHover: "#33ff66", accentText: "#000",
+      inputBg: "#0c120c", inputBorder: "#1a2a1a", inputText: "#88cc88",
+      btnBg: "#121c12", btnHover: "#1a2a1a", btnText: "rgba(136,204,136,0.5)",
+      scrollbar: "#1a2a1a", scrollbarThumb: "#2a4a2a",
+      tabActive: "#0e160e", tabInactive: "#080c08", tabBorder: "#1a2a1a",
+      cardBg: "#0e160e", cardBorder: "#1a2a1a",
+    },
+  },
+  tuff: {
+    label: "Tuff",
+    wallpaper: "/wallpaper-tuff.png",
+    colors: {
+      bg: "#0d0d0d", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
+      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
+      border: "#1e1e1e", borderLight: "#222",
+      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
+      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
+      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
+      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
+      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
+      cardBg: "#111", cardBorder: "#222",
+    },
+  },
+};
+
+interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; transportMode: TransportMode; theme: ThemeId; wallpaper: string; }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
 interface Tab {
@@ -112,7 +228,7 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "wisp" };
+const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "wisp", theme: "tuff", wallpaper: "" };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
@@ -435,6 +551,8 @@ function loadSettings(): Settings {
       shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
       proxyEngine: (parsed.proxyEngine ?? "auto") as ProxyEngine,
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
+      theme: (parsed.theme ?? "dark") as ThemeId,
+      wallpaper: (parsed.wallpaper ?? "") as string,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -938,8 +1056,8 @@ function AccountAuthScreen({
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
-    background: "#111",
-    border: "1px solid #222",
+    background: "var(--t-bg-secondary)",
+    border: "1px solid var(--t-border-light)",
     color: "#e8e8e8",
     padding: "0.875rem 1rem",
     fontSize: "0.85rem",
@@ -955,7 +1073,7 @@ function AccountAuthScreen({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
+      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
     >
       <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
       <motion.div
@@ -1050,7 +1168,7 @@ function GamesPage({ onNavigate }: { onNavigate: (url: string) => void }) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
     >
       {/* Header */}
       <div style={{ padding: "1.5rem 2rem 1rem", flexShrink: 0, borderBottom: "1px solid #161616" }}>
@@ -1061,7 +1179,7 @@ function GamesPage({ onNavigate }: { onNavigate: (url: string) => void }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
-            width: "100%", maxWidth: 360, background: "#111", border: "1px solid #222",
+            width: "100%", maxWidth: 360, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)",
             color: "#e0e0e0", padding: "0.45rem 0.9rem", fontSize: "0.78rem",
             fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "8px",
             letterSpacing: "0.01em", transition: "border-color 0.15s", boxSizing: "border-box",
@@ -1112,7 +1230,7 @@ function GameCard({ game, index, onNavigate }: { game: typeof GAMES_LIST[0]; ind
       onClick={() => onNavigate(game.url)}
       style={{
         position: "relative", borderRadius: "8px", overflow: "hidden",
-        background: "#111", border: "1px solid #1e1e1e", cursor: "pointer",
+        background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", cursor: "pointer",
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
         boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
       }}
@@ -1169,7 +1287,7 @@ function CreditsPage() {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable — credits</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", width: "100%", maxWidth: "320px", padding: "0 2rem" }}>
@@ -1197,7 +1315,7 @@ function ToSPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
@@ -1231,7 +1349,7 @@ function PrivacyPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
@@ -1288,9 +1406,85 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
     >
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
+      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>theme</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose a color theme for the entire application.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          {(Object.keys(THEMES) as ThemeId[]).map(id => {
+            const active = settings.theme === id;
+            const t = THEMES[id].colors;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, theme: id })}
+                style={{
+                  background: active ? t.accent : t.bgSecondary,
+                  color: active ? t.accentText : t.textSecondary,
+                  border: `1px solid ${active ? t.accent : t.borderLight}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{THEMES[id].label}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>wallpaper</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Set a background image behind all UI panels. Leave empty for none.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <input
+            value={settings.wallpaper}
+            onChange={e => onSettingsChange({ ...settings, wallpaper: e.target.value })}
+            placeholder="image url (https://...)"
+            style={{ ...inputBase, flex: 1 }}
+          />
+          <label style={{ ...inputBase, cursor: "pointer", whiteSpace: "nowrap" }}>
+            upload
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => onSettingsChange({ ...settings, wallpaper: reader.result as string });
+                reader.readAsDataURL(file);
+              }}
+            />
+          </label>
+          {settings.wallpaper && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onSettingsChange({ ...settings, wallpaper: "" })}
+              style={{
+                background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
+                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              }}
+            >clear</motion.button>
+          )}
+        </div>
+        {settings.wallpaper && (
+          <div style={{ marginTop: "0.75rem", width: "100%", height: 120, borderRadius: "4px", overflow: "hidden", border: "1px solid var(--t-border-light)" }}>
+            <div style={{ width: "100%", height: "100%", backgroundImage: `url("${settings.wallpaper}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
+          </div>
+        )}
+      </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
@@ -1439,7 +1633,7 @@ function InlineAuthScreen({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: "#0d0d0d",
+        background: "var(--t-bg)",
         fontFamily: "'Space Grotesk', sans-serif",
         position: "relative",
         overflow: "hidden",
@@ -2022,7 +2216,7 @@ function AdminPage({
 
   if (!isAdmin) {
     return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "#e8e8e8", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "#e8e8e8", fontFamily: "'Space Grotesk', sans-serif" }}>
         <div style={{ maxWidth: 480, padding: "2rem", textAlign: "center" }}>
           <p style={{ margin: 0, fontSize: "0.64rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
           <p style={{ margin: "0.9rem 0 0", fontSize: "1.2rem" }}>Admin role required.</p>
@@ -2039,7 +2233,7 @@ function AdminPage({
         height: "100%",
         overflow: "auto",
         background:
-          "radial-gradient(circle at top left, rgba(255,120,120,0.1), transparent 24%), radial-gradient(circle at bottom right, rgba(255,255,255,0.05), transparent 22%), #0d0d0d",
+          "radial-gradient(circle at top left, rgba(255,120,120,0.1), transparent 24%), radial-gradient(circle at bottom right, rgba(255,255,255,0.05), transparent 22%), var(--t-bg)",
         fontFamily: "'Space Grotesk', sans-serif",
       }}
     >
@@ -2456,10 +2650,11 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
+  wallpaper?: string;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -2486,14 +2681,16 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
     const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
   }
 
-  const inputSt: React.CSSProperties = { background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
+  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" }}
+      style={{ 
+        height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: wallpaper ? `#0d0d0d url(${wallpaper}) center/cover no-repeat` : "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" 
+      }}
     >
       <motion.p
         initial={{ y: -10, opacity: 0 }}
@@ -2509,7 +2706,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
         style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
       >
         <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
-          style={{ flex: 1, background: "#111", border: "1px solid #222", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
+          style={{ flex: 1, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
           onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"}
         />
         <motion.button
@@ -2579,7 +2776,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
             onSubmit={handleAdd}
-            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #222", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
+            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
           >
             <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
             <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
@@ -2839,6 +3036,15 @@ function BrowserApp({
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => {
+    const t = THEMES[settings.theme]?.colors ?? THEMES.dark.colors;
+    const wpUrl = THEMES[settings.theme]?.wallpaper ?? settings.wallpaper;
+    const props = Object.entries(t).map(([k, v]) => `--t-${k.replace(/([A-Z])/g, "-$1").toLowerCase()}: ${v}`).join(";");
+    const wp = wpUrl ? `--t-wallpaper: url("${wpUrl.replace(/"/g, '\\"')}")` : "--t-wallpaper: none";
+    let el = document.getElementById("unstable-theme");
+    if (!el) { el = document.createElement("style"); el.id = "unstable-theme"; document.head.appendChild(el); }
+    el.textContent = `:root{${props};${wp}}`;
+  }, [settings.theme, settings.wallpaper]);
+  useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n, settings.transportMode);
   }, [settings.transportMode]);
@@ -3022,7 +3228,7 @@ function BrowserApp({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
@@ -3036,7 +3242,7 @@ function BrowserApp({
               onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.16)"} title="Lock">lock</button>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             <button onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</button>
             <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
             <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
@@ -3087,7 +3293,7 @@ function BrowserApp({
                 }}
               >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
@@ -3109,7 +3315,7 @@ function BrowserApp({
               ) : tab.url === "unstable://privacy" ? (
                 <PrivacyPage />
               ) : tab.url === "unstable://blank" ? (
-                <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
+                <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />
               ) : (
                 <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
                   src={tab.url}
@@ -3318,7 +3524,7 @@ export default function App() {
       <MagicCursor />
       <AnimatePresence mode="wait">
         {accountLoading ? (
-          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
+          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
             syncing account…
           </motion.div>
         ) : (
