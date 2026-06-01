@@ -2706,8 +2706,19 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
       >
         <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
-          style={{ flex: 1, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
-          onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"}
+          style={{ flex: 1, background: "radial-gradient(circle 150px at var(--glass-x, 50%) var(--glass-y, 50%), rgba(255,255,255,var(--glass-glow, 0)), rgba(255,255,255,0) 72%), linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", WebkitBackdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", boxShadow: "inset 0 1px 0 rgba(255,255,255,calc(0.2 + var(--glass-hover, 0) * 0.2)), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,calc(0.2 + var(--glass-hover, 0) * 0.08))", transition: "border-color 0.18s ease, box-shadow 0.18s ease, backdrop-filter 0.18s ease, -webkit-backdrop-filter 0.18s ease" } as React.CSSProperties}
+          onMouseMove={e => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            e.currentTarget.style.setProperty("--glass-x", `${e.clientX - rect.left}px`);
+            e.currentTarget.style.setProperty("--glass-y", `${e.clientY - rect.top}px`);
+            e.currentTarget.style.setProperty("--glass-hover", "1");
+            e.currentTarget.style.setProperty("--glass-glow", "0.22");
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.setProperty("--glass-hover", "0");
+            e.currentTarget.style.setProperty("--glass-glow", "0");
+          }}
+          onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.46)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.28)"}
         />
         <motion.button
           whileHover={{ background: "#fff" }}
