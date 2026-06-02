@@ -150,12 +150,23 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; colors: Theme
   },
 };
 
-interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; transportMode: TransportMode; theme: ThemeId; wallpaper: string; }
+interface Settings {
+  cloak: CloakId;
+  shortcuts: KeyShortcuts;
+  proxyEngine: ProxyEngine;
+  transportMode: TransportMode;
+  theme: ThemeId;
+  wallpaper: string;
+  gameModeEnabled: boolean;
+  gameModeSites: string[];
+}
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
 interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
+  /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
+  lastProxyUrl?: string;
 }
 
 interface AIMessage {
@@ -228,7 +239,24 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "wisp", theme: "tuff", wallpaper: "" };
+const DEFAULT_GAME_MODE_SITES = [
+  "smashkarts.io",
+  "krunker.io",
+  "1v1.lol",
+  "shellshock.io",
+  "agar.io",
+];
+
+const DEFAULT_SETTINGS: Settings = {
+  cloak: "none",
+  shortcuts: DEFAULT_KEY_SHORTCUTS,
+  proxyEngine: "auto",
+  transportMode: "wisp",
+  theme: "tuff",
+  wallpaper: "",
+  gameModeEnabled: true,
+  gameModeSites: [...DEFAULT_GAME_MODE_SITES],
+};
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
@@ -519,6 +547,28 @@ function decodeProxyUrl(url: string): string {
   return url;
 }
 
+function hostnameFromTabUrl(tabUrl: string): string | null {
+  if (!tabUrl || tabUrl.startsWith("unstable://")) return null;
+  try {
+    return new URL(decodeProxyUrl(tabUrl)).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isGameModeHost(hostname: string | null, settings: Settings): boolean {
+  if (!settings.gameModeEnabled || !hostname) return false;
+  return settings.gameModeSites.some((raw) => {
+    const site = raw.trim().toLowerCase().replace(/^www\./, "");
+    if (!site) return false;
+    return hostname === site || hostname.endsWith("." + site);
+  });
+}
+
+function isGameModeTabUrl(tabUrl: string, settings: Settings): boolean {
+  return isGameModeHost(hostnameFromTabUrl(tabUrl), settings);
+}
+
 function getDomainFromProxyUrl(url: string): string {
   try { return new URL(decodeProxyUrl(url)).hostname; } catch { return ""; }
 }
@@ -553,6 +603,10 @@ function loadSettings(): Settings {
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
       theme: (parsed.theme ?? "dark") as ThemeId,
       wallpaper: (parsed.wallpaper ?? "") as string,
+      gameModeEnabled: parsed.gameModeEnabled ?? true,
+      gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
+        ? parsed.gameModeSites
+        : [...DEFAULT_GAME_MODE_SITES],
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -799,7 +853,43 @@ function useProxyStatus(): ProxyState {
 
 // ─── Magic Cursor ─────────────────────────────────────────────────────────────
 
-function MagicCursor() {
+function GameModeToast({ visible, host }: { visible: boolean; host?: string | null }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: 12, x: 0 }}
+          animate={{ opacity: 1, y: 0, x: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          transition={{ duration: 0.25 }}
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            zIndex: 1000000,
+            padding: "0.55rem 0.85rem",
+            background: "rgba(12, 12, 12, 0.92)",
+            border: "1px solid rgba(80, 200, 120, 0.45)",
+            borderRadius: "6px",
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: "0.68rem",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "rgba(180, 255, 200, 0.95)",
+            boxShadow: "0 8px 28px rgba(0,0,0,0.55)",
+            pointerEvents: "none",
+            maxWidth: 280,
+          }}
+        >
+          game mode on{host ? ` · ${host}` : ""}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function MagicCursor({ suppressed }: { suppressed?: boolean }) {
+  if (suppressed) return null;
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
@@ -1542,6 +1632,63 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
             );
           })}
         </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>game mode</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
+        </p>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
+          <input
+            type="checkbox"
+            checked={settings.gameModeEnabled}
+            onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
+          />
+          enable game mode
+        </label>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
+        <textarea
+          value={settings.gameModeSites.join("\n")}
+          onChange={e => {
+            const sites = e.target.value
+              .split(/\r?\n/)
+              .map(s => s.trim().toLowerCase().replace(/^www\./, ""))
+              .filter(Boolean);
+            onSettingsChange({ ...settings, gameModeSites: sites });
+          }}
+          rows={6}
+          placeholder={"smashkarts.io\nkrunker.io"}
+          style={{
+            ...inputBase,
+            width: "100%",
+            resize: "vertical",
+            minHeight: 100,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.72rem",
+          }}
+        />
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          type="button"
+          onClick={() => onSettingsChange({ ...settings, gameModeSites: [...DEFAULT_GAME_MODE_SITES] })}
+          style={{
+            marginTop: "0.65rem",
+            background: "none",
+            border: "1px solid #222",
+            color: "rgba(255,255,255,0.35)",
+            padding: "0.35rem 0.75rem",
+            fontSize: "0.6rem",
+            fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            borderRadius: "2px",
+          }}
+        >
+          reset site list
+        </motion.button>
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
@@ -2848,10 +2995,12 @@ function CollapsedSidebar({
   activeUrl,
   isAdmin,
   onNavigate,
+  canReturnToBrowse,
 }: {
   activeUrl: string;
   isAdmin: boolean;
   onNavigate: (url: string) => void;
+  canReturnToBrowse?: boolean;
 }) {
   const items: Array<{
     label: string;
@@ -2859,7 +3008,7 @@ function CollapsedSidebar({
     icon: ComponentType<{ size?: number; className?: string }>;
     hidden?: boolean;
   }> = [
-    { label: "Home", url: "unstable://newtab", icon: House },
+    { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
     { label: "Games", url: "unstable://games", icon: Gamepad },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
@@ -3043,6 +3192,31 @@ function BrowserApp({
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
+  const proxyStatus = useProxyStatus();
+  const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
+  const [gameModeToast, setGameModeToast] = useState(false);
+  const lastGameToastHost = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!gameModeActive) {
+      lastGameToastHost.current = null;
+      return;
+    }
+    const host = hostnameFromTabUrl(activeTab!.url);
+    if (!host || lastGameToastHost.current === host) return;
+    lastGameToastHost.current = host;
+    setGameModeToast(true);
+    const timer = window.setTimeout(() => setGameModeToast(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [gameModeActive, activeTab?.url]);
+
+  useEffect(() => {
+    if (!gameModeActive || proxyStatus.phase !== "ready") return;
+    const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
+    if (proxyStatus.transport !== "bare") {
+      void switchBare(n, "bare");
+    }
+  }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
 
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
@@ -3113,26 +3287,81 @@ function BrowserApp({
     const t = url.trim();
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
-      if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
+      if (page === "newtab") {
+        const tab = tabs.find(tb => tb.id === tabId);
+        if (tab?.url.startsWith("unstable://") && tab.lastProxyUrl) {
+          const restored = tab.lastProxyUrl;
+          let title = "Loading…";
+          let favicon = "";
+          try {
+            const d = new URL(decodeProxyUrl(restored)).hostname;
+            title = d;
+            favicon = faviconUrl(d);
+          } catch { /* ignore */ }
+          setTabs(prev => prev.map(tb => {
+            if (tb.id !== tabId) return tb;
+            const hist = [...tb.history.slice(0, tb.historyIndex + 1), restored];
+            return {
+              ...tb,
+              url: restored,
+              title,
+              favicon,
+              history: hist,
+              historyIndex: hist.length - 1,
+              loading: true,
+            };
+          }));
+          return;
+        }
+        updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
+        return;
+      }
       if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin", "games"].includes(page)) {
         if (page === "admin" && !authContext.isAdmin) {
           updateTab(tabId, { url: "unstable://settings", title: "Settings", favicon: "", loading: false });
           return;
         }
         const title = page.charAt(0).toUpperCase() + page.slice(1);
-        updateTab(tabId, { url: t, title, favicon: "", loading: false });
-        setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== tabId) return tab;
+          const lastProxyUrl =
+            tab.url && !tab.url.startsWith("unstable://") ? tab.url : tab.lastProxyUrl;
+          const hist = [...tab.history.slice(0, tab.historyIndex + 1), t];
+          return {
+            ...tab,
+            url: t,
+            title,
+            favicon: "",
+            loading: false,
+            lastProxyUrl,
+            history: hist,
+            historyIndex: hist.length - 1,
+          };
+        }));
         return;
       }
     }
     const normalized = normalizeUrl(t);
     if (!normalized) return;
-    const proxyUrl = encodeProxyUrl(normalized, settings.proxyEngine);
-    let domain = ""; try { domain = new URL(normalized).hostname; } catch { }
+    let domain = "";
+    try {
+      domain = new URL(normalized).hostname.replace(/^www\./i, "").toLowerCase();
+    } catch { /* ignore */ }
+    const engine = isGameModeHost(domain, settings) ? "scramjet" : settings.proxyEngine;
+    const proxyUrl = encodeProxyUrl(normalized, engine);
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
-      return { ...tab, url: proxyUrl, title: domain || "Loading…", favicon: domain ? faviconUrl(domain) : "", history: hist, historyIndex: hist.length - 1, loading: true };
+      return {
+        ...tab,
+        url: proxyUrl,
+        title: domain || "Loading…",
+        favicon: domain ? faviconUrl(domain) : "",
+        history: hist,
+        historyIndex: hist.length - 1,
+        loading: true,
+        lastProxyUrl: proxyUrl,
+      };
     }));
   }
 
@@ -3235,6 +3464,9 @@ function BrowserApp({
   });
 
   return (
+    <>
+      <MagicCursor suppressed={gameModeActive} />
+      <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -3284,6 +3516,7 @@ function BrowserApp({
           <CollapsedSidebar
             activeUrl={activeTab?.url || ""}
             isAdmin={authContext.isAdmin}
+            canReturnToBrowse={Boolean(activeTab?.url.startsWith("unstable://") && activeTab.lastProxyUrl)}
             onNavigate={(url) => handleNavigate(url, activeTabId)}
           />
         )}
@@ -3334,34 +3567,45 @@ function BrowserApp({
                   allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
                   onLoad={() => {
                     updateTab(tab.id, { loading: false });
+                    const gameMode = isGameModeTabUrl(tab.url, settings);
                     try {
                       const iframe = iframeRefs.current[tab.id];
                       if (!iframe) return;
                       const win = iframe.contentWindow as any;
                       const doc = iframe.contentDocument;
                       if (win && doc) {
-                        win.addEventListener("mousemove", (e: MouseEvent) => {
-                          const rect = iframe.getBoundingClientRect();
-                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                          }));
-                        });
-                        doc.addEventListener("mousemove", (e: MouseEvent) => {
-                          const rect = iframe.getBoundingClientRect();
-                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                          }));
-                        });
-                        const handleIframeHover = (e: MouseEvent) => {
-                          const target = e.target as HTMLElement;
-                          if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || win.getComputedStyle(target).cursor === 'pointer')) {
-                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
-                          } else {
-                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
-                          }
-                        };
-                        win.addEventListener("mouseover", handleIframeHover);
-                        win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+                        doc.getElementById("unstable-cursor-style")?.remove();
+                        const cursorStyle = doc.createElement("style");
+                        cursorStyle.id = "unstable-cursor-style";
+                        cursorStyle.textContent = gameMode
+                          ? "html, body, * { cursor: auto !important; }"
+                          : "html, body, * { cursor: none !important; }";
+                        doc.head.appendChild(cursorStyle);
+
+                        if (!gameMode) {
+                          win.addEventListener("mousemove", (e: MouseEvent) => {
+                            const rect = iframe.getBoundingClientRect();
+                            window.dispatchEvent(new CustomEvent("iframe-mousemove", {
+                              detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
+                            }));
+                          });
+                          doc.addEventListener("mousemove", (e: MouseEvent) => {
+                            const rect = iframe.getBoundingClientRect();
+                            window.dispatchEvent(new CustomEvent("iframe-mousemove", {
+                              detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
+                            }));
+                          });
+                          const handleIframeHover = (e: MouseEvent) => {
+                            const target = e.target as HTMLElement;
+                            if (target && (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || win.getComputedStyle(target).cursor === "pointer")) {
+                              window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
+                            } else {
+                              window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+                            }
+                          };
+                          win.addEventListener("mouseover", handleIframeHover);
+                          win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+                        }
 
                         doc.addEventListener("keydown", (e: KeyboardEvent) => {
                           const ae = doc.activeElement;
@@ -3371,12 +3615,8 @@ function BrowserApp({
                             shiftKey: e.shiftKey, metaKey: e.metaKey, bubbles: true, cancelable: true,
                           }));
                         });
-
-                        const style = doc.createElement("style");
-                        style.textContent = "html, body, * { cursor: none !important; }";
-                        doc.head.appendChild(style);
                       }
-                    } catch (e) {
+                    } catch {
                       // ignore cross-origin errors if any
                     }
                   }}
@@ -3420,6 +3660,7 @@ function BrowserApp({
 
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
     </motion.div>
+    </>
   );
 }
 
@@ -3532,7 +3773,6 @@ export default function App() {
 
   return (
     <>
-      <MagicCursor />
       <AnimatePresence mode="wait">
         {accountLoading ? (
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
