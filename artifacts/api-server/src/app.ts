@@ -21,11 +21,11 @@ const httpAgent = new http.Agent({ keepAlive: false });
 const httpsAgent = new https.Agent({ keepAlive: false });
 
 // ─── Bare servers (1-5) ───────────────────────────────────────────────────────
-export const bare1 = createBareServer("/api/bare/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare2 = createBareServer("/api/bare2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare3 = createBareServer("/api/bare3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare4 = createBareServer("/api/bare4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare5 = createBareServer("/api/bare5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare1 = createBareServer("/api/cdn/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare2 = createBareServer("/api/cdn2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare3 = createBareServer("/api/cdn3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare4 = createBareServer("/api/cdn4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare5 = createBareServer("/api/cdn5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 
 export const bares = [bare1, bare2, bare3, bare4, bare5];
 

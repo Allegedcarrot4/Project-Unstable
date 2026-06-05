@@ -9,7 +9,7 @@ const k = new TextEncoder().encode(
 
 self.__uv$config = {
   prefix: "/service/",
-  bare: "/api/bare/",
+	bare: "/api/cdn/",
   encodeUrl: function (s) {
     if (!s) return s;
     try {

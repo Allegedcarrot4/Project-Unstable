@@ -159,6 +159,7 @@ interface Settings {
   wallpaper: string;
   gameModeEnabled: boolean;
   gameModeSites: string[];
+  panicUrl: string;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -231,6 +232,7 @@ const UV_PREFIX = "/service/";
 const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
+const PANIC_URL_KEY = "unstable_panic_url";
 const BARE_KEY = "unstable_bare";
 const DEVICE_ID_KEY = "unstable_device_id";
 
@@ -247,6 +249,7 @@ const DEFAULT_GAME_MODE_SITES = [
   "agar.io",
 ];
 
+const DEFAULT_PANIC_URL = "https://google.com";
 const DEFAULT_SETTINGS: Settings = {
   cloak: "none",
   shortcuts: DEFAULT_KEY_SHORTCUTS,
@@ -256,6 +259,7 @@ const DEFAULT_SETTINGS: Settings = {
   wallpaper: "",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
+  panicUrl: DEFAULT_PANIC_URL,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -574,7 +578,7 @@ function getDomainFromProxyUrl(url: string): string {
 }
 
 function barePathForNum(n: number): string {
-  return n === 1 ? "/api/bare/" : `/api/bare${n}/`;
+  return n === 1 ? "/api/cdn/" : `/api/cdn${n}/`;
 }
 
 function buildCombo(e: KeyboardEvent): string {
@@ -607,10 +611,18 @@ function loadSettings(): Settings {
       gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
         ? parsed.gameModeSites
         : [...DEFAULT_GAME_MODE_SITES],
+      panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
 function saveSettings(s: Settings) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+function normalizePanicUrl(input: string): string {
+  const v = (input || "").trim();
+  if (!v) return DEFAULT_PANIC_URL;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return v;
+  return "https://" + v;
+}
 
 function loadCustomShortcuts(): Shortcut[] {
   try { const r = localStorage.getItem(SHORTCUTS_KEY); return r ? JSON.parse(r) : []; }
@@ -627,6 +639,44 @@ function applyCloak(id: CloakId) {
   const link = document.createElement("link");
   link.rel = "icon"; link.href = preset.favicon;
   document.head.appendChild(link);
+}
+
+function openCloakPopup(decoyUrl: string = "https://www.google.com") {
+  let win: Window | null = null;
+  try {
+    win = window.open("about:blank", "_blank", "width=1024,height=768,menubar=no,toolbar=no,location=no,status=no");
+  } catch { win = null; }
+  const safe = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const decoyTitle = "Google";
+  if (win) {
+    try {
+      win.document.open();
+      win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${safe(decoyTitle)}</title><link rel="icon" href="https://www.google.com/favicon.ico"></head><body style="margin:0;background:#fff;font-family:arial,sans-serif;color:#202124;"></body></html>`);
+      win.document.close();
+      try { win.history.replaceState(null, "", decoyUrl); } catch {}
+      try {
+        Object.defineProperty(win, "onbeforeunload", {
+          configurable: false,
+          set() {},
+          get() { return null; },
+        });
+      } catch {}
+      try {
+        Object.defineProperty(win.document, "onbeforeunload", {
+          configurable: false,
+          set() {},
+          get() { return null; },
+        });
+      } catch {}
+      win.addEventListener("beforeunload", (ev) => { ev.preventDefault(); ev.stopPropagation(); ev.returnValue = ""; return ""; });
+    } catch {}
+  }
+  try {
+    history.pushState(null, "", decoyUrl);
+    history.replaceState(null, "", decoyUrl);
+  } catch {}
+  try { window.focus(); } catch {}
+  return win;
 }
 
 // ─── Tab factory ─────────────────────────────────────────────────────────────
@@ -1491,6 +1541,16 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
     color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
     padding: "0.3rem 0.65rem", letterSpacing: "0.04em",
   };
+  const kbdStyle: React.CSSProperties = {
+    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+    background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: "3px",
+    padding: "0.05rem 0.35rem", color: "rgba(255,255,255,0.55)",
+  };
+  const codeStyle: React.CSSProperties = {
+    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+    background: "rgba(255,255,255,0.04)", borderRadius: "3px",
+    padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
+  };
 
   return (
     <motion.div
@@ -1692,8 +1752,8 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Makes the browser tab containing Unstable look like another site.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
@@ -1714,6 +1774,52 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
             >{CLOAK_PRESETS[id].label}</motion.button>
           ))}
         </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => openCloakPopup("https://www.google.com")}
+          style={{
+            marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+            padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >open in about:blank</motion.button>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>panic button</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Press <kbd style={kbdStyle}>Esc</kbd> to instantly load a decoy page. <kbd style={kbdStyle}>Shift</kbd>+<kbd style={kbdStyle}>Esc</kbd> works inside text fields. You can also share a link as <code style={codeStyle}>/embed.html#https://example.com</code> to open a site in the top frame.
+        </p>
+        <label style={{ display: "block", fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.4rem" }}>Panic URL</label>
+        <input
+          type="text"
+          value={settings.panicUrl}
+          onChange={(e) => onSettingsChange({ ...settings, panicUrl: e.target.value })}
+          onBlur={(e) => onSettingsChange({ ...settings, panicUrl: normalizePanicUrl(e.target.value) })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onSettingsChange({ ...settings, panicUrl: normalizePanicUrl(e.currentTarget.value) });
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder="https://google.com"
+          style={inputBase}
+        />
+        <p style={{ fontSize: "0.58rem", color: "var(--t-text-muted)", margin: "0.5rem 0 0", opacity: 0.7 }}>
+          Default: <code style={codeStyle}>{DEFAULT_PANIC_URL}</code>. <code style={codeStyle}>http://</code> or <code style={codeStyle}>https://</code> is added automatically if missing.
+        </p>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onSettingsChange({ ...settings, panicUrl: DEFAULT_PANIC_URL })}
+          style={{
+            marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "var(--t-text-muted)",
+            padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >reset panic url</motion.button>
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
@@ -3220,6 +3326,9 @@ function BrowserApp({
 
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
+  useEffect(() => {
+    try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
+  }, [settings.panicUrl]);
   useEffect(() => {
     const t = THEMES[settings.theme]?.colors ?? THEMES.dark.colors;
     const wpUrl = THEMES[settings.theme]?.wallpaper ?? settings.wallpaper;

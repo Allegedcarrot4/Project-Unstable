@@ -13,7 +13,22 @@ const uv = new UVServiceWorker();
 
 async function handleRequest(event) {
 	if (uv.route(event)) {
-		return await uv.fetch(event);
+		const response = await uv.fetch(event);
+		try {
+			const stripped = new Headers(response.headers);
+			stripped.delete("service-worker-allowed");
+			stripped.delete("service-worker");
+			stripped.delete("content-security-policy");
+			stripped.delete("content-security-policy-report-only");
+			stripped.delete("x-frame-options");
+			return new Response(response.body, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: stripped,
+			});
+		} catch (e) {
+			return response;
+		}
 	}
 
 	return await fetch(event.request);
