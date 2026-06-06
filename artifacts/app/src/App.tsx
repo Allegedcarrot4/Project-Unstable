@@ -1984,6 +1984,16 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     async function loadConversation() {
       setBooting(true);
       setError("");
+
+      if (localStorage.getItem("unstable_ai_cleared") === "true") {
+        if (!cancelled) {
+          setConversationId(null);
+          setMessages(starterMessages);
+          setBooting(false);
+        }
+        return;
+      }
+
       try {
         const { data: conversations, error: convoError } = await supabase
           .from("ai_conversations")
@@ -2067,6 +2077,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
         if (conversationError) throw conversationError;
         activeConversationId = conversation.id;
         setConversationId(activeConversationId);
+        localStorage.removeItem("unstable_ai_cleared");
       }
 
       const { error: userInsertError } = await supabase.from("ai_messages").insert({
@@ -2232,10 +2243,15 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
               onClick={async () => {
                 if (conversationId) {
                   try {
-                    await supabase.from("ai_messages").delete().eq("conversation_id", conversationId).eq("user_id", user.id);
-                    await supabase.from("ai_conversations").delete().eq("id", conversationId).eq("user_id", user.id);
-                  } catch {}
+                    const { error: msgErr } = await supabase.from("ai_messages").delete().eq("conversation_id", conversationId).eq("user_id", user.id);
+                    if (msgErr) console.error("AI messages delete error:", msgErr);
+                    const { error: convoErr } = await supabase.from("ai_conversations").delete().eq("id", conversationId).eq("user_id", user.id);
+                    if (convoErr) console.error("AI conversation delete error:", convoErr);
+                  } catch (e) {
+                    console.error("AI reset error:", e);
+                  }
                 }
+                localStorage.setItem("unstable_ai_cleared", "true");
                 setMessages(starterMessages);
                 setConversationId(null);
                 setError("");
