@@ -767,7 +767,7 @@ packages:
     resolution: {integrity: sha512-rI3S7Osyr2ZWmG6J6v3MLS1ZT269lx1DrAjM47q0aoBYnfgUZTRvZqY0Globb8ipTi02d5x6dTJBeUBt6dZsag==}
 
   '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz':
-    resolution: {tarball: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz}
+    resolution: {tarball: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz, integrity: sha512-ecMUOBFosVNAAEykWTnep1n/y1ChAVRuPEnt98rjDllBaGm5Qq5C9LvbZ+x8gNAGam/g549GXQjtzVwRmdNi0w==}
     version: 2.1.8
 
   '@mercuryworkshop/libcurl-transport@1.5.1':
