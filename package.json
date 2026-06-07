@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "start": "node ./artifacts/api-server/dist/index.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:app": "pnpm --filter @workspace/app run build",
     "build:app:stormkit": "cd artifacts/app && pnpm exec vite build --config vite.config.ts",
