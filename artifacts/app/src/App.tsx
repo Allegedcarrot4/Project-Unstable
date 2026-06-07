@@ -255,7 +255,7 @@ const DEFAULT_SETTINGS: Settings = {
   shortcuts: DEFAULT_KEY_SHORTCUTS,
   proxyEngine: "auto",
   transportMode: "wisp",
-  theme: "tuff",
+  theme: "dark",
   wallpaper: "",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
