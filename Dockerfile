@@ -33,8 +33,8 @@ RUN pnpm --filter @workspace/api-server run build
 FROM base AS runner
 WORKDIR /app
 
-# API server compiled bundle
-COPY --from=builder /app/artifacts/api-server/dist          ./dist
+# API server compiled bundle (matches pnpm start's CWD expectations)
+COPY --from=builder /app/artifacts/api-server/dist          ./artifacts/api-server/dist
 
 # Runtime workspace package metadata for pnpm
 COPY --from=builder /app/package.json ./package.json
@@ -55,7 +55,7 @@ COPY --from=builder /app/runtime_node_modules ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
-COPY --from=builder /app/artifacts/app/dist/public          ./app/dist/public
+COPY --from=builder /app/artifacts/app/dist/public          ./artifacts/app/dist/public
 
 EXPOSE 7860
 
@@ -65,4 +65,4 @@ ENV NODE_ENV=production
 # PASSWORD must be set as a Space secret — the app will refuse auth without it
 # SESSION_SECRET is optional but recommended for production hardening
 
-CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
