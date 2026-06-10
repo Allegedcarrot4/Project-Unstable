@@ -58,18 +58,23 @@ app.use(
     },
   }),
 );
+
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
+
     // Allow requests with no origin (same-origin, curl, service workers)
     if (!origin || allowed.length === 0) return callback(null, true);
+
     if (allowed.some(o => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
       return callback(null, true);
     }
+
     callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -86,20 +91,59 @@ app.use(
 
 app.use("/api", router);
 
+// ─── DuckDuckGo search suggestions API ───────────────────────────────────────
+app.get("/return", async (req, res) => {
+  const q = req.query.q;
+
+  if (!q || typeof q !== "string") {
+    return res.status(401).json({
+      error: "query parameter?",
+    });
+  }
+
+  try {
+    const response = await fetch(
+      `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}`
+    );
+
+    if (!response.ok) {
+      return res.sendStatus(response.status);
+    }
+
+    const data = await response.json();
+
+    return res.json(data);
+  } catch {
+    return res.status(500).json({
+      error: "request failed",
+    });
+  }
+});
+
 // ─── Static frontend ───────────────────────────────────────
 const staticCandidates = [
   path.resolve(process.cwd(), "app/dist/public"),
   path.resolve(__dirname, "../../app/dist/public"),
   path.resolve(__dirname, "../../artifacts/app/dist/public"),
 ];
+
 const staticDir = staticCandidates.find((candidate) => fs.existsSync(candidate));
+
 if (!staticDir) {
   throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
 }
+
 app.use(express.static(staticDir));
+
 app.use((req, res, next) => {
   const p = req.path;
-  if (!p.startsWith("/api") && !p.startsWith("/service") && !p.startsWith("/ham") && !p.startsWith("/baremux")) {
+
+  if (
+    !p.startsWith("/api") &&
+    !p.startsWith("/service") &&
+    !p.startsWith("/ham") &&
+    !p.startsWith("/baremux")
+  ) {
     res.sendFile(path.join(staticDir, "index.html"));
   } else {
     next();
