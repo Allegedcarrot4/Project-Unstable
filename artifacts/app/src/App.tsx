@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTra
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Shield, Atom, House } from "lucide-react";
+import VantaBackground from "./components/VantaBackground";
 import gamesListData from "./data/games.json";
 import { makeCodec } from "./lib/codec";
 
@@ -34,7 +35,7 @@ interface KeyShortcuts {
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
 type TransportMode = "auto" | "wisp" | "bare";
-type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
+type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff" | "vanta-fog" | "vanta-waves" | "vanta-birds" | "vanta-net" | "vanta-stars" | "vanta-globe" | "vanta-clouds" | "vanta-dots" | "vanta-halo" | "vanta-rings" | "vanta-topology";
 
 interface ThemeColors {
   bg: string; bgSecondary: string; bgTertiary: string; bgHover: string;
@@ -48,7 +49,7 @@ interface ThemeColors {
   cardBg: string; cardBorder: string;
 }
 
-const THEMES: Record<ThemeId, { label: string; wallpaper?: string; colors: ThemeColors }> = {
+const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEffect?: string; vantaOptions?: Record<string, any>; colors: ThemeColors }> = {
   dark: {
     label: "Dark",
     colors: {
@@ -148,6 +149,246 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; colors: Theme
       cardBg: "#111", cardBorder: "#222",
     },
   },
+  "vanta-fog": {
+    label: "Vanta Fog",
+    backgroundEffect: "fog",
+    vantaOptions: {
+      highlightColor: 0x606080,
+      midtoneColor: 0x303055,
+      lowlightColor: 0x151530,
+      baseColor: 0x0a0a1a,
+    },
+    colors: {
+      bg: "#0a0a1a", bgSecondary: "#101028", bgTertiary: "#161636", bgHover: "#1c1c42",
+      text: "#c8c8e0", textSecondary: "rgba(200,200,224,0.6)", textMuted: "rgba(200,200,224,0.35)",
+      border: "#1e1e3a", borderLight: "#2a2a4a",
+      accent: "#7799ff", accentHover: "#99bbff", accentText: "#fff",
+      inputBg: "#0e0e22", inputBorder: "#2a2a4a", inputText: "#c8c8e0",
+      btnBg: "#161636", btnHover: "#1e1e42", btnText: "rgba(200,200,224,0.5)",
+      scrollbar: "#1e1e3a", scrollbarThumb: "#3a3a5a",
+      tabActive: "#101028", tabInactive: "#08081a", tabBorder: "#1a1a3a",
+      cardBg: "#101028", cardBorder: "#2a2a4a",
+    },
+  },
+  "vanta-waves": {
+    label: "Vanta Waves",
+    backgroundEffect: "waves",
+    vantaOptions: {
+      color: 0x0055aa,
+      shininess: 60,
+      waveHeight: 25,
+      zoom: 1.2,
+    },
+    colors: {
+      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
+      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
+      border: "#1a3040", borderLight: "#243e50",
+      accent: "#00aacc", accentHover: "#22ccee", accentText: "#fff",
+      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
+      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
+      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
+      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
+      cardBg: "#0e1e2c", cardBorder: "#243e50",
+    },
+  },
+  "vanta-birds": {
+    label: "Vanta Birds",
+    backgroundEffect: "birds",
+    vantaOptions: {
+      color1: 0xff6633,
+      color2: 0xff4400,
+      colorMode: "variance",
+      birdSize: 1.5,
+      wingSpan: 30,
+      speedLimit: 5,
+      separation: 60,
+      alignment: 50,
+      cohesion: 30,
+    },
+    colors: {
+      bg: "#1a0e0e", bgSecondary: "#221414", bgTertiary: "#2a1818", bgHover: "#341e1e",
+      text: "#e8c8b8", textSecondary: "rgba(232,200,184,0.6)", textMuted: "rgba(232,200,184,0.35)",
+      border: "#3a2020", borderLight: "#4a2828",
+      accent: "#ff6644", accentHover: "#ff8866", accentText: "#fff",
+      inputBg: "#1e1010", inputBorder: "#3a2020", inputText: "#e8c8b8",
+      btnBg: "#2a1818", btnHover: "#342020", btnText: "rgba(232,200,184,0.5)",
+      scrollbar: "#3a2020", scrollbarThumb: "#5a3030",
+      tabActive: "#221414", tabInactive: "#140a0a", tabBorder: "#2a1818",
+      cardBg: "#221414", cardBorder: "#3a2020",
+    },
+  },
+  "vanta-net": {
+    label: "Vanta Net",
+    backgroundEffect: "net",
+    vantaOptions: {
+      color: 0xff00ff,
+      backgroundColor: 0x0d0a1a,
+      points: 12,
+      maxDistance: 22,
+      spacing: 16,
+    },
+    colors: {
+      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
+      text: "#e0c0ff", textSecondary: "rgba(224,192,255,0.6)", textMuted: "rgba(224,192,255,0.35)",
+      border: "#2a1e44", borderLight: "#3a2858",
+      accent: "#ff00ff", accentHover: "#ff44ff", accentText: "#fff",
+      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#e0c0ff",
+      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(224,192,255,0.5)",
+      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
+      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
+      cardBg: "#15102a", cardBorder: "#2a1e44",
+    },
+  },
+  "vanta-stars": {
+    label: "Vanta Stars",
+    backgroundEffect: "stars",
+    vantaOptions: {
+      color: 0xffffff,
+      backgroundColor: 0x0a0a0a,
+      starSize: 1.8,
+      starDensity: 0.8,
+    },
+    colors: {
+      bg: "#0a0a0a", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
+      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
+      border: "#1e1e1e", borderLight: "#222",
+      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
+      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
+      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
+      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
+      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
+      cardBg: "#111", cardBorder: "#222",
+    },
+  },
+  "vanta-globe": {
+    label: "Vanta Globe",
+    backgroundEffect: "globe",
+    vantaOptions: {
+      color: 0x44aaff,
+      backgroundColor: 0x0a0a14,
+      size: 1.2,
+    },
+    colors: {
+      bg: "#0a0a14", bgSecondary: "#10101e", bgTertiary: "#161628", bgHover: "#1c1c32",
+      text: "#c0d0e0", textSecondary: "rgba(192,208,224,0.6)", textMuted: "rgba(192,208,224,0.35)",
+      border: "#1a1a2e", borderLight: "#262642",
+      accent: "#44aaff", accentHover: "#66ccff", accentText: "#fff",
+      inputBg: "#0e0e1c", inputBorder: "#262642", inputText: "#c0d0e0",
+      btnBg: "#161628", btnHover: "#1e1e36", btnText: "rgba(192,208,224,0.5)",
+      scrollbar: "#1a1a2e", scrollbarThumb: "#2e2e4e",
+      tabActive: "#10101e", tabInactive: "#080810", tabBorder: "#1a1a2e",
+      cardBg: "#10101e", cardBorder: "#262642",
+    },
+  },
+  "vanta-clouds": {
+    label: "Vanta Clouds",
+    backgroundEffect: "clouds",
+    vantaOptions: {
+      color: 0x5588aa,
+      backgroundColor: 0x0a1520,
+      skyColor: 0x0a1520,
+      cloudColor: 0x5588aa,
+      cloudShadowColor: 0x2a4a6a,
+      sunColor: 0xff8844,
+      sunGlareColor: 0xff6633,
+      sunlightColor: 0xff8844,
+    },
+    colors: {
+      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
+      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
+      border: "#1a3040", borderLight: "#243e50",
+      accent: "#5588aa", accentHover: "#77aacc", accentText: "#fff",
+      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
+      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
+      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
+      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
+      cardBg: "#0e1e2c", cardBorder: "#243e50",
+    },
+  },
+  "vanta-dots": {
+    label: "Vanta Dots",
+    backgroundEffect: "dots",
+    vantaOptions: {
+      color: 0x00ff41,
+      backgroundColor: 0x0a0f0a,
+      size: 3,
+      spacing: 25,
+      showLines: true,
+    },
+    colors: {
+      bg: "#0a0f0a", bgSecondary: "#0e160e", bgTertiary: "#121c12", bgHover: "#162216",
+      text: "#88cc88", textSecondary: "rgba(136,204,136,0.6)", textMuted: "rgba(136,204,136,0.35)",
+      border: "#1a2a1a", borderLight: "#243424",
+      accent: "#00ff41", accentHover: "#33ff66", accentText: "#000",
+      inputBg: "#0c120c", inputBorder: "#1a2a1a", inputText: "#88cc88",
+      btnBg: "#121c12", btnHover: "#1a2a1a", btnText: "rgba(136,204,136,0.5)",
+      scrollbar: "#1a2a1a", scrollbarThumb: "#2a4a2a",
+      tabActive: "#0e160e", tabInactive: "#080c08", tabBorder: "#1a2a1a",
+      cardBg: "#0e160e", cardBorder: "#1a2a1a",
+    },
+  },
+  "vanta-halo": {
+    label: "Vanta Halo",
+    backgroundEffect: "halo",
+    vantaOptions: {
+      baseColor: 0x1a0a2e,
+      color: 0x8833ff,
+      amplitudeFactor: 1.5,
+      ringFactor: 2,
+      yOffset: 0.3,
+      size: 1.5,
+    },
+    colors: {
+      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
+      text: "#d0b0e8", textSecondary: "rgba(208,176,232,0.6)", textMuted: "rgba(208,176,232,0.35)",
+      border: "#2a1e44", borderLight: "#3a2858",
+      accent: "#8833ff", accentHover: "#aa55ff", accentText: "#fff",
+      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#d0b0e8",
+      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(208,176,232,0.5)",
+      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
+      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
+      cardBg: "#15102a", cardBorder: "#2a1e44",
+    },
+  },
+  "vanta-rings": {
+    label: "Vanta Rings",
+    backgroundEffect: "rings",
+    vantaOptions: {
+      color: 0xff4488,
+      backgroundColor: 0x0a0a12,
+      ringSize: 1.4,
+    },
+    colors: {
+      bg: "#0a0a12", bgSecondary: "#111118", bgTertiary: "#16161e", bgHover: "#1c1c26",
+      text: "#e0c0c8", textSecondary: "rgba(224,192,200,0.6)", textMuted: "rgba(224,192,200,0.35)",
+      border: "#1e1e28", borderLight: "#2a2a36",
+      accent: "#ff4488", accentHover: "#ff66aa", accentText: "#fff",
+      inputBg: "#0e0e16", inputBorder: "#2a2a36", inputText: "#e0c0c8",
+      btnBg: "#16161e", btnHover: "#1e1e28", btnText: "rgba(224,192,200,0.5)",
+      scrollbar: "#1e1e28", scrollbarThumb: "#36364a",
+      tabActive: "#111118", tabInactive: "#08080e", tabBorder: "#1a1a22",
+      cardBg: "#111118", cardBorder: "#2a2a36",
+    },
+  },
+  "vanta-topology": {
+    label: "Vanta Topology",
+    backgroundEffect: "topology",
+    vantaOptions: {
+      color: 0x2266aa,
+      backgroundColor: 0x0a0e14,
+    },
+    colors: {
+      bg: "#0a0e14", bgSecondary: "#0e141e", bgTertiary: "#121a28", bgHover: "#162032",
+      text: "#b0c8d8", textSecondary: "rgba(176,200,216,0.6)", textMuted: "rgba(176,200,216,0.35)",
+      border: "#1a2430", borderLight: "#24303e",
+      accent: "#3388cc", accentHover: "#55aaee", accentText: "#fff",
+      inputBg: "#0c121c", inputBorder: "#24303e", inputText: "#b0c8d8",
+      btnBg: "#121a28", btnHover: "#1a2430", btnText: "rgba(176,200,216,0.5)",
+      scrollbar: "#1a2430", scrollbarThumb: "#2a3a4a",
+      tabActive: "#0e141e", tabInactive: "#080a10", tabBorder: "#1a2430",
+      cardBg: "#0e141e", cardBorder: "#24303e",
+    },
+  },
 };
 
 interface Settings {
@@ -157,6 +398,7 @@ interface Settings {
   transportMode: TransportMode;
   theme: ThemeId;
   wallpaper: string;
+  backgroundEffect: string;
   gameModeEnabled: boolean;
   gameModeSites: string[];
   panicUrl: string;
@@ -257,6 +499,7 @@ const DEFAULT_SETTINGS: Settings = {
   transportMode: "wisp",
   theme: "dark",
   wallpaper: "",
+  backgroundEffect: "",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
@@ -607,6 +850,7 @@ function loadSettings(): Settings {
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
       theme: (parsed.theme ?? "dark") as ThemeId,
       wallpaper: (parsed.wallpaper ?? "") as string,
+      backgroundEffect: (parsed.backgroundEffect ?? "") as string,
       gameModeEnabled: parsed.gameModeEnabled ?? true,
       gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
         ? parsed.gameModeSites
@@ -843,7 +1087,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
         emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
       } catch { /* fall through */ }
     } else {
-      // auto: try wisp first, fallback to bare
+      // auto: try wisp first (faster via WebSocket), fallback to bare HTTP
       try {
         await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
         transportSet = true;
@@ -1654,6 +1898,35 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
             <div style={{ width: "100%", height: "100%", backgroundImage: `url("${settings.wallpaper}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
           </div>
         )}
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>background effect</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          An animated Three.js background behind the UI. Pick an effect, or leave empty to use the theme default.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          {(["", "fog", "waves", "birds", "net", "stars", "globe", "clouds", "dots", "halo", "rings", "topology"] as const).map(effect => {
+            const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
+            const active = (settings.backgroundEffect || themeEffect) === effect;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={effect}
+                onClick={() => onSettingsChange({ ...settings, backgroundEffect: effect })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{effect || "theme default"}</motion.button>
+            );
+          })}
+        </div>
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
@@ -3390,6 +3663,9 @@ function BrowserApp({
   const isNewtab = !activeTab?.url;
   const proxyStatus = useProxyStatus();
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
+  const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
+  const activeBgEffect = settings.backgroundEffect || themeEffect;
+  const vantaOptions = THEMES[settings.theme]?.vantaOptions ?? {};
   const [gameModeToast, setGameModeToast] = useState(false);
   const lastGameToastHost = useRef<string | null>(null);
 
@@ -3666,11 +3942,12 @@ function BrowserApp({
     <>
       <MagicCursor suppressed={gameModeActive} />
       <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
+      {activeBgEffect ? <VantaBackground effect={activeBgEffect} options={vantaOptions} /> : null}
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: activeBgEffect ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1 }}
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
