@@ -174,6 +174,7 @@ interface Settings {
   panicUrl: string;
   wispServer: string;
   vantaAdvanced: Record<string, any>;
+  searchEngine: string;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -247,6 +248,22 @@ const DEFAULT_GAME_MODE_SITES = [
 ];
 
 const DEFAULT_PANIC_URL = "https://google.com";
+
+const SEARCH_ENGINES: Record<string, { name: string; url: string }> = {
+  duckduckgo: { name: "DuckDuckGo", url: "https://duckduckgo.com/?q=" },
+  google: { name: "Google", url: "https://www.google.com/search?q=" },
+  brave: { name: "Brave", url: "https://search.brave.com/search?q=" },
+  bing: { name: "Bing", url: "https://www.bing.com/search?q=" },
+  yahoo: { name: "Yahoo", url: "https://search.yahoo.com/search?p=" },
+  qwant: { name: "Qwant", url: "https://www.qwant.com/?q=" },
+  startpage: { name: "Startpage", url: "https://www.startpage.com/do/dsearch?query=" },
+  ecosia: { name: "Ecosia", url: "https://www.ecosia.org/search?q=" },
+};
+
+function searchUrl(query: string, engine: string) {
+  const e = SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo;
+  return e.url + encodeURIComponent(query);
+}
 const DEFAULT_SETTINGS: Settings = {
   cloak: "none",
   shortcuts: DEFAULT_KEY_SHORTCUTS,
@@ -260,6 +277,7 @@ const DEFAULT_SETTINGS: Settings = {
   panicUrl: DEFAULT_PANIC_URL,
   wispServer: "",
   vantaAdvanced: {},
+  searchEngine: "duckduckgo",
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -460,13 +478,13 @@ function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
   return UV_PREFIX + encodeURIComponent(url);
 }
 
-function normalizeUrl(input: string): string {
+function normalizeUrl(input: string, searchEngine?: string): string {
   const t = input.trim();
   if (!t) return "";
   if (t.startsWith("unstable://")) return t;
   if (t.startsWith("http://") || t.startsWith("https://")) return t;
   if (t.includes(".") && !t.includes(" ")) return "https://" + t;
-  return "https://duckduckgo.com/?q=" + encodeURIComponent(t);
+  return searchUrl(t, searchEngine ?? "duckduckgo");
 }
 
 function decodeProxyUrl(url: string): string {
@@ -1706,6 +1724,38 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           </motion.section>
         );
       })()}
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>search engine</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose your default search engine. You can also switch per-query from the URL bar.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          {Object.entries(SEARCH_ENGINES).map(([id, engine]) => {
+            const active = settings.searchEngine === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, searchEngine: id })}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.45rem",
+                  background: active ? "var(--t-accent)" : "var(--t-bg-secondary)",
+                  color: active ? "var(--t-accent-text)" : "var(--t-text-secondary)",
+                  border: `1px solid ${active ? "var(--t-accent)" : "var(--t-border-light)"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >
+                <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                {engine.name}
+              </motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
       </div>
 
       <div id="settings-privacy">
@@ -2807,12 +2857,13 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, vantaActive }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, vantaActive, searchEngine }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
   wallpaper?: string;
   vantaActive?: boolean;
+  searchEngine?: string;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -2868,7 +2919,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    const url = normalizeUrl(input); if (url) onNavigate(url);
+    const url = normalizeUrl(input, searchEngine); if (url) onNavigate(url);
   }
 
   function handleAdd(e: React.FormEvent) {
@@ -2958,7 +3009,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
                 e.preventDefault();
                 const s = ntSuggestions[ntSuggestIndex];
                 setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1);
-                onNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`);
+                onNavigate(searchUrl(s, searchEngine));
               }
             }}
           />
@@ -2966,7 +3017,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
               <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
                 {ntSuggestions.map((s, i) => (
-                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`); }}
+                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine)); }}
                     style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
                     onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
@@ -3353,6 +3404,16 @@ function BrowserApp({
   const [suggestIndex, setSuggestIndex] = useState(-1);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const suggestListRef = useRef<HTMLDivElement>(null);
+  const [urlEngineOpen, setUrlEngineOpen] = useState(false);
+  const urlEngineRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (urlEngineRef.current && !urlEngineRef.current.contains(e.target as Node)) setUrlEngineOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
@@ -3536,7 +3597,7 @@ function BrowserApp({
         return;
       }
     }
-    const normalized = normalizeUrl(t);
+    const normalized = normalizeUrl(t, settings.searchEngine);
     if (!normalized) return;
     let domain = "";
     try {
@@ -3687,8 +3748,28 @@ function BrowserApp({
             <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
-              <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
-                <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
+              <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
+              <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0 }}>
+                <button type="button" onClick={() => setUrlEngineOpen(!urlEngineOpen)}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0.3rem 0 0.5rem", display: "flex", alignItems: "center" }}
+                  title={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
+                  <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
+                </button>
+                {urlEngineOpen && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+                    {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
+                      <button key={id} onClick={() => { onSettingsChange({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
+                        style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
+                        onMouseLeave={e => { if (id !== settings.searchEngine) e.currentTarget.style.background = "transparent"; }}>
+                        <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                        {engine.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
                   onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; if (searchSuggestions.length) setShowSuggestions(true); }}
                   onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
                   onKeyDown={e => {
@@ -3699,7 +3780,7 @@ function BrowserApp({
                       e.preventDefault();
                       const s = searchSuggestions[suggestIndex];
                       setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1);
-                      handleNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`);
+                      handleNavigate(searchUrl(s, settings.searchEngine));
                     }
                   }}
                   placeholder="search, url, or unstable://…"
@@ -3709,7 +3790,7 @@ function BrowserApp({
               {showSuggestions && (
                 <div ref={suggestListRef} style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "8px", marginTop: 4, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
                   {searchSuggestions.map((s, i) => (
-                    <div key={s} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`); }}
+                    <div key={s} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(searchUrl(s, settings.searchEngine)); }}
                       style={{ padding: "0.45rem 0.7rem", fontSize: "0.75rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === suggestIndex ? "#1e1e1e" : "transparent", transition: "background 0.1s" }}
                       onMouseEnter={e => { e.currentTarget.style.background = "#1e1e1e"; setSuggestIndex(i); }}
                       onMouseLeave={e => { if (suggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
@@ -3757,7 +3838,7 @@ function BrowserApp({
                 }}
               >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} vantaActive={!!activeBgEffect} />
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} vantaActive={!!activeBgEffect} searchEngine={settings.searchEngine} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
