@@ -72,16 +72,16 @@ router.get("/auth/context", async (req, res) => {
     }
 
     const supabase = getSupabaseAdmin();
-    const [{ data: roleRow, error: roleError }, { data: banRow, error: banError }] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", authed.user.id).maybeSingle(),
-      supabase.from("user_bans").select("reason, banned_until").eq("user_id", authed.user.id).maybeSingle(),
-    ]);
+    const { data: banRow, error: banError } = await supabase
+      .from("user_bans")
+      .select("reason, banned_until")
+      .eq("user_id", authed.user.id)
+      .maybeSingle();
 
-    if (roleError || banError) throw roleError || banError;
+    if (banError) throw banError;
 
     const banned = Boolean(banRow && (!banRow.banned_until || new Date(banRow.banned_until).getTime() > Date.now()));
     res.json({
-      isAdmin: roleRow?.role === "admin",
       isBanned: banned,
       banReason: banned ? banRow?.reason ?? null : null,
     });

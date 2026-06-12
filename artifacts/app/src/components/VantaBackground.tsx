@@ -2,14 +2,12 @@ import { useEffect, useRef } from "react";
 
 const EFFECTS: Record<string, () => Promise<any>> = {
   fog: () => import("vanta/dist/vanta.fog.min"),
-  waves: () => import("vanta/dist/vanta.waves.min"),
   net: () => import("vanta/dist/vanta.net.min"),
   globe: () => import("vanta/dist/vanta.globe.min"),
   clouds: () => import("vanta/dist/vanta.clouds.min"),
   dots: () => import("vanta/dist/vanta.dots.min"),
   halo: () => import("vanta/dist/vanta.halo.min"),
   rings: () => import("vanta/dist/vanta.rings.min"),
-  topology: () => import("vanta/dist/vanta.topology.min"),
 };
 
 interface VantaBackgroundProps {

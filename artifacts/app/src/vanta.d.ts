@@ -4,15 +4,7 @@ declare module "vanta/dist/vanta.fog.min" {
   const fn: (options: any) => { destroy: () => void };
   export default fn;
 }
-declare module "vanta/dist/vanta.waves.min" {
-  const fn: (options: any) => { destroy: () => void };
-  export default fn;
-}
 declare module "vanta/dist/vanta.net.min" {
-  const fn: (options: any) => { destroy: () => void };
-  export default fn;
-}
-declare module "vanta/dist/vanta.stars.min" {
   const fn: (options: any) => { destroy: () => void };
   export default fn;
 }
@@ -33,10 +25,6 @@ declare module "vanta/dist/vanta.halo.min" {
   export default fn;
 }
 declare module "vanta/dist/vanta.rings.min" {
-  const fn: (options: any) => { destroy: () => void };
-  export default fn;
-}
-declare module "vanta/dist/vanta.topology.min" {
   const fn: (options: any) => { destroy: () => void };
   export default fn;
 }

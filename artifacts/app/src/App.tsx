@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Shield, Atom, House } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House } from "lucide-react";
 import VantaBackground from "./components/VantaBackground";
 import gamesListData from "./data/games.json";
 import { makeCodec } from "./lib/codec";
@@ -35,7 +35,7 @@ interface KeyShortcuts {
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
 type TransportMode = "auto" | "wisp" | "bare";
-type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff" | "vanta-fog" | "vanta-waves" | "vanta-net" | "vanta-globe" | "vanta-clouds" | "vanta-dots" | "vanta-halo" | "vanta-rings" | "vanta-topology";
+type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
 
 interface ThemeColors {
   bg: string; bgSecondary: string; bgTertiary: string; bgHover: string;
@@ -135,7 +135,7 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEff
     },
   },
   tuff: {
-    label: "Tuff",
+    label: "Allegedcarrot's theme",
     wallpaper: "/wallpaper-tuff.png",
     colors: {
       bg: "#0d0d0d", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
@@ -149,199 +149,16 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEff
       cardBg: "#111", cardBorder: "#222",
     },
   },
-  "vanta-fog": {
-    label: "Vanta Fog",
-    backgroundEffect: "fog",
-    vantaOptions: {
-      highlightColor: 0x606080,
-      midtoneColor: 0x303055,
-      lowlightColor: 0x151530,
-      baseColor: 0x0a0a1a,
-    },
-    colors: {
-      bg: "#0a0a1a", bgSecondary: "#101028", bgTertiary: "#161636", bgHover: "#1c1c42",
-      text: "#c8c8e0", textSecondary: "rgba(200,200,224,0.6)", textMuted: "rgba(200,200,224,0.35)",
-      border: "#1e1e3a", borderLight: "#2a2a4a",
-      accent: "#7799ff", accentHover: "#99bbff", accentText: "#fff",
-      inputBg: "#0e0e22", inputBorder: "#2a2a4a", inputText: "#c8c8e0",
-      btnBg: "#161636", btnHover: "#1e1e42", btnText: "rgba(200,200,224,0.5)",
-      scrollbar: "#1e1e3a", scrollbarThumb: "#3a3a5a",
-      tabActive: "#101028", tabInactive: "#08081a", tabBorder: "#1a1a3a",
-      cardBg: "#101028", cardBorder: "#2a2a4a",
-    },
-  },
-  "vanta-waves": {
-    label: "Vanta Waves",
-    backgroundEffect: "waves",
-    vantaOptions: {
-      color: 0x0055aa,
-      shininess: 60,
-      waveHeight: 25,
-      zoom: 1.2,
-    },
-    colors: {
-      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
-      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
-      border: "#1a3040", borderLight: "#243e50",
-      accent: "#00aacc", accentHover: "#22ccee", accentText: "#fff",
-      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
-      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
-      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
-      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
-      cardBg: "#0e1e2c", cardBorder: "#243e50",
-    },
-  },
-  "vanta-net": {
-    label: "Vanta Net",
-    backgroundEffect: "net",
-    vantaOptions: {
-      color: 0xff00ff,
-      backgroundColor: 0x0d0a1a,
-      points: 12,
-      maxDistance: 22,
-      spacing: 16,
-    },
-    colors: {
-      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
-      text: "#e0c0ff", textSecondary: "rgba(224,192,255,0.6)", textMuted: "rgba(224,192,255,0.35)",
-      border: "#2a1e44", borderLight: "#3a2858",
-      accent: "#ff00ff", accentHover: "#ff44ff", accentText: "#fff",
-      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#e0c0ff",
-      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(224,192,255,0.5)",
-      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
-      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
-      cardBg: "#15102a", cardBorder: "#2a1e44",
-    },
-  },
-  "vanta-globe": {
-    label: "Vanta Globe",
-    backgroundEffect: "globe",
-    vantaOptions: {
-      color: 0x44aaff,
-      backgroundColor: 0x0a0a14,
-      size: 1.2,
-    },
-    colors: {
-      bg: "#0a0a14", bgSecondary: "#10101e", bgTertiary: "#161628", bgHover: "#1c1c32",
-      text: "#c0d0e0", textSecondary: "rgba(192,208,224,0.6)", textMuted: "rgba(192,208,224,0.35)",
-      border: "#1a1a2e", borderLight: "#262642",
-      accent: "#44aaff", accentHover: "#66ccff", accentText: "#fff",
-      inputBg: "#0e0e1c", inputBorder: "#262642", inputText: "#c0d0e0",
-      btnBg: "#161628", btnHover: "#1e1e36", btnText: "rgba(192,208,224,0.5)",
-      scrollbar: "#1a1a2e", scrollbarThumb: "#2e2e4e",
-      tabActive: "#10101e", tabInactive: "#080810", tabBorder: "#1a1a2e",
-      cardBg: "#10101e", cardBorder: "#262642",
-    },
-  },
-  "vanta-clouds": {
-    label: "Vanta Clouds",
-    backgroundEffect: "clouds",
-    vantaOptions: {
-      color: 0x5588aa,
-      backgroundColor: 0x0a1520,
-      skyColor: 0x0a1520,
-      cloudColor: 0x5588aa,
-      cloudShadowColor: 0x2a4a6a,
-      sunColor: 0xff8844,
-      sunGlareColor: 0xff6633,
-      sunlightColor: 0xff8844,
-    },
-    colors: {
-      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
-      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
-      border: "#1a3040", borderLight: "#243e50",
-      accent: "#5588aa", accentHover: "#77aacc", accentText: "#fff",
-      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
-      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
-      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
-      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
-      cardBg: "#0e1e2c", cardBorder: "#243e50",
-    },
-  },
-  "vanta-dots": {
-    label: "Vanta Dots",
-    backgroundEffect: "dots",
-    vantaOptions: {
-      color: 0x00ff41,
-      backgroundColor: 0x0a0f0a,
-      size: 3,
-      spacing: 25,
-      showLines: true,
-    },
-    colors: {
-      bg: "#0a0f0a", bgSecondary: "#0e160e", bgTertiary: "#121c12", bgHover: "#162216",
-      text: "#88cc88", textSecondary: "rgba(136,204,136,0.6)", textMuted: "rgba(136,204,136,0.35)",
-      border: "#1a2a1a", borderLight: "#243424",
-      accent: "#00ff41", accentHover: "#33ff66", accentText: "#000",
-      inputBg: "#0c120c", inputBorder: "#1a2a1a", inputText: "#88cc88",
-      btnBg: "#121c12", btnHover: "#1a2a1a", btnText: "rgba(136,204,136,0.5)",
-      scrollbar: "#1a2a1a", scrollbarThumb: "#2a4a2a",
-      tabActive: "#0e160e", tabInactive: "#080c08", tabBorder: "#1a2a1a",
-      cardBg: "#0e160e", cardBorder: "#1a2a1a",
-    },
-  },
-  "vanta-halo": {
-    label: "Vanta Halo",
-    backgroundEffect: "halo",
-    vantaOptions: {
-      baseColor: 0x1a0a2e,
-      color: 0x8833ff,
-      amplitudeFactor: 1.5,
-      ringFactor: 2,
-      yOffset: 0.3,
-      size: 1.5,
-    },
-    colors: {
-      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
-      text: "#d0b0e8", textSecondary: "rgba(208,176,232,0.6)", textMuted: "rgba(208,176,232,0.35)",
-      border: "#2a1e44", borderLight: "#3a2858",
-      accent: "#8833ff", accentHover: "#aa55ff", accentText: "#fff",
-      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#d0b0e8",
-      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(208,176,232,0.5)",
-      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
-      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
-      cardBg: "#15102a", cardBorder: "#2a1e44",
-    },
-  },
-  "vanta-rings": {
-    label: "Vanta Rings",
-    backgroundEffect: "rings",
-    vantaOptions: {
-      color: 0xff4488,
-      backgroundColor: 0x0a0a12,
-      ringSize: 1.4,
-    },
-    colors: {
-      bg: "#0a0a12", bgSecondary: "#111118", bgTertiary: "#16161e", bgHover: "#1c1c26",
-      text: "#e0c0c8", textSecondary: "rgba(224,192,200,0.6)", textMuted: "rgba(224,192,200,0.35)",
-      border: "#1e1e28", borderLight: "#2a2a36",
-      accent: "#ff4488", accentHover: "#ff66aa", accentText: "#fff",
-      inputBg: "#0e0e16", inputBorder: "#2a2a36", inputText: "#e0c0c8",
-      btnBg: "#16161e", btnHover: "#1e1e28", btnText: "rgba(224,192,200,0.5)",
-      scrollbar: "#1e1e28", scrollbarThumb: "#36364a",
-      tabActive: "#111118", tabInactive: "#08080e", tabBorder: "#1a1a22",
-      cardBg: "#111118", cardBorder: "#2a2a36",
-    },
-  },
-  "vanta-topology": {
-    label: "Vanta Topology",
-    backgroundEffect: "topology",
-    vantaOptions: {
-      color: 0x2266aa,
-      backgroundColor: 0x0a0e14,
-    },
-    colors: {
-      bg: "#0a0e14", bgSecondary: "#0e141e", bgTertiary: "#121a28", bgHover: "#162032",
-      text: "#b0c8d8", textSecondary: "rgba(176,200,216,0.6)", textMuted: "rgba(176,200,216,0.35)",
-      border: "#1a2430", borderLight: "#24303e",
-      accent: "#3388cc", accentHover: "#55aaee", accentText: "#fff",
-      inputBg: "#0c121c", inputBorder: "#24303e", inputText: "#b0c8d8",
-      btnBg: "#121a28", btnHover: "#1a2430", btnText: "rgba(176,200,216,0.5)",
-      scrollbar: "#1a2430", scrollbarThumb: "#2a3a4a",
-      tabActive: "#0e141e", tabInactive: "#080a10", tabBorder: "#1a2430",
-      cardBg: "#0e141e", cardBorder: "#24303e",
-    },
-  },
+};
+
+const VANTA_DEFAULTS: Record<string, Record<string, any>> = {
+  fog: { highlightColor: 0x606080, midtoneColor: 0x303055, lowlightColor: 0x151530, baseColor: 0x0a0a1a },
+  net: { color: 0xff00ff, backgroundColor: 0x0d0a1a, points: 12, maxDistance: 22, spacing: 16 },
+  globe: { color: 0x44aaff, backgroundColor: 0x0a0a14, size: 1.2 },
+  clouds: { color: 0x5588aa, backgroundColor: 0x0a1520, skyColor: 0x0a1520, cloudColor: 0x5588aa, cloudShadowColor: 0x2a4a6a, sunColor: 0xff8844, sunGlareColor: 0xff6633, sunlightColor: 0xff8844 },
+  dots: { color: 0x00ff41, backgroundColor: 0x0a0f0a, size: 3, spacing: 25, showLines: true },
+  halo: { baseColor: 0x1a0a2e, color: 0x8833ff, amplitudeFactor: 1.5, ringFactor: 2, yOffset: 0, size: 1.5 },
+  rings: { color: 0xff4488, backgroundColor: 0x0a0a12, ringSize: 1.4 },
 };
 
 interface Settings {
@@ -355,6 +172,7 @@ interface Settings {
   gameModeEnabled: boolean;
   gameModeSites: string[];
   panicUrl: string;
+  wispServer: string;
   vantaAdvanced: Record<string, any>;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
@@ -380,7 +198,6 @@ interface Profile {
 }
 
 interface AppAuthContext {
-  isAdmin: boolean;
   isBanned: boolean;
   banReason: string | null;
 }
@@ -403,22 +220,6 @@ interface ParsedChatMessage {
   replyUsername: string | null;
   replySnippet: string | null;
   body: string;
-}
-
-interface AdminUserSummary {
-  id: string;
-  username: string;
-  isAdmin: boolean;
-  isBanned: boolean;
-  banReason: string | null;
-  bannedUntil: string | null;
-  deviceCount: number;
-}
-
-interface AdminOverview {
-  warnings?: string[];
-  users: AdminUserSummary[];
-  messages: ChatMessageRecord[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -457,6 +258,7 @@ const DEFAULT_SETTINGS: Settings = {
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
+  wispServer: "",
   vantaAdvanced: {},
 };
 
@@ -488,6 +290,10 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
 
 function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+}
+
+function extractDomain(url: string) {
+  try { return new URL(url).hostname; } catch { return ""; }
 }
 
 function aiMessageId() {
@@ -595,13 +401,12 @@ async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
-  const data = await readJson<{ isAdmin?: boolean; isBanned?: boolean; banReason?: string | null; error?: string }>(res);
+  const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string }>(res);
   if (!res.ok) {
     throw new Error(data?.error || "Unable to load account access information.");
   }
 
   return {
-    isAdmin: Boolean(data?.isAdmin),
     isBanned: Boolean(data?.isBanned),
     banReason: data?.banReason ?? null,
   };
@@ -620,75 +425,6 @@ async function registerCurrentDevice(accessToken: string) {
   const data = await readJson<{ ok?: boolean; error?: string }>(res);
   if (!res.ok) {
     throw new Error(data?.error || "Unable to register this device.");
-  }
-}
-
-async function fetchAdminOverview(accessToken: string): Promise<AdminOverview> {
-  const res = await fetch("/api/admin/overview", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<AdminOverview & { error?: string }>(res);
-  if (!res.ok || !data) {
-    throw new Error(data?.error || "Unable to load admin overview.");
-  }
-
-  return {
-    warnings: data.warnings ?? [],
-    users: data.users ?? [],
-    messages: data.messages ?? [],
-  };
-}
-
-async function deleteAdminMessage(accessToken: string, messageId: string) {
-  const res = await fetch(`/api/admin/messages/${encodeURIComponent(messageId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to delete message.");
-  }
-}
-
-async function banAdminUser(accessToken: string, userId: string, reason: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ reason }),
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to ban user.");
-  }
-}
-
-async function unbanAdminUser(accessToken: string, userId: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/unban`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to unban user.");
-  }
-}
-
-async function deleteAdminUser(accessToken: string, userId: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to delete user.");
   }
 }
 
@@ -811,6 +547,7 @@ function loadSettings(): Settings {
         ? parsed.gameModeSites
         : [...DEFAULT_GAME_MODE_SITES],
       panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
+      wispServer: typeof parsed.wispServer === "string" ? parsed.wispServer : "",
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -923,7 +660,7 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = ""): Promise<void> {
   if (!("serviceWorker" in navigator)) {
     emitStatus({ phase: "error", message: "Service workers not supported" }); return;
   }
@@ -1024,7 +761,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
     const origin = location.origin;
-    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
 
     let transportSet = false;
     const mode = transportMode || "auto";
@@ -1066,12 +803,12 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
   }
 }
 
-async function switchBare(n: number, transportMode: TransportMode = "auto"): Promise<void> {
+async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = ""): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     const mode = transportMode || "auto";
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
@@ -1284,7 +1021,7 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode }) {
+function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "" }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string }) {
   const s = useProxyStatus();
   if (!visible) return null;
 
@@ -1312,7 +1049,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visib
           <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
           <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
             {[1, 2, 3, 4, 5].map(n => (
-              <button key={n} onClick={() => switchBare(n, transportMode)} title={`Switch to bare server ${n}`} style={{
+              <button key={n} onClick={() => switchBare(n, transportMode, wispServer)} title={`Switch to bare server ${n}`} style={{
                 background: "none", border: "none", padding: "0 2px", cursor: "pointer",
                 fontSize: "0.52rem", letterSpacing: "0.04em",
                 color: s.bare === n ? green : gray,
@@ -1639,8 +1376,12 @@ function CreditsPage() {
     ["Ultraviolet", "web proxy engine"], ["Scramjet", "web proxy engine (primary)"],
     ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport (primary)"],
     ["bare-server-node", "bare proxy backend (fallback)"], ["bare-as-module3", "bare transport module"],
-    ["wisp-js", "wisp server"], ["React + Vite", "frontend"],
-    ["Space Grotesk", "typeface"],
+    ["wisp-js", "wisp server"], ["React", "frontend library"],
+    ["Vite", "build tool"], ["TypeScript", "language"],
+    ["framer-motion", "animations"], ["lucide-react", "icons"],
+    ["three.js", "3D engine"], ["vanta", "animated backgrounds"],
+    ["Supabase", "auth, database, realtime"], ["Radix UI", "UI primitives"],
+    ["Tailwind CSS", "utility CSS"], ["Space Grotesk", "typeface"],
   ];
   return (
     <motion.div
@@ -1678,12 +1419,13 @@ function ToSPage() {
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
-        ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, security, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
-        ["Acceptable use", "You agree not to use Unstable to access, distribute, or transmit content that is illegal in your jurisdiction. Circumventing network restrictions may violate your school, employer, or ISP policies, and you are solely responsible for compliance."],
-        ["Public codebase", "Parts of this project may be published in a public repository. Public client code, build output, and documentation should be treated as inspectable by anyone. Do not assume any client-side value, request, or browser-stored setting is secret."],
-        ["Accounts and AI", "This app uses Supabase for account authentication, synced AI history, and chat. AI requests are proxied through a server-side route, and the server-side AI provider key must never be committed to a public repository."],
-        ["Third-party content", "Unstable acts as a transparent proxy and also depends on third-party services, including Supabase and external AI providers. The operators of this service are not responsible for the availability, content, or behavior of third-party systems."],
-        ["Changes", "These terms may be updated at any time without prior notice. Continued use of the service constitutes acceptance of the updated terms."],
+        ["Service Overview", "Unstable is a web proxy and browser tool that provides access to web content through various proxying engines (Scramjet, Ultraviolet, Bare). It also includes AI chat, group chat, games, and customization features. The service is provided as-is with no guarantees of uptime or availability."],
+        ["Acceptable Use", "You agree not to use Unstable to access, store, or distribute illegal content or to violate any applicable laws. Circumventing network restrictions may violate institutional policies, and you are solely responsible for your usage."],
+        ["Proxy and Transport", "Unstable supports multiple proxy engines and transport modes (Wisp, Bare, custom Wisp servers). These are provided as technical tools, and the operators are not responsible for how users route traffic through them."],
+        ["Accounts and Authentication", "Account creation is optional and handled via Supabase Auth. Account data includes usernames and authentication credentials managed by Supabase. Server-side secrets and API keys must never be committed to public repositories."],
+        ["AI and Chat Features", "AI conversations and chat messages are stored server-side via Supabase. AI requests are forwarded to third-party providers through a server-side proxy. Chat messages are delivered across devices in real time via Supabase Realtime."],
+        ["Third-Party Services", "Unstable depends on Supabase for auth, storage, and realtime functionality, and on third-party AI providers for AI responses. The operators are not responsible for the availability, content, or behavior of these services."],
+        ["Modifications", "These terms may be updated at any time. Continued use after changes constitutes acceptance of the new terms."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1712,13 +1454,14 @@ function PrivacyPage() {
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
-        ["What we collect", "This app stores account records, usernames, AI conversation history, and chat messages in Supabase. The browser also stores local UI preferences such as shortcuts, settings, lightweight reaction state, and temporary remembered access/account sessions."],
-        ["Access and account auth", "The access password should be verified server-side only. Account authentication is handled by Supabase Auth. Passwords are not stored directly in this repository or in client-side code and should never be committed to a public repository."],
-        ["AI data", "Messages you send to the AI page are stored in Supabase as conversation history and are also forwarded to the configured AI provider through a server-side route in order to generate responses."],
-        ["Chat data", "Messages sent in unstable://chat are stored in Supabase and delivered across devices using Supabase Realtime. Local emoji reactions may be stored in your browser even when they are not yet synced server-side."],
-        ["Public repo safety", "The Supabase anon key is designed to be public client configuration, but server secrets such as the AI provider key and server-side access password must remain outside the public repository. Client-side code, requests, and browser storage should be treated as inspectable."],
-        ["Third parties and retention", "Supabase and any configured AI provider process the data needed to provide accounts, sync, chat, and AI responses. Retention, backups, and operational logging may depend on those services and your deployment configuration."],
-        ["Changes", "This policy may be updated at any time. The current version is always available at unstable://privacy."],
+        ["Data We Collect", "Account records (username, auth identifiers), AI conversation history, and chat messages are stored in Supabase. Local preferences such as theme, shortcuts, settings, and wallpaper are stored in your browser's localStorage. Proxy and transport configuration, including custom Wisp server URLs, are saved locally."],
+        ["Authentication", "Account authentication is handled by Supabase Auth. No passwords are stored in this application's codebase. Server-side secrets and API keys must remain outside public repositories."],
+        ["AI Conversations", "Messages sent to the AI page are stored in Supabase as conversation history and forwarded to a third-party AI provider via a server-side route to generate responses. Conversation history can be viewed and deleted."],
+        ["Chat Messages", "Messages sent in unstable://chat are stored in Supabase and delivered in real time across devices via Supabase Realtime. Emoji reactions and message history are synced server-side."],
+        ["Local Storage", "The following are stored in your browser: UI settings (theme, wallpaper, Vanta effect preferences, background effect options), keyboard shortcuts, custom bookmark shortcuts, game mode site list, panic URL, cloak selection, proxy engine, transport mode, custom Wisp server URL, and Vanta advanced options. This data does not leave your browser unless explicitly shared through app features."],
+        ["Third-Party Services", "Supabase stores and processes account data, chat messages, and AI history. AI providers process messages forwarded to them for response generation. These services have their own privacy policies governing data handling. Retention and backups depend on your deployment's Supabase configuration."],
+        ["Public Repository Safety", "The Supabase anon key is designed to be public client configuration. Server secrets, AI provider keys, and server-side access credentials must never be committed to a public repository. All client-side code, network requests, and browser storage should be treated as potentially inspectable."],
+        ["Updates", "This policy may be updated at any time. Check unstable://privacy for the current version."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1771,8 +1514,8 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
     padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
   };
 
-  const catIds = ["appearance", "network", "privacy", "gaming", "controls"] as const;
-  const catLabels: Record<string, string> = { appearance: "Appearance", network: "Network", privacy: "Privacy", gaming: "Gaming", controls: "Controls" };
+  const catIds = ["appearance", "privacy", "gaming", "controls", "advanced"] as const;
+  const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", gaming: "Gaming", controls: "Controls", advanced: "Advanced" };
   function scrollToCat(id: string) {
     const el = document.getElementById(`settings-${id}`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1783,26 +1526,30 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       id="settings-scroll"
-      style={{ height: "100%", overflowY: "auto", background: vantaActive ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <style>{`
-        #settings-scroll::-webkit-scrollbar { width: 6px; }
-        #settings-scroll::-webkit-scrollbar-track { background: transparent; }
-        #settings-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
-        #settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-      `}</style>
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", marginTop: 0, marginBottom: "1.25rem" }}>unstable — settings</p>
-
-      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "2rem", paddingBottom: "1.25rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: vantaActive ? "rgba(13,13,13,0.85)" : "var(--t-bg)", backdropFilter: vantaActive ? "blur(12px)" : "none", WebkitBackdropFilter: vantaActive ? "blur(12px)" : "none" }}>
+      <div style={{
+        width: 160, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.06)", padding: "2.5rem 0",
+        display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "stretch", overflowY: "auto",
+      }}>
+        <p style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 1.25rem 1rem 1.25rem" }}>unstable</p>
         {catIds.map(id => (
           <button key={id} onClick={() => scrollToCat(id)} style={{
-            background: "none", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.35)",
-            padding: "0.3rem 0.7rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-            transition: "all 0.15s",
-          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "rgba(255,255,255,0.6)"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.35)"; }}>{catLabels[id]}</button>
+            background: "none", border: "none", color: "rgba(255,255,255,0.3)", textAlign: "left",
+            padding: "0.45rem 1.25rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.15s",
+          }} onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.7)"; e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }} onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.3)"; e.currentTarget.style.background = "none"; }}>{catLabels[id]}</button>
         ))}
       </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "2.5rem 2rem", maxWidth: 560 }}>
+        <style>{`
+          #settings-scroll > div > div:last-child::-webkit-scrollbar { width: 6px; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-track { background: transparent; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        `}</style>
 
       <div id="settings-appearance">
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
@@ -1811,7 +1558,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
       </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>theme</p>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>color theme</p>
         <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Choose a color theme for the entire application.
         </p>
@@ -1824,7 +1571,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 key={id}
-                onClick={() => onSettingsChange({ ...settings, theme: id, backgroundEffect: THEMES[id]?.backgroundEffect ?? settings.backgroundEffect })}
+                onClick={() => onSettingsChange({ ...settings, theme: id, wallpaper: THEMES[id]?.wallpaper ?? settings.wallpaper, backgroundEffect: id === "tuff" ? "" : settings.backgroundEffect })}
                 style={{
                   background: active ? t.accent : t.bgSecondary,
                   color: active ? t.accentText : t.textSecondary,
@@ -1840,9 +1587,9 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>wallpaper</p>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>background</p>
         <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Set a background image behind all UI panels. Leave empty for none.
+          Set a wallpaper URL or upload an image. Optionally add a Vanta effect behind the UI.
         </p>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <input
@@ -1884,44 +1631,41 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
             <div style={{ width: "100%", height: "100%", backgroundImage: `url("${settings.wallpaper}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
           </div>
         )}
-      </motion.section>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>background effect</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          An animated Three.js background behind the UI. Pick an effect, or leave empty to use the theme default.
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(["", "fog", "waves", "net", "globe", "clouds", "dots", "halo", "rings", "topology"] as const).map(effect => {
-            const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
-            const active = (settings.backgroundEffect || themeEffect) === effect;
-            return (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                key={effect}
-                onClick={() => onSettingsChange({ ...settings, backgroundEffect: effect })}
-                style={{
-                  background: active ? "#e8e8e8" : "#111",
-                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  transition: "all 0.15s",
-                }}
-              >{effect || "theme default"}</motion.button>
-            );
-          })}
+        <div style={{ marginTop: "1.5rem" }}>
+          <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>vanta effect</p>
+          <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+            An animated Three.js background. Pick an effect, or leave empty for none.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            {(["", "fog", "net", "globe", "clouds", "dots", "halo", "rings"] as const).map(effect => {
+              const active = settings.backgroundEffect === effect;
+              return (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  key={effect}
+                  onClick={() => onSettingsChange({ ...settings, backgroundEffect: effect })}
+                  style={{
+                    background: active ? "#e8e8e8" : "#111",
+                    color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                    border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                    padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                    letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                    transition: "all 0.15s",
+                  }}
+                >{effect || "none"}</motion.button>
+              );
+            })}
+          </div>
         </div>
       </motion.section>
 
       {(() => {
-        const bgEffectFromTheme = (THEMES[settings.theme] as any)?.backgroundEffect;
-        const effect = settings.backgroundEffect || bgEffectFromTheme;
+        const effect = settings.backgroundEffect;
         if (!effect) return null;
         const adv = settings.vantaAdvanced?.[effect] ?? {};
-        const themeDef = (() => { for (const t of Object.keys(THEMES)) { const tid = t as ThemeId; if (THEMES[tid]?.backgroundEffect === effect) return THEMES[tid]; } return null; })();
-        const defaults = (themeDef as any)?.vantaOptions ?? {};
+        const defaults = VANTA_DEFAULTS[effect] ?? {};
         const allKeys = [...new Set([...Object.keys(defaults), ...Object.keys(adv)])];
         if (!allKeys.length) return null;
         return (
@@ -1962,72 +1706,6 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           </motion.section>
         );
       })()}
-      </div>
-
-      <div id="settings-network">
-      {/* ─── NETWORK ─────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
-        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>network</span>
-        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
-      </div>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Choose which rewriting engine handles proxied pages. Auto tries Scramjet first, falls back to Ultraviolet.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "scramjet", "uv"] as ProxyEngine[]).map(id => {
-            const labels: Record<ProxyEngine, string> = { auto: "Auto", scramjet: "Scramjet", uv: "Ultraviolet" };
-            const active = settings.proxyEngine === id;
-            return (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                key={id}
-                onClick={() => onSettingsChange({ ...settings, proxyEngine: id })}
-                style={{
-                  background: active ? "#e8e8e8" : "#111",
-                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  transition: "all 0.15s",
-                }}
-              >{labels[id]}</motion.button>
-            );
-          })}
-        </div>
-      </motion.section>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport mode</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "wisp", "bare"] as TransportMode[]).map(id => {
-            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", bare: "Bare" };
-            const active = settings.transportMode === id;
-            return (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                key={id}
-                onClick={() => onSettingsChange({ ...settings, transportMode: id })}
-                style={{
-                  background: active ? "#e8e8e8" : "#111",
-                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  transition: "all 0.15s",
-                }}
-              >{labels[id]}</motion.button>
-            );
-          })}
-        </div>
-      </motion.section>
       </div>
 
       <div id="settings-privacy">
@@ -2222,7 +1900,88 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
       </motion.section>
       </div>
 
+      <div id="settings-advanced">
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>advanced</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose which rewriting engine handles proxied pages. Auto tries Scramjet first, falls back to Ultraviolet.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["auto", "scramjet", "uv"] as ProxyEngine[]).map(id => {
+            const labels: Record<ProxyEngine, string> = { auto: "Auto", scramjet: "Scramjet", uv: "Ultraviolet" };
+            const active = settings.proxyEngine === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, proxyEngine: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport mode</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["auto", "wisp", "bare"] as TransportMode[]).map(id => {
+            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", bare: "Bare" };
+            const active = settings.transportMode === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, transportMode: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp server</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Override the default Wisp WebSocket server. Leave empty to use the built-in server at <code style={codeStyle}>/api/wisp/</code>.
+        </p>
+        <input
+          type="text"
+          value={settings.wispServer}
+          onChange={e => onSettingsChange({ ...settings, wispServer: e.target.value })}
+          placeholder="ws://your-server.com/api/wisp/"
+          style={inputBase}
+        />
+      </motion.section>
+      </div>
+
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
+      </div>
+      </div>
     </motion.div>
   );
 }
@@ -2765,238 +2524,15 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   );
 }
 
-function AdminPage({
-  session,
-  currentUser,
-  isAdmin,
-}: {
-  session: Session;
-  currentUser: User;
-  isAdmin: boolean;
-}) {
-  const [overview, setOverview] = useState<AdminOverview>({ users: [], messages: [] });
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  const accessToken = session.access_token;
-
-  const loadOverview = useCallback(async () => {
-    if (!isAdmin) return;
-    setLoading(true);
-    setError("");
-    try {
-      const next = await fetchAdminOverview(accessToken);
-      setOverview(next);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load admin data.");
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, isAdmin]);
-
-  useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
-
-  async function handleDeleteMessage(messageId: string) {
-    if (!window.confirm("Delete this message for everyone?")) return;
-    setWorking(`message:${messageId}`);
-    setError("");
-    try {
-      await deleteAdminMessage(accessToken, messageId);
-      setOverview((prev) => ({
-        ...prev,
-        messages: prev.messages.filter((message) => message.id !== messageId),
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete message.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  async function handleBanToggle(user: AdminUserSummary) {
-    const actionKey = `user:${user.id}:${user.isBanned ? "unban" : "ban"}`;
-    setWorking(actionKey);
-    setError("");
-    try {
-      if (user.isBanned) {
-        await unbanAdminUser(accessToken, user.id);
-      } else {
-        const reason = window.prompt(`Ban ${user.username}. Optional reason:`) ?? "";
-        await banAdminUser(accessToken, user.id, reason);
-      }
-      await loadOverview();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update that user.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  async function handleDeleteUser(user: AdminUserSummary) {
-    if (user.id === currentUser.id) {
-      setError("You cannot delete the account you are currently using.");
-      return;
-    }
-    if (!window.confirm(`Delete ${user.username} permanently?`)) return;
-    setWorking(`delete-user:${user.id}`);
-    setError("");
-    try {
-      await deleteAdminUser(accessToken, user.id);
-      await loadOverview();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete that user.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  if (!isAdmin) {
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "#e8e8e8", fontFamily: "'Space Grotesk', sans-serif" }}>
-        <div style={{ maxWidth: 480, padding: "2rem", textAlign: "center" }}>
-          <p style={{ margin: 0, fontSize: "0.64rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
-          <p style={{ margin: "0.9rem 0 0", fontSize: "1.2rem" }}>Admin role required.</p>
-        </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        height: "100%",
-        overflow: "auto",
-        background:
-          "radial-gradient(circle at top left, rgba(255,120,120,0.1), transparent 24%), radial-gradient(circle at bottom right, rgba(255,255,255,0.05), transparent 22%), var(--t-bg)",
-        fontFamily: "'Space Grotesk', sans-serif",
-      }}
-    >
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(320px, 420px) minmax(0, 1fr)", gap: "1rem" }}>
-        <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(18,12,12,0.96), rgba(10,8,8,0.98))", borderRadius: "22px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.8rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-          <div>
-            <p style={{ margin: 0, fontSize: "0.62rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
-            <p style={{ margin: "0.6rem 0 0.35rem", color: "#f5f5f5", fontSize: "1.4rem", lineHeight: 1.05 }}>Moderation controls for real admin accounts.</p>
-            <p style={{ margin: 0, color: "rgba(255,255,255,0.45)", fontSize: "0.72rem", lineHeight: 1.6 }}>
-              Bans are stored in Supabase. Device bans are best-effort and follow the browser installation id saved on the device.
-            </p>
-          </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.8rem", display: "grid", gap: "0.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Users</span>
-              <span>{overview.users.length}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Banned</span>
-              <span>{overview.users.filter((user) => user.isBanned).length}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Recent messages</span>
-              <span>{overview.messages.length}</span>
-            </div>
-          </div>
-          <button
-            onClick={() => void loadOverview()}
-            disabled={loading}
-            style={{ marginTop: "auto", background: loading ? "#231919" : "#f0e7e7", color: loading ? "rgba(255,255,255,0.35)" : "#140e0e", border: "none", borderRadius: "999px", padding: "0.8rem 1rem", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}
-          >
-            {loading ? "loading…" : "refresh admin data"}
-          </button>
-          {error && <p style={{ margin: 0, color: "rgba(235,120,120,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{error}</p>}
-          {!error && (overview.warnings?.length ?? 0) > 0 && (
-            <div style={{ display: "grid", gap: "0.45rem" }}>
-              {overview.warnings!.map((warning) => (
-                <p key={warning} style={{ margin: 0, color: "rgba(255,210,140,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{warning}</p>
-              ))}
-            </div>
-          )}
-        </aside>
-
-        <section style={{ minWidth: 0, display: "grid", gap: "1rem" }}>
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(8,8,8,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Users</p>
-              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://admin in the url bar</p>
-            </div>
-            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
-              {overview.users.map((user) => (
-                <div key={user.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "center", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.84rem" }}>{user.username}</p>
-                      {user.isAdmin && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>admin</span>}
-                      {user.isBanned && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(200,70,70,0.16)", color: "#ffb3b3", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>banned</span>}
-                    </div>
-                    <p style={{ margin: "0.28rem 0 0", color: "rgba(255,255,255,0.42)", fontSize: "0.67rem", lineHeight: 1.6 }}>
-                      {user.id === currentUser.id ? "Current account" : `Devices seen: ${user.deviceCount}`}
-                      {user.banReason ? ` • ${user.banReason}` : ""}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button
-                      onClick={() => void handleBanToggle(user)}
-                      disabled={working === `user:${user.id}:${user.isBanned ? "unban" : "ban"}` || user.id === currentUser.id}
-                      style={{ background: user.isBanned ? "rgba(255,255,255,0.08)" : "rgba(200,70,70,0.14)", color: user.isBanned ? "#f2f2f2" : "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      {user.isBanned ? "unban" : "ban"}
-                    </button>
-                    <button
-                      onClick={() => void handleDeleteUser(user)}
-                      disabled={working === `delete-user:${user.id}` || user.id === currentUser.id}
-                      style={{ background: "transparent", color: "rgba(255,255,255,0.72)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Recent chat messages</p>
-            </div>
-            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
-              {overview.messages.map((message) => {
-                const parsed = parseChatMessageContent(message.content);
-                return (
-                  <div key={message.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "start", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.8rem" }}>{message.username}</p>
-                      <p style={{ margin: "0.3rem 0 0", color: "rgba(255,255,255,0.72)", fontSize: "0.72rem", lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parsed.body}</p>
-                    </div>
-                    <button
-                      onClick={() => void handleDeleteMessage(message.id)}
-                      disabled={working === `message:${message.id}`}
-                      style={{ background: "rgba(200,70,70,0.14)", color: "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      delete
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      </div>
-    </motion.div>
-  );
-}
-
-function ChatPage({ user, profile, session, isAdmin, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; isAdmin: boolean; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
+function ChatPage({ user, profile, session, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
   if (!user || !profile || !session) {
     return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Chat" />;
   }
 
-  return <ChatPageInner user={user} profile={profile} session={session} isAdmin={isAdmin} />;
+  return <ChatPageInner user={user} profile={profile} session={session} />;
 }
 
-function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profile: Profile; session: Session; isAdmin: boolean }) {
+function ChatPageInner({ user, profile, session }: { user: User; profile: Profile; session: Session }) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3112,21 +2648,6 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
     }
   }
 
-  async function adminDeleteMessage(messageId: string) {
-    if (!isAdmin) return;
-    if (!window.confirm("Delete this message for everyone?")) return;
-    setError("");
-    try {
-      await deleteAdminMessage(session.access_token, messageId);
-      setMessages((prev) => prev.filter((message) => message.id !== messageId));
-      if (recentOwnMessageId === messageId) {
-        setRecentOwnMessageId(null);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete that message.");
-    }
-  }
-
   function toggleReaction(messageId: string, emoji: string) {
     setReactions((prev) => {
       const current = prev[messageId] ?? [];
@@ -3217,9 +2738,6 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
                           {recentOwnMessageId === message.id && isOwn && (
                             <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
                           )}
-                          {isAdmin && (
-                            <button onClick={() => void adminDeleteMessage(message.id)} style={{ background: "none", border: "none", color: "rgba(255,160,160,0.72)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>delete</button>
-                          )}
                         </div>
                         {reactionPickerId === message.id && (
                           <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
@@ -3304,6 +2822,21 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   const [ntSuggestIndex, setNtSuggestIndex] = useState(-1);
   const ntSuggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const ntSuggestListRef = useRef<HTMLDivElement>(null);
+  const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const HIDDEN_DEFAULTS_KEY = "unstable-hidden-defaults";
+  const [hiddenDefaultIds, setHiddenDefaultIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(HIDDEN_DEFAULTS_KEY) || "[]"); } catch { return []; }
+  });
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     clearTimeout(ntSuggestTimer.current);
@@ -3331,7 +2864,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
     el?.scrollIntoView({ block: "nearest" });
   }, [ntSuggestIndex]);
 
-  const all = [...DEFAULT_SHORTCUTS, ...customShortcuts];
+  const all = [...DEFAULT_SHORTCUTS.filter(d => !hiddenDefaultIds.includes(d.id)), ...customShortcuts];
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -3343,16 +2876,33 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
     const name = newName.trim(), rawUrl = newUrl.trim(); if (!name || !rawUrl) return;
     const url = normalizeUrl(rawUrl);
     let domain = ""; try { domain = new URL(url).hostname; } catch { }
-    const sc: Shortcut = { id: Math.random().toString(36).slice(2), name, url, favicon: newImg.trim() || faviconUrl(domain) };
-    const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    const favicon = newImg.trim() || faviconUrl(domain);
+    if (editingShortcut) {
+      if (DEFAULT_SHORTCUTS.find(d => d.id === editingShortcut.id)) {
+        const updatedHidden = [...hiddenDefaultIds, editingShortcut.id];
+        setHiddenDefaultIds(updatedHidden); localStorage.setItem(HIDDEN_DEFAULTS_KEY, JSON.stringify(updatedHidden));
+      }
+      let updated = customShortcuts.filter(s => s.id !== editingShortcut.id);
+      updated = [...updated, { id: editingShortcut.id, name, url, favicon }];
+      setCustomShortcuts(updated); saveCustomShortcuts(updated);
+      setEditingShortcut(null);
+    } else {
+      const sc: Shortcut = { id: Math.random().toString(36).slice(2), name, url, favicon };
+      const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    }
     setAdding(false); setNewName(""); setNewUrl(""); setNewImg("");
   }
 
-  function removeCustom(id: string) {
-    const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
+  function removeShortcut(id: string) {
+    if (DEFAULT_SHORTCUTS.find(d => d.id === id)) {
+      const updated = [...hiddenDefaultIds, id];
+      setHiddenDefaultIds(updated); localStorage.setItem(HIDDEN_DEFAULTS_KEY, JSON.stringify(updated));
+    } else {
+      const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    }
   }
 
-  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
+  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
 
   return (
     <motion.div
@@ -3360,13 +2910,21 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       style={{ 
-        height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : wallpaper ? `#0d0d0d url(${wallpaper}) center/cover no-repeat` : "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" 
+        height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : wallpaper ? `var(--t-bg) url(${wallpaper}) center/cover no-repeat` : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" 
       }}
     >
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: "1.75rem", padding: "2.5rem 3rem",
+        background: (wallpaper || vantaActive) ? "color-mix(in srgb, var(--t-bg) 45%, transparent)" : "transparent",
+        backdropFilter: (wallpaper || vantaActive) ? "blur(20px) saturate(1.3)" : "none",
+        WebkitBackdropFilter: (wallpaper || vantaActive) ? "blur(20px) saturate(1.3)" : "none",
+        borderRadius: "12px", border: (wallpaper || vantaActive) ? "1px solid var(--t-border-light)" : "none",
+        boxShadow: (wallpaper || vantaActive) ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
+      }}>
       <motion.p
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}
+        style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", margin: 0 }}
       >unstable</motion.p>
 
       <motion.form
@@ -3378,7 +2936,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       >
         <div style={{ position: "relative", flex: 1 }}>
           <input autoFocus value={input} onChange={e => { setInput(e.target.value); setNtSuggestIndex(-1); }} placeholder="search or enter a url"
-            style={{ width: "100%", background: "radial-gradient(circle 150px at var(--glass-x, 50%) var(--glass-y, 50%), rgba(255,255,255,var(--glass-glow, 0)), rgba(255,255,255,0) 72%), linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", WebkitBackdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", boxShadow: "inset 0 1px 0 rgba(255,255,255,calc(0.2 + var(--glass-hover, 0) * 0.2)), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,calc(0.2 + var(--glass-hover, 0) * 0.08))", transition: "border-color 0.18s ease, box-shadow 0.18s ease, backdrop-filter 0.18s ease, -webkit-backdrop-filter 0.18s ease" } as React.CSSProperties}
+            style={{ width: "100%", background: "radial-gradient(circle 150px at var(--glass-x, 50%) var(--glass-y, 50%), rgba(255,255,255,var(--glass-glow, 0)), rgba(255,255,255,0) 72%), linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid var(--t-border)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", WebkitBackdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", boxShadow: "inset 0 1px 0 rgba(255,255,255,calc(0.2 + var(--glass-hover, 0) * 0.2)), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,calc(0.2 + var(--glass-hover, 0) * 0.08))", transition: "border-color 0.18s ease, box-shadow 0.18s ease, backdrop-filter 0.18s ease, -webkit-backdrop-filter 0.18s ease" } as React.CSSProperties}
             onMouseMove={e => {
               const rect = e.currentTarget.getBoundingClientRect();
               e.currentTarget.style.setProperty("--glass-x", `${e.clientX - rect.left}px`);
@@ -3390,8 +2948,8 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
               e.currentTarget.style.setProperty("--glass-hover", "0");
               e.currentTarget.style.setProperty("--glass-glow", "0");
             }}
-            onFocus={e => { e.target.style.borderColor = "rgba(255,255,255,0.46)"; if (ntSuggestions.length) setShowNtSuggestions(true); }}
-            onBlur={e => { e.target.style.borderColor = "rgba(255,255,255,0.28)"; setTimeout(() => setShowNtSuggestions(false), 200); }}
+            onFocus={e => { e.target.style.borderColor = "var(--t-accent)"; if (ntSuggestions.length) setShowNtSuggestions(true); }}
+            onBlur={e => { e.target.style.borderColor = "var(--t-border)"; setTimeout(() => setShowNtSuggestions(false), 200); }}
             onKeyDown={e => {
               if (!showNtSuggestions || !ntSuggestions.length) return;
               if (e.key === "ArrowDown") { e.preventDefault(); setNtSuggestIndex(i => Math.min(i + 1, ntSuggestions.length - 1)); }
@@ -3405,12 +2963,12 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             }}
           />
           {showNtSuggestions && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #333", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
-              <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}>
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+              <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
                 {ntSuggestions.map((s, i) => (
                   <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`); }}
-                    style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === ntSuggestIndex ? "#1e1e1e" : "transparent", transition: "background 0.1s" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "#1e1e1e"; setNtSuggestIndex(i); }}
+                    style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
                     onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
                   >{s}</div>
                 ))}
@@ -3419,10 +2977,10 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
           )}
         </div>
         <motion.button
-          whileHover={{ background: "#fff" }}
+          whileHover={{ background: "var(--t-accent-hover)" }}
           whileTap={{ scale: 0.98 }}
           type="submit"
-          style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
+          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
         >go</motion.button>
       </motion.form>
 
@@ -3442,7 +3000,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             className="sc-wrap"
           >
             <motion.button
-              whileHover={{ y: -4, background: "#161616" }}
+              whileHover={{ y: -4, background: "var(--t-bg-tertiary)" }}
               whileTap={{ scale: 0.9 }}
               onClick={() => onNavigate(sc.url)}
               title={sc.name}
@@ -3452,12 +3010,20 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
                 <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
                   onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }}
                 />
-                <span style={{ display: "none", width: 24, height: 24, background: "#1e1e1e", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
+                <span style={{ display: "none", width: 24, height: 24, background: "var(--t-bg-tertiary)", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "var(--t-text-secondary)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
               </div>
-              <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.32)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
+              <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
             </motion.button>
-            {!DEFAULT_SHORTCUTS.find(d => d.id === sc.id) && (
-              <button onClick={() => removeCustom(sc.id)} className="sc-remove" style={{ position: "absolute", top: 2, right: 2, background: "#1a1a1a", border: "none", color: "rgba(255,255,255,0.4)", borderRadius: "50%", width: 14, height: 14, fontSize: 9, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center" }}>×</button>
+            <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "4px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
+            {menuOpenId === sc.id && (
+              <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "4px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
+                <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Edit</button>
+                <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Delete</button>
+              </div>
             )}
           </motion.div>
         ))}
@@ -3466,14 +3032,14 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.3 + all.length * 0.05 }}
-            whileHover={{ scale: 1.1, background: "#161616" }}
+            whileHover={{ scale: 1.1, background: "var(--t-bg-tertiary)" }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setAdding(true)}
             title="Add shortcut"
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
           >
-            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "rgba(255,255,255,0.2)" }}>+</div>
-            <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.03em" }}>add</span>
+            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed var(--t-border-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "var(--t-text-muted)" }}>+</div>
+            <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em" }}>add</span>
           </motion.button>
         )}
       </motion.div>
@@ -3487,13 +3053,13 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             onSubmit={handleAdd}
             style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
           >
-            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
-            <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
-            <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
-            <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
+            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>{editingShortcut ? "edit shortcut" : "new shortcut"}</p>
+            <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
+            <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
+            <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>add</motion.button>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>{editingShortcut ? "save" : "add"}</motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setEditingShortcut(null); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "var(--t-text-muted)", border: "1px solid var(--t-border-light)", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
             </div>
           </motion.form>
         )}
@@ -3502,15 +3068,16 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
         {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
           <motion.button
-            whileHover={{ color: "rgba(255,255,255,0.7)" }}
+            whileHover={{ color: "var(--t-text-secondary)" }}
             key={label}
             onClick={() => onNavigate(url)}
-            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
+            style={{ background: "none", border: "none", color: "var(--t-text-muted)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
           >{label}</motion.button>
         ))}
       </motion.div>
 
-      <style>{`.sc-wrap:hover .sc-remove{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+      <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+      </div>
     </motion.div>
   );
 }
@@ -3544,12 +3111,10 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 
 function CollapsedSidebar({
   activeUrl,
-  isAdmin,
   onNavigate,
   canReturnToBrowse,
 }: {
   activeUrl: string;
-  isAdmin: boolean;
   onNavigate: (url: string) => void;
   canReturnToBrowse?: boolean;
 }) {
@@ -3564,7 +3129,6 @@ function CollapsedSidebar({
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
     { label: "Settings", url: "unstable://settings", icon: Settings },
-    { label: "Admin", url: "unstable://admin", icon: Shield, hidden: !isAdmin },
   ];
 
   const currentPage = activeUrl.startsWith("unstable://") ? activeUrl : "";
@@ -3794,10 +3358,8 @@ function BrowserApp({
   const isNewtab = !activeTab?.url;
   const proxyStatus = useProxyStatus();
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
-  const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
-  const activeBgEffect = settings.backgroundEffect || themeEffect;
-  const vantaThemeDef = (() => { for (const t of Object.keys(THEMES)) { const tid = t as ThemeId; if (THEMES[tid]?.backgroundEffect === activeBgEffect) return THEMES[tid]; } return null; })();
-  const vantaOptions = { ...((vantaThemeDef as any)?.vantaOptions ?? {}), ...(settings.vantaAdvanced?.[activeBgEffect] ?? {}) };
+  const activeBgEffect = settings.backgroundEffect;
+  const vantaOptions = { ...(VANTA_DEFAULTS[activeBgEffect] ?? {}), ...(settings.vantaAdvanced?.[activeBgEffect] ?? {}) };
   const [gameModeToast, setGameModeToast] = useState(false);
   const lastGameToastHost = useRef<string | null>(null);
 
@@ -3818,7 +3380,7 @@ function BrowserApp({
     if (!gameModeActive || proxyStatus.phase !== "ready") return;
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     if (proxyStatus.transport !== "bare") {
-      void switchBare(n, "bare");
+      void switchBare(n, "bare", settings.wispServer);
     }
   }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
 
@@ -3838,8 +3400,8 @@ function BrowserApp({
   }, [settings.theme, settings.wallpaper]);
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode);
-  }, [settings.transportMode]);
+    setupProxy(n, settings.transportMode, settings.wispServer);
+  }, [settings.transportMode, settings.wispServer]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -3951,11 +3513,7 @@ function BrowserApp({
         updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
         return;
       }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin", "games"].includes(page)) {
-        if (page === "admin" && !authContext.isAdmin) {
-          updateTab(tabId, { url: "unstable://settings", title: "Settings", favicon: "", loading: false });
-          return;
-        }
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         setTabs(prev => prev.map(tab => {
           if (tab.id !== tabId) return tab;
@@ -4176,7 +3734,6 @@ function BrowserApp({
         {!fullscreen && (
           <CollapsedSidebar
             activeUrl={activeTab?.url || ""}
-            isAdmin={authContext.isAdmin}
             canReturnToBrowse={Boolean(activeTab?.url.startsWith("unstable://") && activeTab.lastProxyUrl)}
             onNavigate={(url) => handleNavigate(url, activeTabId)}
           />
@@ -4202,15 +3759,9 @@ function BrowserApp({
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
-                <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} onAuthenticated={onAuthenticated} />
+                <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://settings" ? (
                 <SettingsPage settings={settings} onSettingsChange={setSettings} vantaActive={!!activeBgEffect} />
-              ) : tab.url === "unstable://admin" ? (
-                session && user ? (
-                  <AdminPage session={session} currentUser={user} isAdmin={authContext.isAdmin} />
-                ) : (
-                  <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Admin" />
-                )
               ) : tab.url === "unstable://games" ? (
                 <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://credits" ? (
@@ -4317,7 +3868,7 @@ function BrowserApp({
         </div>
       </div>
 
-      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} />
+      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
 
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
     </motion.div>
@@ -4332,7 +3883,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [authContext, setAuthContext] = useState<AppAuthContext>({ isAdmin: false, isBanned: false, banReason: null });
+  const [authContext, setAuthContext] = useState<AppAuthContext>({ isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
 
   useEffect(() => {
@@ -4346,7 +3897,7 @@ export default function App() {
 
       if (!nextUser) {
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountLoading(false);
         return;
       }
@@ -4385,7 +3936,7 @@ export default function App() {
       } catch (err) {
         if (!mounted) return;
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
       } finally {
         if (mounted) setAccountLoading(false);
@@ -4401,7 +3952,7 @@ export default function App() {
         setSession(null);
         setUser(null);
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? `${err.message} Continuing locally.` : "Account sync unavailable. Continuing locally.");
         setAccountLoading(false);
       }
@@ -4428,7 +3979,7 @@ export default function App() {
     setSession(null);
     setUser(null);
     setProfile(null);
-    setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+    setAuthContext({ isBanned: false, banReason: null });
     applyCloak("none");
   }
 

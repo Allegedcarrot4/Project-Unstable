@@ -6987,5 +6987,13 @@
         "url": "https://raw.githack.com/gn-math/html/main/787.html",
         "author": "BubbleTabby, sunsuke",
         "authorLink": "https://store.steampowered.com/app/3045200/Beatblock/"
+    },
+    {
+        "id": 788,
+        "name": "Minecraft Precision Client",
+        "cover": "https://cdn.phototourl.com/free/2026-06-12-a3338616-99c7-46db-8d6f-f418540c6d99.jpg",
+        "url": "https://client.eaglercraft.win/eagler-files/1.5.2/precisionbeta2/index.html",
+        "author": "Samuel Mitrani",
+        "authorLink": "https://gitlab.com/smitrani"
     }
 ]
