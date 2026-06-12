@@ -35,7 +35,7 @@ interface KeyShortcuts {
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
 type TransportMode = "auto" | "wisp" | "bare";
-type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff" | "vanta-fog" | "vanta-waves" | "vanta-birds" | "vanta-net" | "vanta-stars" | "vanta-globe" | "vanta-clouds" | "vanta-dots" | "vanta-halo" | "vanta-rings" | "vanta-topology";
+type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff" | "vanta-fog" | "vanta-waves" | "vanta-net" | "vanta-globe" | "vanta-clouds" | "vanta-dots" | "vanta-halo" | "vanta-rings" | "vanta-topology";
 
 interface ThemeColors {
   bg: string; bgSecondary: string; bgTertiary: string; bgHover: string;
@@ -191,32 +191,6 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEff
       cardBg: "#0e1e2c", cardBorder: "#243e50",
     },
   },
-  "vanta-birds": {
-    label: "Vanta Birds",
-    backgroundEffect: "birds",
-    vantaOptions: {
-      color1: 0xff6633,
-      color2: 0xff4400,
-      colorMode: "variance",
-      birdSize: 1.5,
-      wingSpan: 30,
-      speedLimit: 5,
-      separation: 60,
-      alignment: 50,
-      cohesion: 30,
-    },
-    colors: {
-      bg: "#1a0e0e", bgSecondary: "#221414", bgTertiary: "#2a1818", bgHover: "#341e1e",
-      text: "#e8c8b8", textSecondary: "rgba(232,200,184,0.6)", textMuted: "rgba(232,200,184,0.35)",
-      border: "#3a2020", borderLight: "#4a2828",
-      accent: "#ff6644", accentHover: "#ff8866", accentText: "#fff",
-      inputBg: "#1e1010", inputBorder: "#3a2020", inputText: "#e8c8b8",
-      btnBg: "#2a1818", btnHover: "#342020", btnText: "rgba(232,200,184,0.5)",
-      scrollbar: "#3a2020", scrollbarThumb: "#5a3030",
-      tabActive: "#221414", tabInactive: "#140a0a", tabBorder: "#2a1818",
-      cardBg: "#221414", cardBorder: "#3a2020",
-    },
-  },
   "vanta-net": {
     label: "Vanta Net",
     backgroundEffect: "net",
@@ -237,27 +211,6 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEff
       scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
       tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
       cardBg: "#15102a", cardBorder: "#2a1e44",
-    },
-  },
-  "vanta-stars": {
-    label: "Vanta Stars",
-    backgroundEffect: "stars",
-    vantaOptions: {
-      color: 0xffffff,
-      backgroundColor: 0x0a0a0a,
-      starSize: 1.8,
-      starDensity: 0.8,
-    },
-    colors: {
-      bg: "#0a0a0a", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
-      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
-      border: "#1e1e1e", borderLight: "#222",
-      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
-      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
-      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
-      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
-      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
-      cardBg: "#111", cardBorder: "#222",
     },
   },
   "vanta-globe": {
@@ -402,6 +355,7 @@ interface Settings {
   gameModeEnabled: boolean;
   gameModeSites: string[];
   panicUrl: string;
+  vantaAdvanced: Record<string, any>;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -503,6 +457,7 @@ const DEFAULT_SETTINGS: Settings = {
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
+  vantaAdvanced: {},
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -1783,7 +1738,7 @@ function PrivacyPage() {
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSettingsChange: (s: Settings) => void }) {
+function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: Settings; onSettingsChange: (s: Settings) => void; vantaActive?: boolean }) {
   const [recording, setRecording] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1816,13 +1771,44 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
     padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
   };
 
+  const catIds = ["appearance", "network", "privacy", "gaming", "controls"] as const;
+  const catLabels: Record<string, string> = { appearance: "Appearance", network: "Network", privacy: "Privacy", gaming: "Gaming", controls: "Controls" };
+  function scrollToCat(id: string) {
+    const el = document.getElementById(`settings-${id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      id="settings-scroll"
+      style={{ height: "100%", overflowY: "auto", background: vantaActive ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
     >
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
+      <style>{`
+        #settings-scroll::-webkit-scrollbar { width: 6px; }
+        #settings-scroll::-webkit-scrollbar-track { background: transparent; }
+        #settings-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+        #settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+      `}</style>
+      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", marginTop: 0, marginBottom: "1.25rem" }}>unstable — settings</p>
+
+      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "2rem", paddingBottom: "1.25rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        {catIds.map(id => (
+          <button key={id} onClick={() => scrollToCat(id)} style={{
+            background: "none", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.35)",
+            padding: "0.3rem 0.7rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            transition: "all 0.15s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "rgba(255,255,255,0.6)"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.35)"; }}>{catLabels[id]}</button>
+        ))}
+      </div>
+
+      <div id="settings-appearance">
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>appearance</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>theme</p>
@@ -1838,7 +1824,7 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 key={id}
-                onClick={() => onSettingsChange({ ...settings, theme: id })}
+                onClick={() => onSettingsChange({ ...settings, theme: id, backgroundEffect: THEMES[id]?.backgroundEffect ?? settings.backgroundEffect })}
                 style={{
                   background: active ? t.accent : t.bgSecondary,
                   color: active ? t.accentText : t.textSecondary,
@@ -1906,7 +1892,7 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           An animated Three.js background behind the UI. Pick an effect, or leave empty to use the theme default.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(["", "fog", "waves", "birds", "net", "stars", "globe", "clouds", "dots", "halo", "rings", "topology"] as const).map(effect => {
+          {(["", "fog", "waves", "net", "globe", "clouds", "dots", "halo", "rings", "topology"] as const).map(effect => {
             const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
             const active = (settings.backgroundEffect || themeEffect) === effect;
             return (
@@ -1928,6 +1914,62 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           })}
         </div>
       </motion.section>
+
+      {(() => {
+        const bgEffectFromTheme = (THEMES[settings.theme] as any)?.backgroundEffect;
+        const effect = settings.backgroundEffect || bgEffectFromTheme;
+        if (!effect) return null;
+        const adv = settings.vantaAdvanced?.[effect] ?? {};
+        const themeDef = (() => { for (const t of Object.keys(THEMES)) { const tid = t as ThemeId; if (THEMES[tid]?.backgroundEffect === effect) return THEMES[tid]; } return null; })();
+        const defaults = (themeDef as any)?.vantaOptions ?? {};
+        const allKeys = [...new Set([...Object.keys(defaults), ...Object.keys(adv)])];
+        if (!allKeys.length) return null;
+        return (
+          <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }} style={{ marginBottom: "2.5rem" }}>
+            <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>advanced — {effect}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {allKeys.map(key => {
+                const val = adv[key] ?? defaults[key];
+                const defaultIsNum = typeof defaults[key] === "number";
+                const isColor = (key.toLowerCase().includes("color") || key.toLowerCase().includes("light")) && defaultIsNum;
+                const isNum = defaultIsNum && !isColor;
+                return (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                    <label style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.5)", minWidth: 120, flexShrink: 0, textTransform: "capitalize" }}>{key.replace(/([A-Z])/g, " $1")}</label>
+                    {isColor ? (
+                      <input type="color" value={`#${(val ?? 0).toString(16).padStart(6, "0")}`} onChange={e => {
+                        const hex = parseInt(e.target.value.slice(1), 16);
+                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: hex } } });
+                      }} style={{ width: 36, height: 28, padding: 0, border: "1px solid #333", borderRadius: "4px", cursor: "pointer", background: "none" }} />
+                    ) : isNum ? (
+                      <input type="number" value={val ?? 0} onChange={e => {
+                        const n = parseFloat(e.target.value);
+                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: isNaN(n) ? 0 : n } } });
+                      }} style={{ width: 80, background: "#0a0a0a", border: "1px solid #222", color: "#e0e0e0", padding: "0.25rem 0.5rem", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "4px" }} />
+                    ) : (
+                      <input type="text" value={String(val ?? "")} onChange={e => {
+                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: e.target.value } } });
+                      }} style={{ flex: 1, background: "#0a0a0a", border: "1px solid #222", color: "#e0e0e0", padding: "0.25rem 0.5rem", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "4px" }} />
+                    )}
+                    <button onClick={() => {
+                      const next = { ...adv }; delete next[key];
+                      onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: next } });
+                    }} style={{ background: "none", border: "1px solid #333", color: "rgba(255,255,255,0.3)", cursor: "pointer", padding: "0.2rem 0.5rem", fontSize: "0.6rem", borderRadius: "4px" }}>reset</button>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.section>
+        );
+      })()}
+      </div>
+
+      <div id="settings-network">
+      {/* ─── NETWORK ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>network</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
@@ -1986,63 +2028,14 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           })}
         </div>
       </motion.section>
+      </div>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>game mode</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
-        </p>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
-          <input
-            type="checkbox"
-            checked={settings.gameModeEnabled}
-            onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
-          />
-          enable game mode
-        </label>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
-        <textarea
-          value={settings.gameModeSites.join("\n")}
-          onChange={e => {
-            const sites = e.target.value
-              .split(/\r?\n/)
-              .map(s => s.trim().toLowerCase().replace(/^www\./, ""))
-              .filter(Boolean);
-            onSettingsChange({ ...settings, gameModeSites: sites });
-          }}
-          rows={6}
-          placeholder={"smashkarts.io\nkrunker.io"}
-          style={{
-            ...inputBase,
-            width: "100%",
-            resize: "vertical",
-            minHeight: 100,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.72rem",
-          }}
-        />
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          type="button"
-          onClick={() => onSettingsChange({ ...settings, gameModeSites: [...DEFAULT_GAME_MODE_SITES] })}
-          style={{
-            marginTop: "0.65rem",
-            background: "none",
-            border: "1px solid #222",
-            color: "rgba(255,255,255,0.35)",
-            padding: "0.35rem 0.75rem",
-            fontSize: "0.6rem",
-            fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            cursor: "pointer",
-            borderRadius: "2px",
-          }}
-        >
-          reset site list
-        </motion.button>
-      </motion.section>
+      <div id="settings-privacy">
+      {/* ─── PRIVACY ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>privacy</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
@@ -2114,6 +2107,79 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           }}
         >reset panic url</motion.button>
       </motion.section>
+      </div>
+
+      <div id="settings-gaming">
+      {/* ─── GAMING ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>gaming</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>game mode</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
+        </p>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
+          <input
+            type="checkbox"
+            checked={settings.gameModeEnabled}
+            onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
+          />
+          enable game mode
+        </label>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
+        <textarea
+          value={settings.gameModeSites.join("\n")}
+          onChange={e => {
+            const sites = e.target.value
+              .split(/\r?\n/)
+              .map(s => s.trim().toLowerCase().replace(/^www\./, ""))
+              .filter(Boolean);
+            onSettingsChange({ ...settings, gameModeSites: sites });
+          }}
+          rows={6}
+          placeholder={"smashkarts.io\nkrunker.io"}
+          style={{
+            ...inputBase,
+            width: "100%",
+            resize: "vertical",
+            minHeight: 100,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.72rem",
+          }}
+        />
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          type="button"
+          onClick={() => onSettingsChange({ ...settings, gameModeSites: [...DEFAULT_GAME_MODE_SITES] })}
+          style={{
+            marginTop: "0.65rem",
+            background: "none",
+            border: "1px solid #222",
+            color: "rgba(255,255,255,0.35)",
+            padding: "0.35rem 0.75rem",
+            fontSize: "0.6rem",
+            fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            borderRadius: "2px",
+          }}
+        >
+          reset site list
+        </motion.button>
+      </motion.section>
+      </div>
+
+      <div id="settings-controls">
+      {/* ─── CONTROLS ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>controls</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>keyboard shortcuts</p>
@@ -2154,6 +2220,7 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           }}
         >reset to defaults</motion.button>
       </motion.section>
+      </div>
 
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
     </motion.div>
@@ -3222,15 +3289,47 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, vantaActive }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
   wallpaper?: string;
+  vantaActive?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState(""); const [newUrl, setNewUrl] = useState(""); const [newImg, setNewImg] = useState("");
+  const [ntSuggestions, setNtSuggestions] = useState<string[]>([]);
+  const [showNtSuggestions, setShowNtSuggestions] = useState(false);
+  const [ntSuggestIndex, setNtSuggestIndex] = useState(-1);
+  const ntSuggestTimer = useRef<ReturnType<typeof setTimeout>>();
+  const ntSuggestListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    clearTimeout(ntSuggestTimer.current);
+    const q = input.trim();
+    if (q.length < 2 || q.includes(".") || q.includes("/") || q.includes(" ")) {
+      setShowNtSuggestions(false);
+      return;
+    }
+    ntSuggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/return?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const phrases = (data as { phrase: string }[]).map(d => d.phrase).filter(p => p.toLowerCase().startsWith(q.toLowerCase()));
+        setNtSuggestions(phrases);
+        setShowNtSuggestions(phrases.length > 0);
+        setNtSuggestIndex(-1);
+      } catch {}
+    }, 180);
+  }, [input]);
+
+  useEffect(() => {
+    if (ntSuggestIndex < 0 || !ntSuggestListRef.current) return;
+    const el = ntSuggestListRef.current.children[ntSuggestIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [ntSuggestIndex]);
 
   const all = [...DEFAULT_SHORTCUTS, ...customShortcuts];
 
@@ -3261,7 +3360,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       style={{ 
-        height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: wallpaper ? `#0d0d0d url(${wallpaper}) center/cover no-repeat` : "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" 
+        height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : wallpaper ? `#0d0d0d url(${wallpaper}) center/cover no-repeat` : "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" 
       }}
     >
       <motion.p
@@ -3277,21 +3376,48 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         onSubmit={handleSearch}
         style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
       >
-        <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
-          style={{ flex: 1, background: "radial-gradient(circle 150px at var(--glass-x, 50%) var(--glass-y, 50%), rgba(255,255,255,var(--glass-glow, 0)), rgba(255,255,255,0) 72%), linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", WebkitBackdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", boxShadow: "inset 0 1px 0 rgba(255,255,255,calc(0.2 + var(--glass-hover, 0) * 0.2)), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,calc(0.2 + var(--glass-hover, 0) * 0.08))", transition: "border-color 0.18s ease, box-shadow 0.18s ease, backdrop-filter 0.18s ease, -webkit-backdrop-filter 0.18s ease" } as React.CSSProperties}
-          onMouseMove={e => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            e.currentTarget.style.setProperty("--glass-x", `${e.clientX - rect.left}px`);
-            e.currentTarget.style.setProperty("--glass-y", `${e.clientY - rect.top}px`);
-            e.currentTarget.style.setProperty("--glass-hover", "1");
-            e.currentTarget.style.setProperty("--glass-glow", "0.22");
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.setProperty("--glass-hover", "0");
-            e.currentTarget.style.setProperty("--glass-glow", "0");
-          }}
-          onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.46)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.28)"}
-        />
+        <div style={{ position: "relative", flex: 1 }}>
+          <input autoFocus value={input} onChange={e => { setInput(e.target.value); setNtSuggestIndex(-1); }} placeholder="search or enter a url"
+            style={{ width: "100%", background: "radial-gradient(circle 150px at var(--glass-x, 50%) var(--glass-y, 50%), rgba(255,255,255,var(--glass-glow, 0)), rgba(255,255,255,0) 72%), linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", WebkitBackdropFilter: "blur(calc(22px + var(--glass-hover, 0) * 18px)) saturate(calc(1.18 + var(--glass-hover, 0) * 0.42))", boxShadow: "inset 0 1px 0 rgba(255,255,255,calc(0.2 + var(--glass-hover, 0) * 0.2)), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,calc(0.2 + var(--glass-hover, 0) * 0.08))", transition: "border-color 0.18s ease, box-shadow 0.18s ease, backdrop-filter 0.18s ease, -webkit-backdrop-filter 0.18s ease" } as React.CSSProperties}
+            onMouseMove={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              e.currentTarget.style.setProperty("--glass-x", `${e.clientX - rect.left}px`);
+              e.currentTarget.style.setProperty("--glass-y", `${e.clientY - rect.top}px`);
+              e.currentTarget.style.setProperty("--glass-hover", "1");
+              e.currentTarget.style.setProperty("--glass-glow", "0.22");
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.setProperty("--glass-hover", "0");
+              e.currentTarget.style.setProperty("--glass-glow", "0");
+            }}
+            onFocus={e => { e.target.style.borderColor = "rgba(255,255,255,0.46)"; if (ntSuggestions.length) setShowNtSuggestions(true); }}
+            onBlur={e => { e.target.style.borderColor = "rgba(255,255,255,0.28)"; setTimeout(() => setShowNtSuggestions(false), 200); }}
+            onKeyDown={e => {
+              if (!showNtSuggestions || !ntSuggestions.length) return;
+              if (e.key === "ArrowDown") { e.preventDefault(); setNtSuggestIndex(i => Math.min(i + 1, ntSuggestions.length - 1)); }
+              if (e.key === "ArrowUp") { e.preventDefault(); setNtSuggestIndex(i => Math.max(i - 1, -1)); }
+              if (e.key === "Enter" && ntSuggestIndex >= 0) {
+                e.preventDefault();
+                const s = ntSuggestions[ntSuggestIndex];
+                setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1);
+                onNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`);
+              }
+            }}
+          />
+          {showNtSuggestions && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #333", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+              <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}>
+                {ntSuggestions.map((s, i) => (
+                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`); }}
+                    style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === ntSuggestIndex ? "#1e1e1e" : "transparent", transition: "background 0.1s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "#1e1e1e"; setNtSuggestIndex(i); }}
+                    onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
+                  >{s}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <motion.button
           whileHover={{ background: "#fff" }}
           whileTap={{ scale: 0.98 }}
@@ -3658,6 +3784,11 @@ function BrowserApp({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestIndex, setSuggestIndex] = useState(-1);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
+  const suggestListRef = useRef<HTMLDivElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
@@ -3665,7 +3796,8 @@ function BrowserApp({
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
   const themeEffect = THEMES[settings.theme]?.backgroundEffect ?? "";
   const activeBgEffect = settings.backgroundEffect || themeEffect;
-  const vantaOptions = THEMES[settings.theme]?.vantaOptions ?? {};
+  const vantaThemeDef = (() => { for (const t of Object.keys(THEMES)) { const tid = t as ThemeId; if (THEMES[tid]?.backgroundEffect === activeBgEffect) return THEMES[tid]; } return null; })();
+  const vantaOptions = { ...((vantaThemeDef as any)?.vantaOptions ?? {}), ...(settings.vantaAdvanced?.[activeBgEffect] ?? {}) };
   const [gameModeToast, setGameModeToast] = useState(false);
   const lastGameToastHost = useRef<string | null>(null);
 
@@ -3715,13 +3847,41 @@ function BrowserApp({
     setUrlInput(display);
   }, [activeTabId, activeTab?.url]);
 
+  useEffect(() => {
+    clearTimeout(suggestTimer.current);
+    const q = urlInput.trim();
+    if (q.length < 2 || q.includes(".") || q.includes("/") || q.includes(" ")) {
+      setShowSuggestions(false);
+      return;
+    }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/return?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const phrases = (data as { phrase: string }[]).map(d => d.phrase).filter(p => p.toLowerCase().startsWith(q.toLowerCase()));
+        setSearchSuggestions(phrases);
+        setShowSuggestions(phrases.length > 0);
+        setSuggestIndex(-1);
+      } catch {}
+    }, 180);
+  }, [urlInput]);
+
+  useEffect(() => {
+    if (suggestIndex < 0 || !suggestListRef.current) return;
+    const el = suggestListRef.current.children[suggestIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [suggestIndex]);
+
   const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts });
   useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts }; });
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      if (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "range", "color"].includes(el.type)) return;
+      if (el instanceof HTMLTextAreaElement) return;
+      if ((el as HTMLElement)?.isContentEditable) return;
       const combo = buildCombo(e);
       if (!combo) return;
       const { tabs, activeTabId, settings, customShortcuts } = stateRef.current;
@@ -3942,7 +4102,7 @@ function BrowserApp({
     <>
       <MagicCursor suppressed={gameModeActive} />
       <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
-      {activeBgEffect ? <VantaBackground effect={activeBgEffect} options={vantaOptions} /> : null}
+      {activeBgEffect && (!activeTab?.url || activeTab.url === "unstable://settings") ? <VantaBackground effect={activeBgEffect} options={vantaOptions} /> : null}
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -3966,13 +4126,38 @@ function BrowserApp({
             <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
             <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
-            <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
-              <input ref={urlInputRef} value={urlInput} onChange={e => setUrlInput(e.target.value)}
-                onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }} onBlur={e => e.target.style.borderColor = "#1e1e1e"}
-                placeholder="search, url, or unstable://…"
-                style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
-              />
-            </form>
+            <div style={{ position: "relative", flex: 1, display: "flex" }}>
+              <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
+                <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
+                  onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; if (searchSuggestions.length) setShowSuggestions(true); }}
+                  onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
+                  onKeyDown={e => {
+                    if (!showSuggestions || !searchSuggestions.length) return;
+                    if (e.key === "ArrowDown") { e.preventDefault(); setSuggestIndex(i => Math.min(i + 1, searchSuggestions.length - 1)); }
+                    if (e.key === "ArrowUp") { e.preventDefault(); setSuggestIndex(i => Math.max(i - 1, -1)); }
+                    if (e.key === "Enter" && suggestIndex >= 0) {
+                      e.preventDefault();
+                      const s = searchSuggestions[suggestIndex];
+                      setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1);
+                      handleNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`);
+                    }
+                  }}
+                  placeholder="search, url, or unstable://…"
+                  style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
+                />
+              </form>
+              {showSuggestions && (
+                <div ref={suggestListRef} style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "8px", marginTop: 4, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+                  {searchSuggestions.map((s, i) => (
+                    <div key={s} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(`https://duckduckgo.com/?q=${encodeURIComponent(s)}`); }}
+                      style={{ padding: "0.45rem 0.7rem", fontSize: "0.75rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === suggestIndex ? "#1e1e1e" : "transparent", transition: "background 0.1s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#1e1e1e"; setSuggestIndex(i); }}
+                      onMouseLeave={e => { if (suggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
+                    >{s}</div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <button onClick={toggleDevTools} style={btn} {...hov(true)} title="DevTools">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></svg>
@@ -4013,13 +4198,13 @@ function BrowserApp({
                 }}
               >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} />
+                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} vantaActive={!!activeBgEffect} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
                 <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://settings" ? (
-                <SettingsPage settings={settings} onSettingsChange={setSettings} />
+                <SettingsPage settings={settings} onSettingsChange={setSettings} vantaActive={!!activeBgEffect} />
               ) : tab.url === "unstable://admin" ? (
                 session && user ? (
                   <AdminPage session={session} currentUser={user} isAdmin={authContext.isAdmin} />

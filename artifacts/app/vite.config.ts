@@ -54,6 +54,10 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      "/return": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
     },
     fs: {
       strict: true,

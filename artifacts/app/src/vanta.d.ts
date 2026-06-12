@@ -8,10 +8,6 @@ declare module "vanta/dist/vanta.waves.min" {
   const fn: (options: any) => { destroy: () => void };
   export default fn;
 }
-declare module "vanta/dist/vanta.birds.min" {
-  const fn: (options: any) => { destroy: () => void };
-  export default fn;
-}
 declare module "vanta/dist/vanta.net.min" {
   const fn: (options: any) => { destroy: () => void };
   export default fn;

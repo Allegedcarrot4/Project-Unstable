@@ -3,9 +3,7 @@ import { useEffect, useRef } from "react";
 const EFFECTS: Record<string, () => Promise<any>> = {
   fog: () => import("vanta/dist/vanta.fog.min"),
   waves: () => import("vanta/dist/vanta.waves.min"),
-  birds: () => import("vanta/dist/vanta.birds.min"),
   net: () => import("vanta/dist/vanta.net.min"),
-  stars: () => import("vanta/dist/vanta.stars.min"),
   globe: () => import("vanta/dist/vanta.globe.min"),
   clouds: () => import("vanta/dist/vanta.clouds.min"),
   dots: () => import("vanta/dist/vanta.dots.min"),
@@ -40,25 +38,40 @@ export default function VantaBackground({ effect, options }: VantaBackgroundProp
       const loader = EFFECTS[effect];
       if (!loader) return;
 
-      const THREE = await import("three");
+      const THREE = Object.assign({}, await import("three"));
+      THREE.PlaneBufferGeometry = THREE.PlaneGeometry;
+      THREE.Geometry = THREE.BufferGeometry;
+      if (THREE.BoxBufferGeometry && !THREE.BoxGeometry) THREE.BoxGeometry = THREE.BoxBufferGeometry;
+      if (THREE.SphereBufferGeometry && !THREE.SphereGeometry) THREE.SphereGeometry = THREE.SphereBufferGeometry;
+      if (THREE.CylinderBufferGeometry && !THREE.CylinderGeometry) THREE.CylinderGeometry = THREE.CylinderBufferGeometry;
+      if (THREE.CircleBufferGeometry && !THREE.CircleGeometry) THREE.CircleGeometry = THREE.CircleBufferGeometry;
+      THREE.VertexColors = true;
+      (window as any).THREE = THREE;
       if (cancelled) return;
 
       const mod = await loader();
       if (cancelled) return;
 
       const effectFn = mod.default || mod;
-      if (typeof effectFn !== "function") return;
+      if (typeof effectFn !== "function") {
+        console.error("[Vanta] effect not a function for:", effect, mod);
+        return;
+      }
 
-      vantaRef.current = effectFn({
-        el: container,
-        THREE: THREE,
-        mouseControls: true,
-        touchControls: true,
-        gyroControls: false,
-        minHeight: 200,
-        minWidth: 200,
-        ...options,
-      });
+      try {
+        vantaRef.current = effectFn({
+          el: container,
+          THREE: THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200,
+          minWidth: 200,
+          ...options,
+        });
+      } catch (err) {
+        console.error("[Vanta] init error for", effect, err);
+      }
     }
 
     void init();
