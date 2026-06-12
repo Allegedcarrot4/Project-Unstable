@@ -3749,16 +3749,18 @@ function BrowserApp({
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
-              <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0 }}>
+              <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center" }}>
                 <button type="button" onClick={() => setUrlEngineOpen(!urlEngineOpen)}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0.3rem 0 0.5rem", display: "flex", alignItems: "center" }}
+                  style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", height: 26, width: 26, padding: 0, borderRadius: "2px", transition: "background 0.1s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}
                   title={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
-                  <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
+                  <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={16} height={16} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
                 </button>
                 {urlEngineOpen && (
                   <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
                     {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
-                      <button key={id} onClick={() => { onSettingsChange({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
+                      <button key={id} type="button" onClick={() => { setSettings({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
                         style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
                         onMouseLeave={e => { if (id !== settings.searchEngine) e.currentTarget.style.background = "transparent"; }}>
