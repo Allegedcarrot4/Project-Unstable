@@ -39,6 +39,7 @@ try {
     dns_method: "resolve",
     dns_servers: ["1.1.1.3", "1.0.0.3"],
     dns_result_order: "ipv4first",
+    wisp_motd: "Unstable Node",
   });
   wispHandler = wisp.routeRequest as WispHandler;
   logger.info("Wisp protocol enabled at /api/wisp/");

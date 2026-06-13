@@ -5,6 +5,7 @@ import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House } from "lucide-react";
 import VantaBackground from "./components/VantaBackground";
 import gamesListData from "./data/games.json";
+import type { CodecType } from "./lib/codec";
 import { makeCodec } from "./lib/codec";
 
 declare global {
@@ -175,6 +176,9 @@ interface Settings {
   wispServer: string;
   vantaAdvanced: Record<string, any>;
   searchEngine: string;
+  adblockEnabled: boolean;
+  codec: CodecType;
+  siteEngineOverrides: Record<string, ProxyEngine>;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -278,6 +282,9 @@ const DEFAULT_SETTINGS: Settings = {
   wispServer: "",
   vantaAdvanced: {},
   searchEngine: "duckduckgo",
+  adblockEnabled: true,
+  codec: "xor",
+  siteEngineOverrides: {},
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -469,13 +476,33 @@ async function createProfile(userId: string, username: string): Promise<Profile>
   return data;
 }
 
-function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
-  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
+function stripTrackingParams(url: string): string {
+  try {
+    const u = new URL(url);
+    const params = ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid","fbclid","mc_cid","mc_eid","_hsenc","_hsmi","hsCtaTracking"];
+    let changed = false;
+    for (const p of params) { if (u.searchParams.has(p)) { u.searchParams.delete(p); changed = true; } }
+    return changed ? u.toString() : url;
+  } catch { return url; }
+}
+
+function getEffectiveEngine(url: string, settings: Settings): ProxyEngine {
+  try {
+    const host = new URL(url).hostname;
+    if (settings.siteEngineOverrides[host]) return settings.siteEngineOverrides[host];
+  } catch {}
+  return settings.proxyEngine;
+}
+
+function encodeProxyUrl(url: string, engine: ProxyEngine = "auto", settings?: Settings): string {
+  const cleaned = stripTrackingParams(url);
+  const effEngine = settings ? getEffectiveEngine(cleaned, settings) : engine;
+  const useScramjet = (effEngine === "auto" || effEngine === "scramjet") && scrController !== null;
   if (useScramjet) {
-    try { return scrController!.encodeUrl(url); } catch { /* fall through */ }
+    try { return scrController!.encodeUrl(cleaned); } catch { /* fall through */ }
   }
-  if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
-  return UV_PREFIX + encodeURIComponent(url);
+  if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
+  return UV_PREFIX + encodeURIComponent(cleaned);
 }
 
 function normalizeUrl(input: string, searchEngine?: string): string {
@@ -566,6 +593,11 @@ function loadSettings(): Settings {
         : [...DEFAULT_GAME_MODE_SITES],
       panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
       wispServer: typeof parsed.wispServer === "string" ? parsed.wispServer : "",
+      vantaAdvanced: parsed.vantaAdvanced ?? {},
+      searchEngine: parsed.searchEngine ?? "duckduckgo",
+      adblockEnabled: parsed.adblockEnabled ?? true,
+      codec: (parsed.codec ?? "xor") as CodecType,
+      siteEngineOverrides: parsed.siteEngineOverrides ?? {},
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -678,7 +710,7 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = ""): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor"): Promise<void> {
   if (!("serviceWorker" in navigator)) {
     emitStatus({ phase: "error", message: "Service workers not supported" }); return;
   }
@@ -716,7 +748,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
           sync: "/eggs/scramjet.sync.js",
         },
         flags: { rewriterLogs: false, cleanErrors: true },
-        codec: makeCodec(),
+        codec: makeCodec(codecType),
       });
       await scrController.init();
     }
@@ -2568,7 +2600,77 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
               </motion.button>
             </form>
           </div>
-        </motion.section>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ad blocking</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Blocks known ad networks, trackers, and analytics scripts in the service worker.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)" }}>{settings.adblockEnabled ? "On" : "Off"}</span>
+          <button
+            onClick={() => onSettingsChange({ ...settings, adblockEnabled: !settings.adblockEnabled })}
+            style={{
+              width: "36px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer", position: "relative",
+              background: settings.adblockEnabled ? "#e8e8e8" : "#222", transition: "background 0.2s", padding: 0,
+            }}
+          >
+            <span style={{
+              position: "absolute", top: "2px", width: "14px", height: "14px", borderRadius: "50%", background: settings.adblockEnabled ? "#0d0d0d" : "#666",
+              left: settings.adblockEnabled ? "20px" : "2px", transition: "left 0.2s",
+            }} />
+          </button>
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>url encoding</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          How proxied URLs are encoded. XOR is date+host rotating key (most secure). Base64 and plain are simpler.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["xor", "base64", "plain"] as CodecType[]).map(id => {
+            const labels: Record<string, string> = { xor: "XOR", base64: "Base64", plain: "Plain" };
+            const active = settings.codec === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, codec: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>site engine overrides</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Force a specific proxy engine for certain domains. One per line: <code style={codeStyle}>domain.com=scramjet</code> or <code style={codeStyle}>domain.com=uv</code>
+        </p>
+        <textarea
+          value={Object.entries(settings.siteEngineOverrides).map(([k, v]) => `${k}=${v}`).join("\n")}
+          onChange={e => {
+            const overrides: Record<string, "uv" | "scramjet"> = {};
+            for (const line of e.target.value.split("\n")) {
+              const m = line.trim().match(/^(.+?)=(uv|scramjet)$/i);
+              if (m) overrides[m[1].toLowerCase()] = m[2].toLowerCase() as "uv" | "scramjet";
+            }
+            onSettingsChange({ ...settings, siteEngineOverrides: overrides });
+          }}
+          placeholder={"example.com=scramjet\nads.example.com=uv"}
+          style={{ ...inputBase, minHeight: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "0.65rem" }}
+        />
+      </motion.section>
       </div>
     </motion.div>
   );
@@ -3493,8 +3595,26 @@ function BrowserApp({
   }, [settings.theme, settings.wallpaper]);
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode, settings.wispServer);
+    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec);
   }, [settings.transportMode, settings.wispServer]);
+
+  // Sync adblock + codec state to service workers
+  useEffect(() => {
+    const msg = (type: string, data: any) => {
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type, data });
+      }
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) {
+          if (reg.active && reg.active.scriptURL !== navigator.serviceWorker.controller?.scriptURL) {
+            reg.active.postMessage({ type, data });
+          }
+        }
+      });
+    };
+    msg("ADBLOCK", { enabled: settings.adblockEnabled });
+    msg("CODEC", { type: settings.codec });
+  }, [settings.adblockEnabled, settings.codec]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -3634,7 +3754,7 @@ function BrowserApp({
       domain = new URL(normalized).hostname.replace(/^www\./i, "").toLowerCase();
     } catch { /* ignore */ }
     const engine = isGameModeHost(domain, settings) ? "scramjet" : settings.proxyEngine;
-    const proxyUrl = encodeProxyUrl(normalized, engine);
+    const proxyUrl = encodeProxyUrl(normalized, engine, settings);
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
@@ -3973,7 +4093,7 @@ function BrowserApp({
                     const current = tab.url;
                     if (current.startsWith(SCRAMJET_PREFIX)) {
                       const original = decodeProxyUrl(current);
-                      const uvUrl = encodeProxyUrl(original, "uv");
+                      const uvUrl = encodeProxyUrl(original, "uv", settings);
                       if (uvUrl !== current) {
                         updateTab(tab.id, { url: uvUrl, loading: true });
                         return;
@@ -3981,14 +4101,14 @@ function BrowserApp({
                     } else if (current.startsWith(UV_PREFIX)) {
                       const original = decodeProxyUrl(current);
                       if (original && original.startsWith("http")) {
-                        const retryUrl = encodeProxyUrl(original, "uv");
+                        const retryUrl = encodeProxyUrl(original, "uv", settings);
                         if (retryUrl !== current) {
                           updateTab(tab.id, { url: retryUrl, loading: true });
                           return;
                         }
                       }
                       if (scrController) {
-                        const scramjetUrl = encodeProxyUrl(original || current, "scramjet");
+                        const scramjetUrl = encodeProxyUrl(original || current, "scramjet", settings);
                         if (scramjetUrl !== current) {
                           updateTab(tab.id, { url: scramjetUrl, loading: true });
                           return;
