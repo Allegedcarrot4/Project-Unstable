@@ -3,7 +3,10 @@ param(
   [string]$Message = ""
 )
 
-if (!$Message) { $Message = "deploy $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
+if (!$Message) {
+  $lastMsg = git log -1 --format=%s 2>$null
+  $Message = if ($lastMsg) { $lastMsg } else { "deploy $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
+}
 
 Write-Host "=== Deploy: Unstable-Node -> $TargetDir ===" -ForegroundColor Cyan
 
