@@ -1,0 +1,23 @@
+/* Font obfuscation: applied when setting is enabled */
+@font-face {
+  font-family: "UnstableObf";
+  src: url("/unstable-obf.woff2") format("woff2"),
+       url("/unstable-obf.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+.unstable-font-obfuscated body,
+.unstable-font-obfuscated body * {
+  font-family: "UnstableObf", "Space Grotesk", sans-serif !important;
+}
+
+.unstable-font-obfuscated code,
+.unstable-font-obfuscated pre,
+.unstable-font-obfuscated script,
+.unstable-font-obfuscated style,
+.unstable-font-obfuscated [data-lucide],
+.unstable-font-obfuscated .lucide {
+  font-family: "Space Grotesk", ui-monospace, monospace !important;
+}

@@ -35,7 +35,7 @@ interface KeyShortcuts {
 }
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
-type TransportMode = "auto" | "wisp" | "bare";
+type TransportMode = "auto" | "wisp" | "bare" | "epoxy";
 type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
 
 interface ThemeColors {
@@ -179,6 +179,11 @@ interface Settings {
   adblockEnabled: boolean;
   codec: CodecType;
   siteEngineOverrides: Record<string, ProxyEngine>;
+  wispRelayUrl: string;
+  transportEncryption: boolean;
+  fontObfuscation: boolean;
+  uiScale: number;
+  confirmLeave: boolean;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -285,6 +290,11 @@ const DEFAULT_SETTINGS: Settings = {
   adblockEnabled: true,
   codec: "xor",
   siteEngineOverrides: {},
+  wispRelayUrl: "",
+  transportEncryption: false,
+  fontObfuscation: false,
+  uiScale: 1,
+  confirmLeave: false,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -598,6 +608,11 @@ function loadSettings(): Settings {
       adblockEnabled: parsed.adblockEnabled ?? true,
       codec: (parsed.codec ?? "xor") as CodecType,
       siteEngineOverrides: parsed.siteEngineOverrides ?? {},
+      wispRelayUrl: typeof parsed.wispRelayUrl === "string" ? parsed.wispRelayUrl : "",
+      transportEncryption: parsed.transportEncryption ?? false,
+      fontObfuscation: parsed.fontObfuscation ?? false,
+      uiScale: typeof parsed.uiScale === "number" ? parsed.uiScale : 1,
+      confirmLeave: parsed.confirmLeave ?? false,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -687,7 +702,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare";  // libcurl = wisp (primary), bare = fallback
+  transport: "none" | "libcurl" | "bare" | "epoxy";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative
   bare: number;
   switching: boolean;
 }
@@ -710,7 +725,7 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor"): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor", wispRelayUrl = "", useEncryption = false): Promise<void> {
   if (!("serviceWorker" in navigator)) {
     emitStatus({ phase: "error", message: "Service workers not supported" }); return;
   }
@@ -812,35 +827,42 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
 
     const origin = location.origin;
     const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
 
     let transportSet = false;
     const mode = transportMode || "auto";
 
+    const trySetTransport = async (url: string, args: any[], label: string) => {
+      if (useEncryption) {
+        // Wrap with enigma-style encryption: add an encryption layer via SW messaging
+        await bareConn.setTransport(url, args);
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+        }
+      } else {
+        await bareConn.setTransport(url, args);
+      }
+      transportSet = true;
+      emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
+    };
+
+    const tryWisp = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: wispUrl }], "libcurl");
+    const tryRelay = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: relayUrl }], "libcurl");
+    const tryEpoxy = async () => trySetTransport("/epoxy/index.mjs", [{ wisp: wispUrl }], "epoxy");
+    const tryBare = async () => trySetTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)], "bare");
+
     if (mode === "bare") {
-      try {
-        await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
-      } catch { /* fall through */ }
+      try { await tryBare(); } catch { /* fall through */ }
+    } else if (mode === "epoxy") {
+      try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
-      try {
-        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-      } catch { /* fall through */ }
+      try { await tryWisp(); } catch { await tryBare(); }
     } else {
-      // auto: try wisp first (faster via WebSocket), fallback to bare HTTP
-      try {
-        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-      } catch { /* fall through */ }
-      if (!transportSet) {
-        try {
-          await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
-          transportSet = true;
-          emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
-        } catch { /* fall through */ }
+      // auto: wisp → relay → epoxy → bare
+      try { await tryWisp(); } catch {
+        if (!transportSet) try { await tryRelay(); } catch {}
+        if (!transportSet) try { await tryEpoxy(); } catch {}
+        if (!transportSet) try { await tryBare(); } catch {}
       }
     }
 
@@ -853,27 +875,45 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
   }
 }
 
-async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = ""): Promise<void> {
+async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = "", wispRelayUrl = "", useEncryption = false): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
     const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
     const mode = transportMode || "auto";
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
       emitStatus({ switching: false, transport: "bare", bare: n });
     };
     const tryWisp = async () => {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
       emitStatus({ switching: false, transport: "libcurl", bare: n });
+    };
+    const tryRelay = async () => {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: relayUrl }]);
+      emitStatus({ switching: false, transport: "libcurl", bare: n });
+    };
+    const tryEpoxy = async () => {
+      await bareConn.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      emitStatus({ switching: false, transport: "epoxy", bare: n });
     };
     if (mode === "bare") {
       await tryBare();
+    } else if (mode === "epoxy") {
+      try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
-      await tryWisp();
-    } else {
       try { await tryWisp(); } catch { await tryBare(); }
+    } else {
+      try { await tryWisp(); } catch {
+        try { await tryRelay(); } catch {}
+        try { await tryEpoxy(); } catch {}
+        await tryBare();
+      }
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
@@ -1071,7 +1111,7 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "" }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string }) {
+function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "", wispRelayUrl = "", transportEncryption = false }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string; wispRelayUrl?: string; transportEncryption?: boolean }) {
   const s = useProxyStatus();
   if (!visible) return null;
 
@@ -1099,7 +1139,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
           <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
           <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
             {[1, 2, 3, 4, 5].map(n => (
-              <button key={n} onClick={() => switchBare(n, transportMode, wispServer)} title={`Switch to bare server ${n}`} style={{
+              <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
                 background: "none", border: "none", padding: "0 2px", cursor: "pointer",
                 fontSize: "0.52rem", letterSpacing: "0.04em",
                 color: s.bare === n ? green : gray,
@@ -1867,6 +1907,19 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           }}
         >reset panic url</motion.button>
       </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.26 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>confirm leave</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, confirmLeave: !settings.confirmLeave })} style={{ position: "relative", width: "36px", height: "20px", background: settings.confirmLeave ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: "2px", left: settings.confirmLeave ? "18px" : "2px", width: "16px", height: "16px", background: settings.confirmLeave ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.confirmLeave ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Show a confirmation dialog when attempting to leave or close the site.
+        </p>
+      </motion.section>
       </div>
 
       <div id="settings-gaming">
@@ -1980,6 +2033,34 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           }}
         >reset to defaults</motion.button>
       </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.31 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ui scale</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Adjust the overall size of the interface.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          {[0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3].map(scale => {
+            const active = settings.uiScale === scale;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={scale}
+                onClick={() => onSettingsChange({ ...settings, uiScale: scale })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.7rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.04em", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{Math.round(scale * 100)}%</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
       </div>
 
       <div id="settings-advanced">
@@ -2023,8 +2104,8 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
         </p>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "wisp", "bare"] as TransportMode[]).map(id => {
-            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", bare: "Bare" };
+          {(["auto", "wisp", "epoxy", "bare"] as TransportMode[]).map(id => {
+            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", epoxy: "Epoxy", bare: "Bare" };
             const active = settings.transportMode === id;
             return (
               <motion.button
@@ -2058,6 +2139,165 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           placeholder="ws://your-server.com/api/wisp/"
           style={inputBase}
         />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp relay (fallback)</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Fallback relay server used when primary Wisp fails. Leave empty for default.
+        </p>
+        <input
+          type="text"
+          value={settings.wispRelayUrl}
+          onChange={e => onSettingsChange({ ...settings, wispRelayUrl: e.target.value })}
+          placeholder="ws://your-relay.com/api/wisp/"
+          style={inputBase}
+        />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport encryption</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, transportEncryption: !settings.transportEncryption })} style={{ position: "relative", width: "36px", height: "20px", background: settings.transportEncryption ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: "2px", left: settings.transportEncryption ? "18px" : "2px", width: "16px", height: "16px", background: settings.transportEncryption ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.transportEncryption ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          XOR-encrypts transport layer data between client and proxy.
+        </p>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>font obfuscation</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, fontObfuscation: !settings.fontObfuscation })} style={{ position: "relative", width: "36px", height: "20px", background: settings.fontObfuscation ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: "2px", left: settings.fontObfuscation ? "18px" : "2px", width: "16px", height: "16px", background: settings.fontObfuscation ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.fontObfuscation ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Replaces displayed text with obfuscated CJK characters to bypass classroom monitoring.
+        </p>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.20 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ad blocking</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Blocks known ad networks, trackers, and analytics scripts in the service worker.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)" }}>{settings.adblockEnabled ? "On" : "Off"}</span>
+          <button
+            onClick={() => onSettingsChange({ ...settings, adblockEnabled: !settings.adblockEnabled })}
+            style={{
+              width: "36px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer", position: "relative",
+              background: settings.adblockEnabled ? "#e8e8e8" : "#222", transition: "background 0.2s", padding: 0,
+            }}
+          >
+            <span style={{
+              position: "absolute", top: "2px", width: "14px", height: "14px", borderRadius: "50%", background: settings.adblockEnabled ? "#0d0d0d" : "#666",
+              left: settings.adblockEnabled ? "20px" : "2px", transition: "left 0.2s",
+            }} />
+          </button>
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>url encoding</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          How proxied URLs are encoded. XOR is date+host rotating key (most secure). Base64 and plain are simpler.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["xor", "base64", "plain"] as CodecType[]).map(id => {
+            const labels: Record<string, string> = { xor: "XOR", base64: "Base64", plain: "Plain" };
+            const active = settings.codec === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, codec: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>site engine overrides</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Force a specific proxy engine for certain domains. One per line: <code style={codeStyle}>domain.com=scramjet</code> or <code style={codeStyle}>domain.com=uv</code>
+        </p>
+        <textarea
+          value={Object.entries(settings.siteEngineOverrides).map(([k, v]) => `${k}=${v}`).join("\n")}
+          onChange={e => {
+            const overrides: Record<string, "uv" | "scramjet"> = {};
+            for (const line of e.target.value.split("\n")) {
+              const m = line.trim().match(/^(.+?)=(uv|scramjet)$/i);
+              if (m) overrides[m[1].toLowerCase()] = m[2].toLowerCase() as "uv" | "scramjet";
+            }
+            onSettingsChange({ ...settings, siteEngineOverrides: overrides });
+          }}
+          placeholder={"example.com=scramjet\nads.example.com=uv"}
+          style={{ ...inputBase, minHeight: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "0.65rem" }}
+        />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.23 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>settings management</p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <motion.button
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(settings, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = "unstable-settings.json";
+              a.click(); URL.revokeObjectURL(url);
+            }}
+            style={{
+              background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+              padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >export settings</motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file"; input.accept = ".json";
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  try {
+                    const imported = JSON.parse(reader.result as string);
+                    onSettingsChange({ ...settings, ...imported });
+                  } catch { alert("Invalid settings file."); }
+                };
+                reader.readAsText(file);
+              };
+              input.click();
+            }}
+            style={{
+              background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+              padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >import settings</motion.button>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.5rem 0 0", lineHeight: 1.5 }}>
+          Export or import your settings as a JSON file.
+        </p>
       </motion.section>
       </div>
 
@@ -2602,75 +2842,6 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
           </div>
       </motion.section>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ad blocking</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Blocks known ad networks, trackers, and analytics scripts in the service worker.
-        </p>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)" }}>{settings.adblockEnabled ? "On" : "Off"}</span>
-          <button
-            onClick={() => onSettingsChange({ ...settings, adblockEnabled: !settings.adblockEnabled })}
-            style={{
-              width: "36px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer", position: "relative",
-              background: settings.adblockEnabled ? "#e8e8e8" : "#222", transition: "background 0.2s", padding: 0,
-            }}
-          >
-            <span style={{
-              position: "absolute", top: "2px", width: "14px", height: "14px", borderRadius: "50%", background: settings.adblockEnabled ? "#0d0d0d" : "#666",
-              left: settings.adblockEnabled ? "20px" : "2px", transition: "left 0.2s",
-            }} />
-          </button>
-        </div>
-      </motion.section>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>url encoding</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          How proxied URLs are encoded. XOR is date+host rotating key (most secure). Base64 and plain are simpler.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["xor", "base64", "plain"] as CodecType[]).map(id => {
-            const labels: Record<string, string> = { xor: "XOR", base64: "Base64", plain: "Plain" };
-            const active = settings.codec === id;
-            return (
-              <motion.button
-                whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                key={id}
-                onClick={() => onSettingsChange({ ...settings, codec: id })}
-                style={{
-                  background: active ? "#e8e8e8" : "#111",
-                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  transition: "all 0.15s",
-                }}
-              >{labels[id]}</motion.button>
-            );
-          })}
-        </div>
-      </motion.section>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>site engine overrides</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Force a specific proxy engine for certain domains. One per line: <code style={codeStyle}>domain.com=scramjet</code> or <code style={codeStyle}>domain.com=uv</code>
-        </p>
-        <textarea
-          value={Object.entries(settings.siteEngineOverrides).map(([k, v]) => `${k}=${v}`).join("\n")}
-          onChange={e => {
-            const overrides: Record<string, "uv" | "scramjet"> = {};
-            for (const line of e.target.value.split("\n")) {
-              const m = line.trim().match(/^(.+?)=(uv|scramjet)$/i);
-              if (m) overrides[m[1].toLowerCase()] = m[2].toLowerCase() as "uv" | "scramjet";
-            }
-            onSettingsChange({ ...settings, siteEngineOverrides: overrides });
-          }}
-          placeholder={"example.com=scramjet\nads.example.com=uv"}
-          style={{ ...inputBase, minHeight: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "0.65rem" }}
-        />
-      </motion.section>
       </div>
     </motion.div>
   );
@@ -2973,7 +3144,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   const [ntSuggestions, setNtSuggestions] = useState<string[]>([]);
   const [showNtSuggestions, setShowNtSuggestions] = useState(false);
   const [ntSuggestIndex, setNtSuggestIndex] = useState(-1);
-  const ntSuggestTimer = useRef<ReturnType<typeof setTimeout>>();
+  const ntSuggestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const ntSuggestListRef = useRef<HTMLDivElement>(null);
   const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -3111,7 +3282,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
                 e.preventDefault();
                 const s = ntSuggestions[ntSuggestIndex];
                 setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1);
-                onNavigate(searchUrl(s, searchEngine));
+                onNavigate(searchUrl(s, searchEngine ?? "duckduckgo"));
               }
             }}
           />
@@ -3119,7 +3290,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
               <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
                 {ntSuggestions.map((s, i) => (
-                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine)); }}
+                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
                     style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
                     onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
@@ -3534,7 +3705,7 @@ function BrowserApp({
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(-1);
-  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const suggestListRef = useRef<HTMLDivElement>(null);
   const [urlEngineOpen, setUrlEngineOpen] = useState(false);
   const urlEngineRef = useRef<HTMLDivElement>(null);
@@ -3575,7 +3746,7 @@ function BrowserApp({
     if (!gameModeActive || proxyStatus.phase !== "ready") return;
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     if (proxyStatus.transport !== "bare") {
-      void switchBare(n, "bare", settings.wispServer);
+      void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
     }
   }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
 
@@ -3595,8 +3766,28 @@ function BrowserApp({
   }, [settings.theme, settings.wallpaper]);
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec);
+    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption);
   }, [settings.transportMode, settings.wispServer]);
+
+  // Font obfuscation toggle
+  useEffect(() => {
+    document.documentElement.classList.toggle("unstable-font-obfuscated", settings.fontObfuscation);
+  }, [settings.fontObfuscation]);
+
+  // Transport encryption toggle (sync to SWs)
+  useEffect(() => {
+    const msg = (type: string, data: any) => {
+      if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type, data });
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) {
+          if (reg.active && reg.active.scriptURL !== navigator.serviceWorker.controller?.scriptURL) {
+            reg.active.postMessage({ type, data });
+          }
+        }
+      });
+    };
+    msg("ENIGMA", { enabled: settings.transportEncryption, key: "Unstabl" });
+  }, [settings.transportEncryption]);
 
   // Sync adblock + codec state to service workers
   useEffect(() => {
@@ -3615,6 +3806,16 @@ function BrowserApp({
     msg("ADBLOCK", { enabled: settings.adblockEnabled });
     msg("CODEC", { type: settings.codec });
   }, [settings.adblockEnabled, settings.codec]);
+
+  // Confirm leave toggle
+  useEffect(() => {
+    if (settings.confirmLeave) {
+      const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }
+    return;
+  }, [settings.confirmLeave]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -3900,7 +4101,7 @@ function BrowserApp({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: activeBgEffect ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1 }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: activeBgEffect ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1, transform: `scale(${settings.uiScale})`, transformOrigin: "top left", width: `${100 / settings.uiScale}vw`, minHeight: `${100 / settings.uiScale}vh` }}
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
