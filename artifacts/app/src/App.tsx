@@ -3135,11 +3135,27 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
 
 // ─── Browser tab ──────────────────────────────────────────────────────────────
 
-function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void }) {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers }: {
+  tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void;
+}) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
+  const ctxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
-    <div onClick={onActivate} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s" }}
+    <div onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s", position: "relative" }}
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
     >
@@ -3154,6 +3170,20 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
       >×</button>
+      {ctxOpen && (
+        <div ref={ctxRef} style={{ position: "fixed", top: ctxPos.y, left: ctxPos.x, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+          <button onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close tab</button>
+          {tab.url && <button onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Refresh tab</button>}
+          {tab.url && <button onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Duplicate tab</button>}
+          <button onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close tabs to right</button>
+          <button onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close other tabs</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3645,6 +3675,28 @@ function BrowserApp({
     const next = tabs.filter(t => t.id !== id); setTabs(next);
     if (activeTabId === id) setActiveTabId(next[Math.min(idx, next.length - 1)].id);
   }
+  function handleRefreshTab(id: string) {
+    const iframe = iframeRefs.current[id];
+    if (!iframe) return;
+    const src = iframe.src; iframe.src = "";
+    setTimeout(() => { iframe.src = src; setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: true } : t)); }, 50);
+  }
+  function handleDuplicateTab(id: string) {
+    const tab = tabs.find(t => t.id === id);
+    if (!tab) return;
+    const newTab = makeTab(tab.url);
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }
+  function handleCloseTabsToRight(id: string) {
+    const idx = tabs.findIndex(t => t.id === id);
+    const keep = tabs.slice(0, idx + 1);
+    setTabs(keep);
+    if (!keep.find(t => t.id === activeTabId)) setActiveTabId(keep[keep.length - 1].id);
+  }
+  function handleCloseOtherTabs(id: string) {
+    setTabs(tabs.filter(t => t.id === id));
+  }
   function handleOpenInNewTab() {
     if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
     const win = window.open("about:blank", "_blank"); if (!win) return;
@@ -3734,7 +3786,7 @@ function BrowserApp({
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-              {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} />)}
+              {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} />)}
             </div>
             <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
               onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</button>
@@ -3750,7 +3802,7 @@ function BrowserApp({
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
               <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center" }}>
-                <button type="button" onClick={() => setUrlEngineOpen(!urlEngineOpen)}
+                <button type="button" onClick={() => { setUrlEngineOpen(!urlEngineOpen); setShowSuggestions(false); }}
                   style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", height: 26, width: 26, padding: 0, borderRadius: "2px", transition: "background 0.1s" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
                   onMouseLeave={e => e.currentTarget.style.background = "none"}
@@ -3772,7 +3824,7 @@ function BrowserApp({
                 )}
               </div>
               <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
-                  onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; if (searchSuggestions.length) setShowSuggestions(true); }}
+                  onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
                   onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
                   onKeyDown={e => {
                     if (!showSuggestions || !searchSuggestions.length) return;
