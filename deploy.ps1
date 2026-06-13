@@ -3,11 +3,6 @@ param(
   [string]$Message = ""
 )
 
-if (!$Message) {
-  $lastMsg = git log -1 --format=%s 2>$null
-  $Message = if ($lastMsg) { $lastMsg } else { "deploy $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
-}
-
 Write-Host "=== Deploy: Unstable-Node -> $TargetDir ===" -ForegroundColor Cyan
 
 function Run-Build {
@@ -65,7 +60,9 @@ Write-Host "  This repo:" -ForegroundColor Gray
 git add -A 2>$null
 $c = git status --porcelain
 if ($c) {
-  git commit -m $Message
+  $lastMsg = git log -1 --format=%s 2>$null
+  $msg = if ($Message) { $Message } elseif ($lastMsg) { $lastMsg } else { "update" }
+  git commit -m $msg
   Write-Host "    Pushing → GitHub (origin)..." -ForegroundColor Gray
   git push -u origin main --force 2>&1 | Out-Null
   Write-Host "    Pushing → HF (space)..." -ForegroundColor Gray
@@ -78,7 +75,36 @@ Push-Location $TargetDir
 git add -A 2>$null
 $c2 = git status --porcelain
 if ($c2) {
-  git commit -m $Message
+  # Generate commit message from diff analysis
+  $diff = git diff --cached
+  $msgLines = @()
+  # Added files
+  if ($diff -match '^new file.*\n.*\n\+.*((?:function|class|const|interface|type)\s+\w+)') { $msgLines += "Add $($Matches[1])" }
+  # Removed files
+  $removed = git diff --cached --diff-filter=D --name-only | ForEach-Object { Split-Path $_ -Leaf }
+  if ($removed) { $msgLines += "Remove $($removed -join ', ')" }
+  # Renamed files
+  $renamed = git diff --cached --diff-filter=R --name-only | ForEach-Object { Split-Path $_ -Leaf }
+  if ($renamed) { $msgLines += "Rename $($renamed -join ', ')" }
+  # Package changes
+  if ($diff -match '"(dependencies|devDependencies)"') { $msgLines += "Update dependencies" }
+  # Component/function additions
+  $additions = [regex]::Matches($diff, '(?<=^\+)(?!\+)(?:export\s+)?(?:function|class|const|let|var)\s+(\w+)(?:\s*[:=\(])', 'Multiline') | ForEach-Object { $_.Groups[1].Value }
+  if ($additions) { $msgLines += "Add $($additions -join ', ')" }
+  # Removals of known patterns
+  $removals = [regex]::Matches($diff, '(?<=^\-)(?!\-)(?:export\s+)?(?:function|class|const|let|var)\s+(\w+)(?:\s*[:=\(])', 'Multiline') | ForEach-Object { $_.Groups[1].Value }
+  if ($removals) { $msgLines += "Remove $($removals -join ', ')" }
+  # Property additions in objects
+  $props = [regex]::Matches($diff, '(?<=^\+)\s+(\w+):', 'Multiline') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notmatch '^(id|name|url|key|className|style)$' } | Select-Object -Unique
+  if ($props -and $additions.Count -eq 0) { $msgLines += "Add $($props -join ', ') settings" }
+  # Fallback
+  if ($msgLines.Count -eq 0) {
+    $files = git diff --cached --stat --name-only | ForEach-Object { Split-Path $_ -Leaf }
+    $msgLines = @("Update $($files -join ', ')")
+  }
+  $summary = $msgLines -join "; "
+  if ($summary.Length -gt 200) { $summary = $summary.Substring(0, 197) + "..." }
+  git commit -m $summary
   Write-Host "    Pushing → GitHub (origin)..." -ForegroundColor Gray
   git push -u origin main --force 2>&1 | Out-Null
   Write-Host "    Pushing backend → HF (hf-spaces)..." -ForegroundColor Gray
