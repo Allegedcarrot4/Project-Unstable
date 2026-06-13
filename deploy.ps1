@@ -105,10 +105,24 @@ if ($c2) {
   $summary = $msgLines -join "; "
   if ($summary.Length -gt 200) { $summary = $summary.Substring(0, 197) + "..." }
   git commit -m $summary
-  Write-Host "    Pushing → GitHub (origin)..." -ForegroundColor Gray
-  git push -u origin main --force 2>&1 | Out-Null
-  Write-Host "    Pushing backend → HF (hf-spaces)..." -ForegroundColor Gray
-  git push hf-spaces main --force 2>&1 | Out-Null
+  # Split and push frontend subtree to frontend-only repo
+  Write-Host "    Splitting frontend subtree..." -ForegroundColor Gray
+  $feOut = git subtree split --prefix=frontend --branch=frontend-deploy 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "    Pushing frontend → GitHub (frontend)..." -ForegroundColor Gray
+    git push frontend frontend-deploy:main --force 2>&1 | Out-Host
+    git branch -D frontend-deploy 2>$null
+    Write-Host "    ✓ Frontend pushed" -ForegroundColor Green
+  } else { Write-Host "    ✗ Frontend split failed: $feOut" -ForegroundColor DarkRed }
+  # Split and push backend subtree to HF
+  Write-Host "    Splitting backend subtree..." -ForegroundColor Gray
+  $beOut = git subtree split --prefix=backend --branch=backend-deploy 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "    Pushing backend → HF (hf-spaces)..." -ForegroundColor Gray
+    git push hf-spaces backend-deploy:main --force 2>&1 | Out-Host
+    git branch -D backend-deploy 2>$null
+    Write-Host "    ✓ Backend pushed" -ForegroundColor Green
+  } else { Write-Host "    ✗ Backend split failed: $beOut" -ForegroundColor DarkRed }
 } else { Write-Host "    No changes, skipping" -ForegroundColor Gray }
 Pop-Location
 
