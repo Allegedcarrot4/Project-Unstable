@@ -1060,22 +1060,6 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
           transform: "translate(-50%, -50%)",
         }}
       >
-        <motion.div
-          animate={{
-            scale: isHovering ? 1.2 : 1,
-            opacity: isHovering ? 0.8 : 0.4,
-          }}
-          transition={{ duration: 0.2 }}
-          style={{
-            position: "absolute",
-            width: "120px",
-            height: "120px",
-            background: "radial-gradient(circle, rgba(100,150,255,0.4) 0%, rgba(150,100,255,0.2) 40%, transparent 70%)",
-            borderRadius: "50%",
-            filter: "blur(10px)",
-          }}
-        />
-
         <svg
           width="24"
           height="24"
