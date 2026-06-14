@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw } from "lucide-react";
 import VantaBackground from "./components/VantaBackground";
 import gamesListData from "./data/games.json";
 import type { CodecType } from "./lib/codec";
@@ -985,8 +985,8 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
         document.head.appendChild(el);
       }
       el.textContent = suppressed
-        ? ":root, body, body * { cursor: auto !important; }"
-        : ":root, body, body * { cursor: none !important; }";
+        ? "* { cursor: auto !important; }"
+        : "* { cursor: none !important; }";
     }
     updateCursorStyle();
     return () => {
@@ -1097,7 +1097,6 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
 
 function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "", wispRelayUrl = "", transportEncryption = false }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string; wispRelayUrl?: string; transportEncryption?: boolean }) {
   const s = useProxyStatus();
-  if (!visible) return null;
 
   const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.15)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
   const isReady = s.phase === "ready";
@@ -1112,7 +1111,10 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
   const phaseColor = isReady ? green : isError ? red : amber;
 
   return (
-    <div style={{ position: "fixed", bottom: 10, left: leftOffset, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
+    <AnimatePresence>
+      {visible && (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      style={{ position: "fixed", bottom: 10, left: leftOffset, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
       <EngineBadge label="uv" status={s.uv} />
       <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
       <EngineBadge label="scr" status={s.scramjet} />
@@ -1136,7 +1138,9 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
           </span>
         </>
       )}
-    </div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -1236,6 +1240,7 @@ function AccountAuthScreen({
     outline: "none",
     borderRadius: "2px",
     boxSizing: "border-box",
+    transition: "border-color 0.18s ease",
   };
 
   return (
@@ -1259,13 +1264,15 @@ function AccountAuthScreen({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.45rem", width: "100%" }}>
+        <motion.div layout style={{ display: "flex", gap: "0.45rem", width: "100%" }}>
           {(["signin", "signup"] as const).map((currentMode) => {
             const active = mode === currentMode;
             return (
-              <button
+              <motion.button
                 key={currentMode}
                 onClick={() => { setMode(currentMode); setError(""); setNotice(""); }}
+                whileHover={{ scale: 1.03, background: active ? "#e8e8e8" : "#1c1c1c" }}
+                whileTap={{ scale: 0.97 }}
                 style={{
                   flex: 1,
                   background: active ? "#e8e8e8" : "#111",
@@ -1282,29 +1289,33 @@ function AccountAuthScreen({
                 }}
               >
                 {currentMode === "signin" ? "sign in" : "sign up"}
-              </button>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
 
         <form onSubmit={handleSubmit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <input
+          <motion.input
             value={username}
             autoFocus
             onChange={e => { setUsername(e.target.value); setError(""); setNotice(""); }}
             placeholder="username"
             style={inputStyle}
+            whileFocus={{ borderColor: "#666" }}
           />
-          <input
+          <motion.input
             type="password"
             value={password}
             onChange={e => { setPassword(e.target.value); setError(""); setNotice(""); }}
             placeholder="password"
             style={inputStyle}
+            whileFocus={{ borderColor: "#666" }}
           />
 
-          {error && <p style={{ color: "#b94a4a", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center" }}>{error}</p>}
-          {notice && <p style={{ color: "rgba(200,200,200,0.7)", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>{notice}</p>}
+          <AnimatePresence mode="wait">
+            {error && <motion.p key="error" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }} style={{ color: "#b94a4a", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center" }}>{error}</motion.p>}
+            {!error && notice && <motion.p key="notice" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }} style={{ color: "rgba(200,200,200,0.7)", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>{notice}</motion.p>}
+          </AnimatePresence>
           <p style={{ margin: 0, color: "rgba(255,255,255,0.24)", fontSize: "0.62rem", lineHeight: 1.5, textAlign: "center" }}>
             Username is used as your sign-in identity here. Under the hood, Supabase still needs email-style auth.
           </p>
@@ -1558,7 +1569,7 @@ function PrivacyPage() {
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: Settings; onSettingsChange: (s: Settings) => void; vantaActive?: boolean }) {
+function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { settings: Settings; onSettingsChange: (s: Settings) => void; vantaActive?: boolean; onLogout?: () => void }) {
   const [recording, setRecording] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1578,7 +1589,8 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
   const inputBase: React.CSSProperties = {
     background: "none", border: "1px solid #222", borderRadius: "2px",
     color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
-    padding: "0.3rem 0.65rem", letterSpacing: "0.04em",
+    padding: "0.3rem 0.65rem", letterSpacing: "0.04em", outline: "none",
+    transition: "border-color 0.18s ease",
   };
   const kbdStyle: React.CSSProperties = {
     fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
@@ -1612,11 +1624,11 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
       }}>
         <p style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 1.25rem 1rem 1.25rem" }}>unstable</p>
         {catIds.map(id => (
-          <button key={id} onClick={() => scrollToCat(id)} style={{
+          <motion.button key={id} whileHover={{ color: "rgba(255,255,255,0.7)", background: "rgba(255,255,255,0.03)", x: 2 }} whileTap={{ scale: 0.98 }} onClick={() => scrollToCat(id)} style={{
             background: "none", border: "none", color: "rgba(255,255,255,0.3)", textAlign: "left",
             padding: "0.45rem 1.25rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.15s",
-          }} onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.7)"; e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }} onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.3)"; e.currentTarget.style.background = "none"; }}>{catLabels[id]}</button>
+            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer",
+          }}>{catLabels[id]}</motion.button>
         ))}
       </div>
 
@@ -1865,7 +1877,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           Press <kbd style={kbdStyle}>Esc</kbd> to instantly load a decoy page. <kbd style={kbdStyle}>Shift</kbd>+<kbd style={kbdStyle}>Esc</kbd> works inside text fields. You can also share a link as <code style={codeStyle}>/embed.html#https://example.com</code> to open a site in the top frame.
         </p>
         <label style={{ display: "block", fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.4rem" }}>Panic URL</label>
-        <input
+        <motion.input
           type="text"
           value={settings.panicUrl}
           onChange={(e) => onSettingsChange({ ...settings, panicUrl: e.target.value })}
@@ -1879,6 +1891,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           }}
           placeholder="https://google.com"
           style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
         />
         <p style={{ fontSize: "0.58rem", color: "var(--t-text-muted)", margin: "0.5rem 0 0", opacity: 0.7 }}>
           Default: <code style={codeStyle}>{DEFAULT_PANIC_URL}</code>. <code style={codeStyle}>http://</code> or <code style={codeStyle}>https://</code> is added automatically if missing.
@@ -1899,9 +1912,9 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>confirm leave</p>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
           <div onClick={() => onSettingsChange({ ...settings, confirmLeave: !settings.confirmLeave })} style={{ position: "relative", width: "36px", height: "20px", background: settings.confirmLeave ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: "2px", left: settings.confirmLeave ? "18px" : "2px", width: "16px", height: "16px", background: settings.confirmLeave ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+            <motion.div animate={{ left: settings.confirmLeave ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.confirmLeave ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
           </div>
-          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.confirmLeave ? "On" : "Off"}</span>
+          <motion.span animate={{ color: settings.confirmLeave ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.45)" }} style={{ fontSize: "0.7rem" }}>{settings.confirmLeave ? "On" : "Off"}</motion.span>
         </div>
         <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
           Show a confirmation dialog when attempting to leave or close the site.
@@ -1921,16 +1934,17 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
         </p>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
-          <input
+        <motion.label whileHover={{ color: "rgba(255,255,255,0.8)" }} style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
+          <motion.input
             type="checkbox"
             checked={settings.gameModeEnabled}
             onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
+            whileTap={{ scale: 1.2 }}
           />
           enable game mode
-        </label>
+        </motion.label>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
-        <textarea
+        <motion.textarea
           value={settings.gameModeSites.join("\n")}
           onChange={e => {
             const sites = e.target.value
@@ -1941,6 +1955,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           }}
           rows={6}
           placeholder={"smashkarts.io\nkrunker.io"}
+          whileFocus={{ borderColor: "#555" }}
           style={{
             ...inputBase,
             width: "100%",
@@ -1988,7 +2003,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
             const isRec = recording === key;
             const val = settings.shortcuts[key as keyof KeyShortcuts] ?? "";
             return (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid #111" }}>
+              <motion.div key={key} whileHover={{ x: 2 }} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid #111" }}>
                 <span style={{ flex: 1, fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>{SHORTCUT_LABELS[key]}</span>
                 <span style={{ ...inputBase, minWidth: "80px", textAlign: "center", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.5)", borderColor: isRec ? "#555" : "#222", background: isRec ? "#161616" : "none" }}>
                   {isRec ? "press keys…" : val}
@@ -2005,7 +2020,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
                     letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
                   }}
                 >{isRec ? "cancel" : "record"}</motion.button>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -2119,12 +2134,13 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Override the default Wisp WebSocket server. Leave empty to use the built-in server at <code style={codeStyle}>/api/wisp/</code>.
         </p>
-        <input
+        <motion.input
           type="text"
           value={settings.wispServer}
           onChange={e => onSettingsChange({ ...settings, wispServer: e.target.value })}
           placeholder="ws://your-server.com/api/wisp/"
           style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
         />
       </motion.section>
 
@@ -2133,12 +2149,13 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Fallback relay server used when primary Wisp fails. Leave empty for default.
         </p>
-        <input
+        <motion.input
           type="text"
           value={settings.wispRelayUrl}
           onChange={e => onSettingsChange({ ...settings, wispRelayUrl: e.target.value })}
           placeholder="ws://your-relay.com/api/wisp/"
           style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
         />
       </motion.section>
 
@@ -2146,7 +2163,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport encryption</p>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
           <div onClick={() => onSettingsChange({ ...settings, transportEncryption: !settings.transportEncryption })} style={{ position: "relative", width: "36px", height: "20px", background: settings.transportEncryption ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: "2px", left: settings.transportEncryption ? "18px" : "2px", width: "16px", height: "16px", background: settings.transportEncryption ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+            <motion.div animate={{ left: settings.transportEncryption ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.transportEncryption ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
           </div>
           <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.transportEncryption ? "On" : "Off"}</span>
         </div>
@@ -2159,7 +2176,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>font obfuscation</p>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
           <div onClick={() => onSettingsChange({ ...settings, fontObfuscation: !settings.fontObfuscation })} style={{ position: "relative", width: "36px", height: "20px", background: settings.fontObfuscation ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: "2px", left: settings.fontObfuscation ? "18px" : "2px", width: "16px", height: "16px", background: settings.fontObfuscation ? "#0d0d0d" : "#555", borderRadius: "50%", transition: "all 0.2s" }} />
+            <motion.div animate={{ left: settings.fontObfuscation ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.fontObfuscation ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
           </div>
           <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.fontObfuscation ? "On" : "Off"}</span>
         </div>
@@ -2182,9 +2199,8 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
               background: settings.adblockEnabled ? "#e8e8e8" : "#222", transition: "background 0.2s", padding: 0,
             }}
           >
-            <span style={{
+            <motion.span animate={{ left: settings.adblockEnabled ? "20px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{
               position: "absolute", top: "2px", width: "14px", height: "14px", borderRadius: "50%", background: settings.adblockEnabled ? "#0d0d0d" : "#666",
-              left: settings.adblockEnabled ? "20px" : "2px", transition: "left 0.2s",
             }} />
           </button>
         </div>
@@ -2223,7 +2239,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
           Force a specific proxy engine for certain domains. One per line: <code style={codeStyle}>domain.com=scramjet</code> or <code style={codeStyle}>domain.com=uv</code>
         </p>
-        <textarea
+        <motion.textarea
           value={Object.entries(settings.siteEngineOverrides).map(([k, v]) => `${k}=${v}`).join("\n")}
           onChange={e => {
             const overrides: Record<string, "uv" | "scramjet"> = {};
@@ -2235,6 +2251,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
           }}
           placeholder={"example.com=scramjet\nads.example.com=uv"}
           style={{ ...inputBase, minHeight: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "0.65rem" }}
+          whileFocus={{ borderColor: "#555" }}
         />
       </motion.section>
 
@@ -2281,6 +2298,17 @@ function SettingsPage({ settings, onSettingsChange, vantaActive }: { settings: S
               letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
             }}
           >import settings</motion.button>
+          {onLogout && (
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={onLogout}
+              style={{
+                background: "none", border: "1px solid #333", color: "rgba(200,70,70,0.7)",
+                padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              }}
+            >sign out</motion.button>
+          )}
         </div>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.5rem 0 0", lineHeight: 1.5 }}>
           Export or import your settings as a JSON file.
@@ -2349,29 +2377,40 @@ function AIPage({ user, profile, onAuthenticated }: { user: User | null; profile
 
 function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   const starterMessages = useMemo<AIMessage[]>(() => [
-    {
-      id: aiMessageId(),
-      role: "assistant",
-      content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help.",
-    },
+    { id: aiMessageId(), role: "assistant", content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help." },
   ], []);
 
-  const suggestions = useMemo(() => [
-    "Write a clean apology email for a late assignment.",
-    "Summarize the differences between UV and Scramjet here.",
-    "Brainstorm a stealthy tab-cloak landing page concept.",
-    "Explain a TypeScript error in plain English.",
-  ], []);
-
+  const [conversations, setConversations] = useState<AIConversationRecord[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>(starterMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [booting, setBooting] = useState(true);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<AIMode>("fast");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [booting, setBooting] = useState(true);
+  const [editMessageId, setEditMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [feedback, setFeedback] = useState<Record<string, "like" | "dislike" | null>>({});
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
+    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
+    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
+  };
+
+  useEffect(() => {
+    if (!modeDropdownOpen) return;
+    const handler = () => setModeDropdownOpen(false);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [modeDropdownOpen]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -2387,126 +2426,170 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   }, [input]);
 
   useEffect(() => {
+    if (editTextareaRef.current) {
+      const el = editTextareaRef.current;
+      el.style.height = "0px";
+      el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    }
+  }, [editingContent]);
+
+  useEffect(() => {
     let cancelled = false;
-
-    async function loadConversation() {
+    async function load() {
       setBooting(true);
-      setError("");
-
-      if (localStorage.getItem("unstable_ai_cleared") === "true") {
-        if (!cancelled) {
-          setConversationId(null);
-          setMessages(starterMessages);
-          setBooting(false);
-        }
-        return;
-      }
-
       try {
-        const { data: conversations, error: convoError } = await supabase
+        const { data, error: err } = await supabase
           .from("ai_conversations")
           .select("id, title, created_at")
           .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (convoError) throw convoError;
-        const latest = (conversations?.[0] ?? null) as AIConversationRecord | null;
-
-        if (!latest) {
-          if (!cancelled) {
-            setConversationId(null);
-            setMessages(starterMessages);
-          }
-          return;
-        }
-
-        const { data: storedMessages, error: messageError } = await supabase
-          .from("ai_messages")
-          .select("id, role, content")
-          .eq("conversation_id", latest.id)
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: true });
-
-        if (messageError) throw messageError;
+          .order("created_at", { ascending: false });
+        if (err) throw err;
         if (cancelled) return;
-
-        setConversationId(latest.id);
-        if (storedMessages && storedMessages.length > 0) {
-          setMessages(
-            storedMessages.map((message) => ({
-              id: message.id,
-              role: message.role as "user" | "assistant",
-              content: message.content,
-            })),
-          );
-        } else {
-          setMessages(starterMessages);
+        const convs = (data ?? []) as AIConversationRecord[];
+        setConversations(convs);
+        if (convs.length > 0) {
+          setActiveId(convs[0].id);
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to load AI history.");
-          setMessages(starterMessages);
-        }
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load conversations.");
       } finally {
         if (!cancelled) setBooting(false);
       }
     }
+    load();
+    return () => { cancelled = true; };
+  }, [user.id]);
 
-    loadConversation();
-    return () => {
-      cancelled = true;
-    };
-  }, [starterMessages, user.id]);
+  useEffect(() => {
+    if (!activeId) {
+      setMessages(starterMessages);
+      return;
+    }
+    let cancelled = false;
+    async function loadMessages() {
+      setBooting(true);
+      try {
+        const { data, error: err } = await supabase
+          .from("ai_messages")
+          .select("id, role, content")
+          .eq("conversation_id", activeId)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true });
+        if (err) throw err;
+        if (cancelled) return;
+        if (data && data.length > 0) {
+          setMessages(data.map((m) => ({ id: m.id, role: m.role as "user" | "assistant", content: m.content })));
+        } else {
+          setMessages(starterMessages);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load messages.");
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    }
+    loadMessages();
+    return () => { cancelled = true; };
+  }, [activeId, user.id, starterMessages]);
 
-  async function submitPrompt(rawPrompt?: string) {
+  async function newChat() {
+    const { data, error: err } = await supabase
+      .from("ai_conversations")
+      .insert({ user_id: user.id, title: "New chat" })
+      .select("id, title, created_at")
+      .single();
+    if (err) { setError(err.message); return; }
+    const conv = data as AIConversationRecord;
+    setConversations(prev => [conv, ...prev]);
+    setActiveId(conv.id);
+    setMessages(starterMessages);
+    setError("");
+  }
+
+  async function deleteChat(id: string) {
+    await supabase.from("ai_messages").delete().eq("conversation_id", id).eq("user_id", user.id);
+    await supabase.from("ai_conversations").delete().eq("id", id).eq("user_id", user.id);
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (activeId === id) {
+      const next = conversations.find(c => c.id !== id);
+      setActiveId(next ? next.id : null);
+      if (!next) setMessages(starterMessages);
+    }
+  }
+
+  async function updateConversationTitle(id: string, title: string) {
+    setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
+    await supabase.from("ai_conversations").update({ title }).eq("id", id).eq("user_id", user.id);
+  }
+
+  async function generateTitle(convId: string, userPrompt: string, aiResponse: string) {
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "fast",
+          messages: [
+            { role: "system", content: "Generate a concise title under 6 words for this conversation based on the first user message and AI response. Reply with only the title, no quotes or extra text." },
+            { role: "user", content: userPrompt },
+            { role: "assistant", content: aiResponse },
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => null) as { content?: string } | null;
+      if (data?.content) {
+        const title = data.content.trim().replace(/^["'\s]+|["'\s]+$/g, "").slice(0, 60);
+        if (title) updateConversationTitle(convId, title);
+      }
+    } catch {}
+  }
+
+  async function sendMessage(rawPrompt?: string) {
     const prompt = (rawPrompt ?? input).trim();
     if (!prompt || loading || booting) return;
 
+    let convId = activeId;
+    if (!convId) {
+      const { data, error: err } = await supabase
+        .from("ai_conversations")
+        .insert({ user_id: user.id, title: buildConversationTitle(prompt) })
+        .select("id, title, created_at")
+        .single();
+      if (err) { setError(err.message); return; }
+      const conv = data as AIConversationRecord;
+      setConversations(prev => [conv, ...prev]);
+      convId = conv.id;
+      setActiveId(conv.id);
+    }
+
     const userMessage: AIMessage = { id: aiMessageId(), role: "user", content: prompt };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInput("");
     setError("");
     setLoading(true);
 
     try {
-      let activeConversationId = conversationId;
-      if (!activeConversationId) {
-        const { data: conversation, error: conversationError } = await supabase
-          .from("ai_conversations")
-          .insert({
-            user_id: user.id,
-            title: buildConversationTitle(prompt),
-          })
-          .select("id")
-          .single();
-
-        if (conversationError) throw conversationError;
-        activeConversationId = conversation.id;
-        setConversationId(activeConversationId);
-        localStorage.removeItem("unstable_ai_cleared");
-      }
-
-      const { error: userInsertError } = await supabase.from("ai_messages").insert({
-        conversation_id: activeConversationId,
-        user_id: user.id,
-        role: "user",
-        content: prompt,
+      const { error: insertErr } = await supabase.from("ai_messages").insert({
+        conversation_id: convId, user_id: user.id, role: "user", content: prompt,
       });
-      if (userInsertError) throw userInsertError;
+      if (insertErr) throw insertErr;
 
-      const content = await sendAiChat(nextMessages, mode);
-      const assistantMessage = { id: aiMessageId(), role: "assistant" as const, content };
+      const allMessages = [...messages, userMessage];
+      const content = await sendAiChat(allMessages, mode);
+      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
       setMessages(prev => [...prev, assistantMessage]);
 
-      const { error: assistantInsertError } = await supabase.from("ai_messages").insert({
-        conversation_id: activeConversationId,
-        user_id: user.id,
-        role: "assistant",
-        content,
+      const { error: aiInsertErr } = await supabase.from("ai_messages").insert({
+        conversation_id: convId, user_id: user.id, role: "assistant", content,
       });
-      if (assistantInsertError) throw assistantInsertError;
+      if (aiInsertErr) throw aiInsertErr;
+
+      const conv = conversations.find(c => c.id === convId);
+      if (conv && conv.title === "New chat") {
+        const tempTitle = buildConversationTitle(prompt);
+        updateConversationTitle(convId, tempTitle);
+        generateTitle(convId, prompt, content);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to get a response right now.");
     } finally {
@@ -2514,321 +2597,392 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     }
   }
 
-  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
-    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
-    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
-  };
+  async function saveEdit(messageId: string) {
+    const newContent = editingContent.trim();
+    if (!newContent) return;
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: newContent } : m));
+    setEditMessageId(null);
+    setEditingContent("");
+    await supabase.from("ai_messages").update({ content: newContent }).eq("id", messageId).eq("user_id", user.id);
+  }
+
+  function startEdit(msg: AIMessage) {
+    setEditMessageId(msg.id);
+    setEditingContent(msg.content);
+    setTimeout(() => editTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEdit() {
+    setEditMessageId(null);
+    setEditingContent("");
+  }
+
+  function copyMessage(content: string) {
+    navigator.clipboard.writeText(content).catch(() => {});
+  }
+
+  function speakMessage(id: string, content: string) {
+    if (speakingMessageId === id) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+    setSpeakingMessageId(id);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  async function regenerateMessage() {
+    const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUserMsg || regenerating) return;
+    setRegenerating(true);
+    const lastAiIndex = messages.map(m => m.role).lastIndexOf("assistant");
+    if (lastAiIndex !== -1) {
+      const removed = messages[lastAiIndex];
+      setMessages(prev => prev.filter(m => m.id !== removed.id));
+      if (activeId) {
+        try { await supabase.from("ai_messages").delete().eq("id", removed.id).eq("user_id", user.id); } catch {}
+      }
+    }
+    setLoading(true);
+    try {
+      const history = messages.slice(0, lastAiIndex > 0 ? lastAiIndex - 1 : 0);
+      const content = await sendAiChat([...history, lastUserMsg], mode);
+      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
+      setMessages(prev => [...prev, assistantMessage]);
+      if (activeId) {
+        try { await supabase.from("ai_messages").insert({ conversation_id: activeId, user_id: user.id, role: "assistant", content }); } catch {}
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to regenerate.");
+    } finally {
+      setLoading(false);
+      setRegenerating(false);
+    }
+  }
+
+  const sidebarWidth = 260;
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{
-        height: "100%",
-        overflow: "hidden",
-        background:
-          "radial-gradient(circle at top left, rgba(120,170,255,0.14), transparent 28%), radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 22%), #0d0d0d",
-        fontFamily: "'Space Grotesk', sans-serif",
-      }}
+      style={{ height: "100%", overflow: "hidden", background: "radial-gradient(circle at top left, rgba(120,170,255,0.14), transparent 28%), radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 22%), #0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <div style={{ height: "100%", maxWidth: 1120, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
+      <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", gap: "0.75rem" }}>
+        {/* ── Sidebar ── */}
         <motion.aside
           initial={{ opacity: 0, x: -12 }}
           animate={{ opacity: 1, x: 0 }}
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))",
-            borderRadius: "18px",
-            padding: "1rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
-          }}
+          style={{ width: sidebarWidth, flexShrink: 0, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}
         >
-          <div>
-            <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — ai</p>
+          {/* New chat button */}
+          <div style={{ padding: "0.85rem" }}>
+            <motion.button
+              whileHover={{ scale: 1.02, background: "rgba(255,255,255,0.06)" }}
+              whileTap={{ scale: 0.98 }}
+              onClick={newChat}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.45rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.65rem 0", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.08em" }}
+            >
+              + New chat
+            </motion.button>
           </div>
 
-          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Mode</p>
-            <div style={{ display: "flex", gap: "0.45rem" }}>
-              {(["fast", "think"] as AIMode[]).map((currentMode) => {
-                const active = mode === currentMode;
+          {/* Conversation list */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 0.4rem" }}>
+            {conversations.length === 0 && !booting && (
+              <p style={{ textAlign: "center", fontSize: "0.65rem", color: "rgba(255,255,255,0.25)", padding: "1.5rem 0", margin: 0 }}>No conversations yet</p>
+            )}
+            <AnimatePresence>
+              {conversations.map((conv) => {
+                const active = conv.id === activeId;
                 return (
-                  <button
-                    key={currentMode}
-                    onClick={() => setMode(currentMode)}
+                  <motion.div
+                    key={conv.id}
+                    layout
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
+                    onClick={() => setActiveId(conv.id)}
                     style={{
-                      flex: 1,
-                      background: active ? "#e8e8e8" : "#111",
-                      color: active ? "#0d0d0d" : "rgba(255,255,255,0.52)",
-                      border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                      padding: "0.65rem 0.8rem",
-                      fontSize: "0.64rem",
-                      fontFamily: "'Space Grotesk', sans-serif",
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      cursor: "pointer",
-                      borderRadius: "10px",
+                      cursor: "pointer", borderRadius: "10px", padding: "0.6rem 0.7rem",
+                      marginBottom: "0.2rem", position: "relative",
+                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                      border: active ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
                     }}
+                    onMouseEnter={() => setHoveredMsgId(conv.id)}
+                    onMouseLeave={() => setHoveredMsgId(null)}
                   >
-                    {currentMode}
-                  </button>
+                    <p style={{ margin: 0, fontSize: "0.72rem", color: "#e0e0e0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: active ? 170 : 200 }}>
+                      {conv.title || "Untitled"}
+                    </p>
+                    {hoveredMsgId === conv.id && (
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={(e) => { e.stopPropagation(); deleteChat(conv.id); }}
+                        style={{ position: "absolute", right: "0.4rem", top: "50%", transform: "translateY(-50%)", background: "rgba(220,80,80,0.15)", border: "1px solid rgba(220,80,80,0.3)", borderRadius: "6px", color: "rgba(220,80,80,0.8)", fontSize: "0.55rem", cursor: "pointer", padding: "0.15rem 0.4rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                      >delete</motion.button>
+                    )}
+                  </motion.div>
                 );
               })}
-            </div>
-            <p style={{ margin: "0.65rem 0 0", fontSize: "0.67rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.55 }}>
-              {modeMeta[mode].label} · {modeMeta[mode].hint}
+            </AnimatePresence>
+          </div>
+
+          {/* User info */}
+          <div style={{ padding: "0.75rem 0.85rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin: 0, fontSize: "0.6rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
+              {profile.username}
             </p>
-          </div>
-
-          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Quick starts</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => submitPrompt(suggestion)}
-                  style={{
-                    textAlign: "left",
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    color: "rgba(255,255,255,0.74)",
-                    borderRadius: "12px",
-                    padding: "0.7rem 0.75rem",
-                    fontSize: "0.7rem",
-                    lineHeight: 1.45,
-                    cursor: "pointer",
-                    transition: "border-color 0.15s, transform 0.15s, background 0.15s",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                  }}
-                  onMouseEnter={e => {
-                    const target = e.currentTarget;
-                    target.style.borderColor = "rgba(120,170,255,0.32)";
-                    target.style.background = "rgba(120,170,255,0.08)";
-                    target.style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={e => {
-                    const target = e.currentTarget;
-                    target.style.borderColor = "rgba(255,255,255,0.07)";
-                    target.style.background = "rgba(255,255,255,0.02)";
-                    target.style.transform = "translateY(0)";
-                  }}
-                >{suggestion}</button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
-            <p style={{ margin: "0 0 0.75rem", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{profile.username}</p>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Active model</p>
-            <p style={{ margin: 0, fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{modeMeta[mode].label}</p>
           </div>
         </motion.aside>
 
+        {/* ── Main chat area ── */}
         <motion.section
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          style={{
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))",
-            borderRadius: "22px",
-            overflow: "hidden",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.4)",
-          }}
+          style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.9rem 1.2rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
             <div>
-              <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>AI console</p>
-              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://ai in the url bar</p>
+              <p style={{ margin: 0, fontSize: "0.88rem", color: "#eceff4", fontWeight: 500 }}>
+                {activeId ? (conversations.find(c => c.id === activeId)?.title || "Chat") : "AI"}
+              </p>
+              <p style={{ margin: "0.15rem 0 0", fontSize: "0.58rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
+                {modeMeta[mode].label}
+              </p>
             </div>
-            <button
-              onClick={async () => {
-                if (conversationId) {
-                  try {
-                    const { error: msgErr } = await supabase.from("ai_messages").delete().eq("conversation_id", conversationId).eq("user_id", user.id);
-                    if (msgErr) console.error("AI messages delete error:", msgErr);
-                    const { error: convoErr } = await supabase.from("ai_conversations").delete().eq("id", conversationId).eq("user_id", user.id);
-                    if (convoErr) console.error("AI conversation delete error:", convoErr);
-                  } catch (e) {
-                    console.error("AI reset error:", e);
-                  }
-                }
-                localStorage.setItem("unstable_ai_cleared", "true");
-                setMessages(starterMessages);
-                setConversationId(null);
-                setError("");
-              }}
-              style={{
-                background: "none",
-                border: "1px solid rgba(255,255,255,0.09)",
-                color: "rgba(255,255,255,0.45)",
-                borderRadius: "999px",
-                padding: "0.45rem 0.8rem",
-                fontSize: "0.62rem",
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                fontFamily: "'Space Grotesk', sans-serif",
-              }}
-            >reset</button>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              {activeId && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => deleteChat(activeId)}
+                  style={{ background: "none", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(200,80,80,0.6)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
+                >delete</motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={newChat}
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(255,255,255,0.55)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
+              >+ new</motion.button>
+            </div>
           </div>
 
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem 1.2rem 1rem", display: "flex", flexDirection: "column", gap: "0.95rem", background: "linear-gradient(180deg, rgba(255,255,255,0.01), transparent 12%)" }}>
+          {/* Messages */}
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.4rem 1.4rem 1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {booting ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem", padding: "0.4rem 0.2rem" }}>loading synced history…</div>
-            ) : messages.map((message, index) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.03 }}
-                style={{
-                  display: "flex",
-                  justifyContent: message.role === "user" ? "flex-end" : "flex-start",
-                }}
-              >
-                <div style={{ display: "flex", flexDirection: message.role === "user" ? "row-reverse" : "row", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
-                  <div
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.56rem",
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {message.role === "user" ? "you" : "ai"}
-                  </div>
-                  <div
-                    style={{
-                      maxWidth: "min(100%, 680px)",
-                      borderRadius: message.role === "user" ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
-                      background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      padding: "0.9rem 1rem",
-                      boxShadow: "0 10px 26px rgba(0,0,0,0.18)",
-                    }}
-                  >
-                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
-                      {message.role === "user" ? "you" : "unstable ai"}
-                    </p>
-                    <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>
-                      {message.content}
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>Loading…</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.8rem" }}>
+                <p style={{ margin: 0, color: "rgba(255,255,255,0.2)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>Send a message to start chatting</p>
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+                {messages.map((message, index) => {
+                  const isUser = message.role === "user";
+                  const isEditing = editMessageId === message.id;
+                  const isHovered = hoveredMsgId === message.id;
+                  return (
+                    <motion.div
+                      key={message.id}
+                      layout
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.015 }}
+                      style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}
+                    >
+                      <div
+                        style={{ maxWidth: "min(100%, 780px)", width: "100%" }}
+                        onMouseEnter={() => setHoveredMsgId(message.id)}
+                        onMouseLeave={() => setHoveredMsgId(null)}
+                      >
+                        {isEditing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "flex-end" }}>
+                            <textarea
+                              ref={editTextareaRef}
+                              value={editingContent}
+                              onChange={e => setEditingContent(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(message.id); }
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              style={{ width: "100%", resize: "none", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "14px", color: "#e0e0e0", padding: "0.75rem 0.9rem", fontSize: "0.79rem", lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", outline: "none", minHeight: 80 }}
+                            />
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => saveEdit(message.id)} style={{ background: "#e8ecf8", border: "none", borderRadius: "8px", color: "#0d0d0d", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", fontWeight: 600 }}>Save</motion.button>
+                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={cancelEdit} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer" }}>Cancel</motion.button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              borderRadius: isUser ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
+                              background: isUser ? "rgba(232,236,248,0.1)" : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${isUser ? "rgba(232,236,248,0.15)" : "rgba(255,255,255,0.06)"}`,
+                              padding: "0.85rem 1rem",
+                              position: "relative",
+                            }}
+                          >
+                            <p style={{ margin: 0, color: isUser ? "rgba(232,236,248,0.75)" : "rgba(255,255,255,0.4)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "0.35rem" }}>
+                              {isUser ? "You" : "AI"}
+                            </p>
+                            <p style={{ margin: 0, color: "#e0e0e0", fontSize: "0.8rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                              {message.content}
+                            </p>
+                            {isUser && isHovered && !isEditing && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{ display: "flex", gap: "0.3rem", marginTop: "0.55rem", justifyContent: "flex-end" }}
+                              >
+                                <button onClick={() => copyMessage(message.content)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}>copy</button>
+                                <button onClick={() => startEdit(message)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}>edit</button>
+                              </motion.div>
+                            )}
+                            {!isUser && isHovered && !isEditing && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{ display: "flex", gap: "0.3rem", marginTop: "0.55rem", alignItems: "center" }}
+                              >
+                                <button onClick={() => speakMessage(message.id, message.content)} style={{ background: speakingMessageId === message.id ? "rgba(120,170,255,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${speakingMessageId === message.id ? "rgba(120,170,255,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: "6px", color: speakingMessageId === message.id ? "rgba(120,170,255,0.8)" : "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                                  <Volume2 size={12} />
+                                  {speakingMessageId === message.id ? "stop" : "read"}
+                                </button>
+                                <button onClick={regenerateMessage} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                                  <RefreshCw size={11} />
+                                  regenerate
+                                </button>
+                                <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.1)" }} />
+                                <button onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: feedback[message.id] === "like" ? "rgba(120,200,120,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
+                                  <ThumbsUp size={12} />
+                                </button>
+                                <button onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: feedback[message.id] === "dislike" ? "rgba(220,100,100,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
+                                  <ThumbsDown size={12} />
+                                </button>
+                              </motion.div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            )}
 
             {loading && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
-                  <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>ai</div>
-                  <div style={{ borderRadius: "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
-                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" }}>unstable ai</p>
-                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", minHeight: 20 }}>
-                      {[0, 1, 2].map((dot) => (
-                        <motion.span
-                          key={dot}
-                          animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }}
-                          style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(255,255,255,0.6)", display: "block" }}
-                        />
-                      ))}
-                    </div>
+                <div style={{ borderRadius: "20px 20px 20px 6px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", padding: "0.85rem 1rem", maxWidth: "min(100%, 780px)" }}>
+                  <p style={{ margin: "0 0 0.35rem", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>AI</p>
+                  <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", minHeight: 20 }}>
+                    {[0, 1, 2].map((dot) => (
+                      <motion.span key={dot} animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }} transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.5)", display: "block" }} />
+                    ))}
                   </div>
                 </div>
               </motion.div>
             )}
           </div>
 
+          {/* Input area */}
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem", background: "linear-gradient(180deg, rgba(11,11,11,0.96), rgba(8,8,8,0.98))" }}>
-            {error && (
-              <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>
-                {error}
-              </p>
-            )}
-            <form
-              onSubmit={(e) => { e.preventDefault(); submitPrompt(); }}
-              style={{
-                display: "flex",
-                gap: "0.8rem",
-                alignItems: "flex-end",
-                background: "rgba(255,255,255,0.02)",
-                border: "1px solid rgba(255,255,255,0.07)",
-                borderRadius: "18px",
-                padding: "0.8rem",
-              }}
-            >
+            {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>{error}</p>}
+            <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.6rem 0.8rem" }}>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitPrompt();
-                  }
-                }}
-                placeholder="Ask anything..."
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder={activeId ? "Ask anything..." : "Start a new chat..."}
                 rows={1}
-                style={{
-                  flex: 1,
-                  resize: "none",
-                  background: "transparent",
-                  border: "none",
-                  color: "#eef2f7",
-                  fontSize: "0.78rem",
-                  lineHeight: 1.6,
-                  outline: "none",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  minHeight: 24,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                }}
+                style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 220, overflowY: "auto" }}
               />
+              {/* Mode dropdown */}
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={(e) => { e.stopPropagation(); setModeDropdownOpen(!modeDropdownOpen); }}
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.4rem 0.65rem", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em", whiteSpace: "nowrap" }}
+                >
+                  {mode === "fast" ? <><Zap size={12} style={{ marginRight: "0.2rem" }} />fast</> : <><Brain size={12} style={{ marginRight: "0.2rem" }} />think</>}
+                </motion.button>
+                <AnimatePresence>
+                  {modeDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                      transition={{ duration: 0.12 }}
+                      style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#181818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.3rem", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", minWidth: 120, zIndex: 10 }}
+                    >
+                      {(["fast", "think"] as AIMode[]).map((opt) => (
+                        <motion.button
+                          key={opt}
+                          whileHover={{ background: "rgba(255,255,255,0.06)" }}
+                          onClick={() => { setMode(opt); setModeDropdownOpen(false); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", background: mode === opt ? "rgba(255,255,255,0.08)" : "transparent", border: "none", borderRadius: "8px", padding: "0.45rem 0.7rem", cursor: "pointer", color: mode === opt ? "#e8e8e8" : "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                        >
+                          <span style={{ marginRight: "0.4rem", display: "inline-flex", verticalAlign: "middle" }}>{opt === "fast" ? <Zap size={13} /> : <Brain size={13} />}</span>
+                          {opt === "fast" ? "Fast" : "Think"}
+                          <span style={{ display: "block", fontSize: "0.52rem", color: "rgba(255,255,255,0.25)", marginTop: "0.1rem" }}>
+                            {opt === "fast" ? "Low latency" : "More reasoning"}
+                          </span>
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              {/* Voice button */}
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  if (listening) return;
+                  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                  if (!SpeechRecognition) return;
+                  const recognition = new SpeechRecognition();
+                  recognition.interimResults = false;
+                  recognition.lang = "en-US";
+                  setListening(true);
+                  recognition.onresult = (event: any) => {
+                    const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join("");
+                    setInput(transcript);
+                  };
+                  recognition.onend = () => setListening(false);
+                  recognition.onerror = () => setListening(false);
+                  try { recognition.start(); } catch { setListening(false); }
+                }}
+                style={{ flexShrink: 0, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: listening ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(220,80,80,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "50%", cursor: "pointer", color: listening ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.4)", padding: 0, position: "relative" }}
+              >
+                {listening ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc4444", display: "block", position: "absolute" }} /><Mic size={16} /></> : <Mic size={16} />}
+              </motion.button>
+              {/* Send button */}
               <motion.button
                 whileHover={{ scale: loading ? 1 : 1.03 }}
                 whileTap={{ scale: loading ? 1 : 0.98 }}
                 type="submit"
                 disabled={loading || !input.trim()}
-                style={{
-                  alignSelf: "stretch",
-                  minWidth: 104,
-                  background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8",
-                  color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d",
-                  border: "none",
-                  borderRadius: "999px",
-                  cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontSize: "0.68rem",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  fontWeight: 700,
-                  padding: "0 1rem",
-                }}
+                style={{ flexShrink: 0, alignSelf: "stretch", minWidth: 80, background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
               >
                 {loading ? "sending" : "send"}
               </motion.button>
             </form>
           </div>
-      </motion.section>
-
+        </motion.section>
       </div>
     </motion.div>
   );
@@ -2945,6 +3099,13 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
     }
   }
 
+  const reactionIconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+    like: ThumbsUp,
+    fire: Flame,
+    laugh: Laugh,
+    heart: Heart,
+  };
+
   async function undoLastMessage() {
     if (!recentOwnMessageId) return;
     setError("");
@@ -3011,12 +3172,12 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
             ) : messages.length === 0 ? (
               <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
             ) : (
-              messages.map((message) => {
+              messages.map((message, idx) => {
                 const isOwn = message.user_id === user.id;
                 const parsed = parseChatMessageContent(message.content);
                 const messageReactions = reactions[message.id] ?? [];
                 return (
-                  <div key={message.id} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                  <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: Math.min(idx * 0.03, 0.4) }} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
                     <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
                       <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
                         {message.username.slice(0, 2)}
@@ -3051,21 +3212,31 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
                         </div>
                         {reactionPickerId === message.id && (
                           <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
-                            {["👍", "🔥", "😂", "😮", "🖤"].map((emoji) => (
-                              <button key={emoji} onClick={() => toggleReaction(message.id, emoji)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: 0 }}>{emoji}</button>
+                            {[
+                              { icon: ThumbsUp, label: "like" },
+                              { icon: Flame, label: "fire" },
+                              { icon: Laugh, label: "laugh" },
+                              { icon: Heart, label: "heart" },
+                            ].map(({ icon: Icon, label }) => (
+                              <button key={label} onClick={() => toggleReaction(message.id, label)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: "0.2rem", color: "rgba(255,255,255,0.5)", display: "inline-flex", alignItems: "center" }}><Icon size={16} /></button>
                             ))}
                           </div>
                         )}
                         {messageReactions.length > 0 && (
                           <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                            {messageReactions.map((emoji, index) => (
-                              <span key={`${message.id}-${emoji}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", fontSize: "0.8rem" }}>{emoji}</span>
-                            ))}
+                            {messageReactions.map((reaction, index) => {
+                              const Icon = reactionIconMap[reaction] || null;
+                              return Icon ? (
+                                <span key={`${message.id}-${reaction}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", color: "rgba(255,255,255,0.5)" }}>
+                                  <Icon size={14} />
+                                </span>
+                              ) : null;
+                            })}
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })
             )}
@@ -3403,37 +3574,36 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
   }, []);
 
   return (
-    <div onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
-      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s", position: "relative" }}
+    <motion.div layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12, width: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {tab.loading ? <div style={{ width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.3)", animation: "pulse 1s ease-in-out infinite" }} />
+        {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
           : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
             : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
         }
       </div>
-      <span style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>
-      <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+      <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
+      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
-      >×</button>
-      {ctxOpen && (
-        <div ref={ctxRef} style={{ position: "fixed", top: ctxPos.y, left: ctxPos.x, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
-          <button onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close tab</button>
-          {tab.url && <button onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Refresh tab</button>}
-          {tab.url && <button onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Duplicate tab</button>}
-          <button onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close tabs to right</button>
-          <button onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-            onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Close other tabs</button>
-        </div>
-      )}
-    </div>
+      >×</motion.button>
+      <AnimatePresence>
+        {ctxOpen && (
+          <motion.div ref={ctxRef} initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            style={{ position: "fixed", top: ctxPos.y, left: ctxPos.x, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tab</motion.button>
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Refresh tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Duplicate tab</motion.button>}
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tabs to right</motion.button>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close other tabs</motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
@@ -3675,6 +3845,8 @@ function BrowserApp({
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
+  const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
+  const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -3717,6 +3889,22 @@ function BrowserApp({
     const timer = window.setTimeout(() => setGameModeToast(false), 3200);
     return () => window.clearTimeout(timer);
   }, [gameModeActive, activeTab?.url]);
+
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (e.data?.type === "unstable-permission-request") {
+        pendingPermResolve.current = (allowed: boolean) => {
+          const iframe = iframeRefs.current[activeTabId];
+          if (iframe?.contentWindow) {
+            iframe.contentWindow.postMessage({ type: "unstable-permission-response", id: e.data.id, allowed }, "*");
+          }
+        };
+        setPendingPerm({ id: e.data.id, permission: e.data.permission, origin: e.data.origin });
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [activeTabId]);
 
   useEffect(() => {
     if (!gameModeActive || proxyStatus.phase !== "ready") return;
@@ -4094,19 +4282,19 @@ function BrowserApp({
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
-            <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-              {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} />)}
+            <div className="tab-scroll" style={{ display: "flex", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <AnimatePresence>
+                {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} />)}
+              </AnimatePresence>
+              <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
+                onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</motion.button>
             </div>
-            <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</button>
-            <button onClick={onLogout} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.16)", cursor: "pointer", padding: "0 0.8rem", fontSize: "0.57rem", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.16)"} title="Lock">lock</button>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <button onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</button>
-            <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
-            <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</motion.button>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
@@ -4118,19 +4306,20 @@ function BrowserApp({
                   title={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
                   <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={16} height={16} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
                 </button>
-                {urlEngineOpen && (
-                  <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
-                    {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
-                      <button key={id} type="button" onClick={() => { setSettings({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
-                        onMouseLeave={e => { if (id !== settings.searchEngine) e.currentTarget.style.background = "transparent"; }}>
-                        <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
-                        {engine.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <AnimatePresence>
+                  {urlEngineOpen && (
+                    <motion.div initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                      style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+                      {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
+                        <motion.button key={id} type="button" whileHover={{ background: "#1a1a1a" }} onClick={() => { setSettings({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
+                          style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>
+                          <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                          {engine.name}
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
                   onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
@@ -4150,17 +4339,19 @@ function BrowserApp({
                   style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
                 />
               </form>
-              {showSuggestions && (
-                <div ref={suggestListRef} style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "8px", marginTop: 4, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
-                  {searchSuggestions.map((s, i) => (
-                    <div key={s} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(searchUrl(s, settings.searchEngine)); }}
-                      style={{ padding: "0.45rem 0.7rem", fontSize: "0.75rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === suggestIndex ? "#1e1e1e" : "transparent", transition: "background 0.1s" }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "#1e1e1e"; setSuggestIndex(i); }}
-                      onMouseLeave={e => { if (suggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
-                    >{s}</div>
-                  ))}
-                </div>
-              )}
+              <AnimatePresence>
+                {showSuggestions && (
+                  <motion.div ref={suggestListRef} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "8px", marginTop: 4, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+                    {searchSuggestions.map((s, i) => (
+                      <motion.div key={s} whileHover={{ background: "#1e1e1e" }} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(searchUrl(s, settings.searchEngine)); }}
+                        style={{ padding: "0.45rem 0.7rem", fontSize: "0.75rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === suggestIndex ? "#1e1e1e" : "transparent" }}
+                        onMouseEnter={e => { setSuggestIndex(i); }}
+                      >{s}</motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <button onClick={toggleDevTools} style={btn} {...hov(true)} title="DevTools">
@@ -4190,16 +4381,16 @@ function BrowserApp({
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
           <div style={{ position: "relative", width: "100%", height: "100%" }}>
-            {tabs.map(tab => (
-              <div
-                key={tab.id}
-                style={{
-                  position: "absolute", inset: 0,
-                  visibility: tab.id === activeTabId ? "visible" : "hidden",
-                  zIndex: tab.id === activeTabId ? 1 : 0,
-                  pointerEvents: tab.id === activeTabId ? "auto" : "none",
-                }}
-              >
+            <AnimatePresence mode="wait">
+              {tabs.filter(t => t.id === activeTabId).map(tab => (
+                <motion.div
+                  key={tab.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                  style={{ position: "absolute", inset: 0 }}
+                >
               {!tab.url ? (
                 <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} vantaActive={!!activeBgEffect} searchEngine={settings.searchEngine} />
               ) : tab.url === "unstable://ai" ? (
@@ -4207,7 +4398,7 @@ function BrowserApp({
               ) : tab.url === "unstable://chat" ? (
                 <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://settings" ? (
-                <SettingsPage settings={settings} onSettingsChange={setSettings} vantaActive={!!activeBgEffect} />
+                <SettingsPage settings={settings} onSettingsChange={setSettings} vantaActive={!!activeBgEffect} onLogout={onLogout} />
               ) : tab.url === "unstable://games" ? (
                 <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://credits" ? (
@@ -4308,15 +4499,36 @@ function BrowserApp({
                   }}
                 />
               )}
-              </div>
-            ))}
+            </motion.div>
+          ))}
+          </AnimatePresence>
           </div>
         </div>
       </div>
 
       <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
 
-      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
+      <AnimatePresence>
+        {pendingPerm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+            style={{ position: "fixed", inset: 0, zIndex: 999999, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <motion.div initial={{ opacity: 0, scale: 0.92, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: 10 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              style={{ background: "#111", border: "1px solid #333", borderRadius: "8px", padding: "1.5rem", maxWidth: 400, width: "90%" }}>
+              <p style={{ color: "#e8e8e8", margin: 0, fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.5 }}>
+                <strong style={{ color: "#e8e8e8" }}>{(() => { try { return new URL(pendingPerm.origin).hostname; } catch { return pendingPerm.origin; } })()}</strong> wants to access your <strong style={{ color: "#e8e8e8" }}>{pendingPerm.permission}</strong>
+              </p>
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1.2rem" }}>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(false); setPendingPerm(null); }}
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>deny</motion.button>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(true); setPendingPerm(null); }}
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>allow</motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
     </motion.div>
     </>
   );

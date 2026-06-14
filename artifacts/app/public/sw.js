@@ -85,6 +85,9 @@ async function attachCookiesToBareRequest(request) {
   bareHeaders["user-agent"] = CUSTOM_UA;
   bareHeaders["sec-ch-ua"] = '"Chromium";v="125", "Google Chrome";v="125"';
   bareHeaders["sec-ch-ua-platform"] = '"Windows"';
+  // Spoof referer to prevent proxy URL leakage
+  if (bareHeaders["referer"]) bareHeaders["referer"] = bareUrl;
+  if (bareHeaders["Referer"]) bareHeaders["Referer"] = bareUrl;
   if (isTrackingUrl(bareUrl)) { bareHeaders["x-unstable-strip-tracking"] = "1"; }
   const newHeaders = new Headers(request.headers);
   newHeaders.set("x-bare-headers", JSON.stringify(bareHeaders));
@@ -126,9 +129,24 @@ async function stripResponseHeaders(response) {
     stripped.delete("content-security-policy");
     stripped.delete("content-security-policy-report-only");
     stripped.delete("x-frame-options");
+    stripped.delete("etag");
+    stripped.delete("last-modified");
     return new Response(response.body, {
       status: response.status, statusText: response.statusText, headers: stripped,
     });
+  } catch { return response; }
+}
+
+async function injectFingerprint(response) {
+  const ct = response.headers.get("content-type") || "";
+  if (!ct.includes("text/html")) return response;
+  try {
+    const body = await response.text();
+    const script = '<script src="/inject.js"></script>';
+    const modified = body.includes("</body>") ? body.replace("</body>", script + "</body>") : body + script;
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    return new Response(modified, { status: response.status, statusText: response.statusText, headers });
   } catch { return response; }
 }
 
@@ -148,6 +166,7 @@ async function handleRequest(event) {
   if (uv.route(event)) {
     response = await uv.fetch(event);
     response = await stripResponseHeaders(response);
+    response = await injectFingerprint(response);
   } else {
     response = await fetch(request);
   }

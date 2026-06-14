@@ -47,6 +47,19 @@ function isAdRequest(url) {
   } catch { return false; }
 }
 
+async function injectFingerprint(response) {
+  const ct = response.headers.get("content-type") || "";
+  if (!ct.includes("text/html")) return response;
+  try {
+    const body = await response.text();
+    const script = '<script src="/inject.js"></script>';
+    const modified = body.includes("</body>") ? body.replace("</body>", script + "</body>") : body + script;
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    return new Response(modified, { status: response.status, statusText: response.statusText, headers });
+  } catch { return response; }
+}
+
 // Allow the main page to force this SW to activate immediately
 self.addEventListener('message', (ev) => {
   if (ev.data?.type === 'SKIP_WAITING') self.skipWaiting();
@@ -85,12 +98,16 @@ self.addEventListener('fetch', (ev) => {
           stripped.delete('content-security-policy');
           stripped.delete('content-security-policy-report-only');
           stripped.delete('x-frame-options');
+          stripped.delete('etag');
+          stripped.delete('last-modified');
           if (ev.request.mode === 'navigate' || ev.request.destination === 'document') {
             stripped.set('content-type', 'text/html; charset=utf-8');
           }
-          return new Response(response.body, {
+          let finalResponse = new Response(response.body, {
             status: response.status, statusText: response.statusText, headers: stripped,
           });
+          finalResponse = await injectFingerprint(finalResponse);
+          return finalResponse;
         } catch (err) {
           return new Response("Scramjet SW Error: " + err, { status: 500 });
         }
