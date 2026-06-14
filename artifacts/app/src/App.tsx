@@ -1505,7 +1505,7 @@ function ToSPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
@@ -1540,8 +1540,10 @@ function PrivacyPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}
     >
+      <style>{`#pp-scroll::-webkit-scrollbar { width: 6px; }#pp-scroll::-webkit-scrollbar-track { background: #111; }#pp-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }#pp-scroll::-webkit-scrollbar-thumb:hover { background: #555; }`}</style>
+      <div id="pp-scroll" style={{ height: "100%", overflowY: "auto" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
         ["Data We Collect", "Account records (username, auth identifiers), AI conversation history, and chat messages are stored in Supabase. Local preferences such as theme, shortcuts, settings, and wallpaper are stored in your browser's localStorage. Proxy and transport configuration, including custom Wisp server URLs, are saved locally."],
@@ -1565,6 +1567,7 @@ function PrivacyPage() {
         </motion.div>
       ))}
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://privacy in the url bar</p>
+      </div>
     </motion.div>
   );
 }
@@ -3764,6 +3767,18 @@ function BrowserApp({
     if (!el) { el = document.createElement("style"); el.id = "unstable-theme"; document.head.appendChild(el); }
     el.textContent = `:root{${props};${wp}}`;
   }, [settings.theme, settings.wallpaper]);
+
+  // Global dark scrollbar style
+  useEffect(() => {
+    let el = document.getElementById("unstable-scrollbar-style");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "unstable-scrollbar-style";
+      document.head.appendChild(el);
+    }
+    el.textContent = `::-webkit-scrollbar { width: 6px; height: 6px; }::-webkit-scrollbar-track { background: #111; }::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }::-webkit-scrollbar-thumb:hover { background: #555; }* { scrollbar-width: thin; scrollbar-color: #333 #111; }`;
+  }, []);
+
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption);
