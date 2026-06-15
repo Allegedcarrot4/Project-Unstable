@@ -1,35 +1,45 @@
-import express, { type Express } from "express";
-import cors from "cors";
-import pinoHttp from "pino-http";
-import router from "./routes";
-import { logger } from "./lib/logger";
+import Fastify from "fastify";
+import fastifyCompress from "@fastify/compress";
+import fastifyStatic from "@fastify/static";
+import fastifyCors from "@fastify/cors";
+import fastifyFormbody from "@fastify/formbody";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
-import type { IncomingMessage } from "http";
 import http from "http";
 import https from "https";
+import { createServer } from "http";
+import router from "./routes";
+import { logger } from "./lib/logger";
+import type { IncomingMessage, ServerResponse } from "http";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-// Disable keep-alive on outgoing connections so target servers (e.g. Google)
-// don't reject with "Too many keep-alive connections from this IP address"
-const httpAgent = new http.Agent({ keepAlive: false });
-const httpsAgent = new https.Agent({ keepAlive: false });
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 32,
+  maxFreeSockets: 8,
+  keepAliveMsecs: 10000,
+  timeout: 30000,
+});
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 32,
+  maxFreeSockets: 8,
+  keepAliveMsecs: 10000,
+  timeout: 30000,
+});
 
-// ─── Bare servers (1-5) ───────────────────────────────────────────────────────
 export const bare1 = createBareServer("/api/cdn/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 export const bare2 = createBareServer("/api/cdn2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 export const bare3 = createBareServer("/api/cdn3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 export const bare4 = createBareServer("/api/cdn4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
 export const bare5 = createBareServer("/api/cdn5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-
 export const bares = [bare1, bare2, bare3, bare4, bare5];
 
-// ─── Wisp server ──────────────────────────────────────────────────────────────
 type WispHandler = (req: IncomingMessage, socket: any, head?: Buffer) => void;
 export let wispHandler: WispHandler | null = null;
 
@@ -47,81 +57,12 @@ try {
   logger.warn({ err }, "wisp-js not available — Wisp disabled");
 }
 
-// ─── Express app ──────────────────────────────────────────────────────────────
-const app: Express = express();
-
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) { return { id: req.id, method: req.method, url: req.url?.split("?")[0] }; },
-      res(res) { return { statusCode: res.statusCode }; },
-    },
-  }),
-);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowed = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
-
-    // Allow requests with no origin (same-origin, curl, service workers)
-    if (!origin || allowed.length === 0) return callback(null, true);
-
-    if (allowed.some(o => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
-      return callback(null, true);
-    }
-
-    callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true,
-}));
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 function resolvePkgDist(pkg: string): string {
   const mainPath = require.resolve(pkg);
   const pkgRoot = path.dirname(path.dirname(mainPath));
   return path.join(pkgRoot, "dist");
 }
 
-app.use(
-  "/api/baremod",
-  express.static(resolvePkgDist("@mercuryworkshop/bare-as-module3"), { index: false }),
-);
-
-app.use("/api", router);
-
-// ─── DuckDuckGo search suggestions API ───────────────────────────────────────
-app.get("/return", async (req, res) => {
-  const q = req.query.q;
-
-  if (!q || typeof q !== "string") {
-    return res.status(401).json({
-      error: "query parameter?",
-    });
-  }
-
-  try {
-    const response = await fetch(
-      `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}`
-    );
-
-    if (!response.ok) {
-      return res.sendStatus(response.status);
-    }
-
-    const data = await response.json();
-
-    return res.json(data);
-  } catch {
-    return res.status(500).json({
-      error: "request failed",
-    });
-  }
-});
-
-// ─── Static frontend ───────────────────────────────────────
 const staticCandidates = [
   path.resolve(process.cwd(), "app/dist/public"),
   path.resolve(__dirname, "../../app/dist/public"),
@@ -134,21 +75,118 @@ if (!staticDir) {
   throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
 }
 
-app.use(express.static(staticDir));
+const app = Fastify({
+  logger: false,
+  serverFactory: (handler) => {
+    const server = createServer();
 
-app.use((req, res, next) => {
-  const p = req.path;
+    server.on("request", (req, res) => {
+      for (const bare of bares) {
+        if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
+      }
+      handler(req, res);
+    });
 
-  if (
-    !p.startsWith("/api") &&
-    !p.startsWith("/service") &&
-    !p.startsWith("/ham") &&
-    !p.startsWith("/baremux")
-  ) {
-    res.sendFile(path.join(staticDir, "index.html"));
-  } else {
-    next();
+    server.on("upgrade", (req, socket, head) => {
+      if (req.url?.startsWith("/api/wisp/") && wispHandler) {
+        wispHandler(req, socket, head);
+        return;
+      }
+      for (const bare of bares) {
+        if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
+      }
+      socket.destroy();
+    });
+
+    return server;
+  },
+});
+
+await app.register(fastifyCompress, {
+  encodings: ["gzip", "deflate", "br"],
+  threshold: 512,
+});
+
+await app.register(fastifyCors, {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    const allowed = (process.env.CORS_ORIGINS || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+    if (!origin || allowed.length === 0) return callback(null, true);
+    if (allowed.some((o: string) => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
+      return callback(null, true);
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+});
+
+await app.register(fastifyFormbody);
+
+// ─── Bare-as-module3 static ───────────────────────────────────────────────────
+const bareModDist = resolvePkgDist("@mercuryworkshop/bare-as-module3");
+await app.register(fastifyStatic, {
+  root: bareModDist,
+  prefix: "/api/baremod/",
+  decorateReply: false,
+  wildcard: false,
+});
+
+// ─── Frontend static with cache headers ───────────────────────────────────────
+await app.register(fastifyStatic, {
+  root: staticDir,
+  prefix: "/",
+  wildcard: false,
+  cacheControl: false,
+  setHeaders(res: ServerResponse, filePath: string) {
+    if (/\.html?$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    } else {
+      const hashed = /[.\-_][A-Za-z0-9_-]{8,}\.(js|css|woff2?|png|jpe?g|svg|webp|gif)$/.test(filePath);
+      res.setHeader(
+        "Cache-Control",
+        hashed ? "public, max-age=31536000, immutable" : "public, max-age=3600",
+      );
+    }
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  },
+});
+
+// ─── API routes ───────────────────────────────────────────────────────────────
+app.register(router, { prefix: "/api" });
+
+// ─── DuckDuckGo search suggestions ───────────────────────────────────────────
+app.get("/return", async (req, reply) => {
+  const q = (req.query as any)?.q;
+
+  if (!q || typeof q !== "string") {
+    return reply.status(401).send({ error: "query parameter?" });
   }
+
+  try {
+    const response = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}`);
+    if (!response.ok) {
+      return reply.status(response.status).send();
+    }
+    return reply.send(await response.json());
+  } catch {
+    return reply.status(500).send({ error: "request failed" });
+  }
+});
+
+// ─── SPA fallback ────────────────────────────────────────────────────────────
+app.setNotFoundHandler((request, reply) => {
+  const url = request.url;
+  if (
+    !url.startsWith("/api") &&
+    !url.startsWith("/service") &&
+    !url.startsWith("/ham") &&
+    !url.startsWith("/baremux")
+  ) {
+    const indexPath = path.join(staticDir, "index.html");
+    return reply.type("text/html").send(fs.readFileSync(indexPath, "utf-8"));
+  }
+  return reply.status(404).send("Not found");
 });
 
 export default app;
