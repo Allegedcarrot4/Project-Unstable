@@ -211,8 +211,8 @@ importers:
   artifacts/app:
     dependencies:
       '@mercuryworkshop/bare-mux':
-        specifier: ^2.1.8
-        version: 2.1.8
+        specifier: ^2.1.9
+        version: 2.1.9
       '@mercuryworkshop/epoxy-transport':
         specifier: ^3.0.1
         version: 3.0.1
@@ -890,8 +890,8 @@ packages:
   '@mercuryworkshop/bare-as-module3@2.2.5':
     resolution: {integrity: sha512-KWlMVJoJ3h1ya3chlpzIyQrt01rSU21AU1vBsGUrhZngCVTs9SIMGMqBx61TM0gWtEUogYFfU5U0UF1XCYeUHQ==}
 
-  '@mercuryworkshop/bare-mux@2.1.8':
-    resolution: {integrity: sha512-rI3S7Osyr2ZWmG6J6v3MLS1ZT269lx1DrAjM47q0aoBYnfgUZTRvZqY0Globb8ipTi02d5x6dTJBeUBt6dZsag==}
+  '@mercuryworkshop/bare-mux@2.1.9':
+    resolution: {integrity: sha512-fiOqWm3VP0Bl8T+0l+qnb7ab9zO+PpKVbtJvOnMsefUv6kWIaoDtqyr9hd/t4gA8oBwgtyZVqIwO2J9nKY9ylw==}
 
   '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz':
     resolution: {tarball: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz}
@@ -4337,7 +4337,7 @@ snapshots:
     dependencies:
       typescript: 5.9.3
 
-  '@mercuryworkshop/bare-mux@2.1.8': {}
+  '@mercuryworkshop/bare-mux@2.1.9': {}
 
   '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz': {}
 
