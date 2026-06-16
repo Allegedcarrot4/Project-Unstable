@@ -75,7 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.8",
+    "@mercuryworkshop/bare-mux": "^2.1.9",
     "@mercuryworkshop/epoxy-transport": "^3.0.1",
     "@mercuryworkshop/libcurl-transport": "^1.5.1",
     "@mercuryworkshop/scramjet": "2.0.2-alpha",
