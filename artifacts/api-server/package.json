@@ -24,7 +24,7 @@
     "drizzle-orm": "catalog:",
     "fastify": "^5.8.5",
     "pino": "^9",
-    "ws": "^8.18.3"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

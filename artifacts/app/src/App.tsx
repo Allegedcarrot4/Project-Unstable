@@ -969,9 +969,11 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
-  const springConfig = { damping: 25, stiffness: 250 };
+  const springConfig = { damping: 40, stiffness: 1200 };
   const cursorX = useSpring(mouseX, springConfig);
   const cursorY = useSpring(mouseY, springConfig);
+  const cursorTipX = useTransform(cursorX, v => v - 5.5);
+  const cursorTipY = useTransform(cursorY, v => v - 20.5);
 
   const spinControls = useAnimation();
   const [isHovering, setIsHovering] = useState(false);
@@ -1050,14 +1052,10 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
           position: "fixed",
           left: 0,
           top: 0,
-          x: cursorX,
-          y: cursorY,
+          x: cursorTipX,
+          y: cursorTipY,
           pointerEvents: "none",
           zIndex: 999999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transform: "translate(-50%, -50%)",
         }}
       >
         <svg
@@ -1066,8 +1064,8 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
           viewBox="0 0 24 24"
           fill="none"
           style={{
-            transform: "translate(6px, 6px)",
             filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+            display: "block",
           }}
         >
           <path
