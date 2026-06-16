@@ -134,7 +134,7 @@ await app.register(fastifyStatic, {
 await app.register(fastifyStatic, {
   root: staticDir,
   prefix: "/",
-  wildcard: false,
+  wildcard: true,
   cacheControl: false,
   setHeaders(res: ServerResponse, filePath: string) {
     if (/\.html?$/i.test(filePath)) {

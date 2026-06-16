@@ -17,7 +17,7 @@ const basePath = process.env.BASE_PATH || "/";
 
 const isProd = process.env.NODE_ENV === "production";
 
-const epoxyPath = path.resolve(import.meta.dirname, "node_modules", "@mercuryworkshop", "epoxy-transport", "dist");
+const epoxyDist = path.relative(import.meta.dirname, path.resolve(import.meta.dirname, "node_modules", "@mercuryworkshop", "epoxy-transport", "dist")).replace(/\\/g, "/");
 
 export default defineConfig({
   base: basePath,
@@ -26,7 +26,7 @@ export default defineConfig({
     tailwindcss(),
     viteStaticCopy({
       targets: [
-        { src: `${epoxyPath}/index.mjs`, dest: "epoxy" },
+        { src: epoxyDist + "/index.mjs", dest: "epoxy" },
       ],
     }),
     ...(isProd ? [javascriptObfuscator({
