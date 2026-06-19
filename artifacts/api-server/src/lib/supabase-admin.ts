@@ -27,7 +27,7 @@ export function getSupabaseAdmin() {
 
   adminClient = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { transport: ws },
+    realtime: { transport: ws as any },
   });
 
   return adminClient;

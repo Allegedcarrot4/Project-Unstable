@@ -13,7 +13,7 @@ import https from "https";
 import { createServer } from "http";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import type { IncomingMessage, ServerResponse } from "http";
+import type { IncomingMessage } from "http";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -108,13 +108,13 @@ await app.register(fastifyCompress, {
 });
 
 await app.register(fastifyCors, {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  origin: (origin, callback) => {
     const allowed = (process.env.CORS_ORIGINS || "").split(",").map((s: string) => s.trim()).filter(Boolean);
     if (!origin || allowed.length === 0) return callback(null, true);
     if (allowed.some((o: string) => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
       return callback(null, true);
     }
-    callback(new Error("Not allowed by CORS"));
+    callback(new Error("Not allowed by CORS"), false);
   },
   credentials: true,
 });
@@ -136,7 +136,7 @@ await app.register(fastifyStatic, {
   prefix: "/",
   wildcard: true,
   cacheControl: false,
-  setHeaders(res: ServerResponse, filePath: string) {
+  setHeaders(res, filePath) {
     if (/\.html?$/i.test(filePath)) {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     } else {

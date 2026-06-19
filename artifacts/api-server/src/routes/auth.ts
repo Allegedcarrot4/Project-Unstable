@@ -45,14 +45,15 @@ const authRoute: FastifyPluginAsync = async (app) => {
         .from("device_bans")
         .select("reason, banned_until")
         .eq("device_hash", deviceHash)
-        .maybeSingle();
+        .maybeSingle() as any;
 
       if (error) throw error;
 
-      const activeBan = Boolean(data && (!data.banned_until || new Date(data.banned_until).getTime() > Date.now()));
+      const record = data as { reason?: string; banned_until?: string | null } | null;
+      const activeBan = Boolean(record && (!record.banned_until || new Date(record.banned_until).getTime() > Date.now()));
       return reply.send({
         banned: activeBan,
-        reason: activeBan ? (data as any)?.reason ?? null : null,
+        reason: activeBan ? record?.reason ?? null : null,
       });
     } catch (err) {
       return reply.status(503).send({ error: err instanceof Error ? err.message : "Device-ban check unavailable." });
@@ -71,14 +72,15 @@ const authRoute: FastifyPluginAsync = async (app) => {
         .from("user_bans")
         .select("reason, banned_until")
         .eq("user_id", authed.user.id)
-        .maybeSingle();
+        .maybeSingle() as any;
 
       if (banError) throw banError;
 
-      const banned = Boolean(banRow && (!banRow.banned_until || new Date(banRow.banned_until).getTime() > Date.now()));
+      const banRecord = banRow as { reason?: string; banned_until?: string | null } | null;
+      const banned = Boolean(banRecord && (!banRecord.banned_until || new Date(banRecord.banned_until).getTime() > Date.now()));
       return reply.send({
         isBanned: banned,
-        banReason: banned ? (banRow as any)?.reason ?? null : null,
+        banReason: banned ? banRecord?.reason ?? null : null,
       });
     } catch (err) {
       return reply.status(503).send({ error: err instanceof Error ? err.message : "Auth context unavailable." });
@@ -96,7 +98,7 @@ const authRoute: FastifyPluginAsync = async (app) => {
       const deviceHash = hashDeviceId(deviceId);
       const supabase = getSupabaseAdmin();
 
-      const { error } = await supabase.from("user_devices").upsert({
+      const { error } = await (supabase.from("user_devices") as any).upsert({
         user_id: authed.user.id,
         device_hash: deviceHash,
         last_seen_at: new Date().toISOString(),

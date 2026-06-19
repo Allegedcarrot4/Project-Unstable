@@ -184,6 +184,7 @@ interface Settings {
   fontObfuscation: boolean;
   uiScale: number;
   confirmLeave: boolean;
+  magicCursorEnabled: boolean;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -295,6 +296,7 @@ const DEFAULT_SETTINGS: Settings = {
   fontObfuscation: false,
   uiScale: 1,
   confirmLeave: false,
+  magicCursorEnabled: false,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -613,6 +615,7 @@ function loadSettings(): Settings {
       fontObfuscation: parsed.fontObfuscation ?? false,
       uiScale: typeof parsed.uiScale === "number" ? parsed.uiScale : 1,
       confirmLeave: parsed.confirmLeave ?? false,
+      magicCursorEnabled: parsed.magicCursorEnabled ?? false,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -2060,6 +2063,19 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
             );
           })}
         </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>magic cursor</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, magicCursorEnabled: !settings.magicCursorEnabled })} style={{ position: "relative", width: "36px", height: "20px", background: settings.magicCursorEnabled ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.magicCursorEnabled ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.magicCursorEnabled ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.magicCursorEnabled ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Replace the regular system cursor with Unstable's animated cursor.
+        </p>
       </motion.section>
       </div>
 
@@ -3948,6 +3964,16 @@ function BrowserApp({
     document.documentElement.classList.toggle("unstable-font-obfuscated", settings.fontObfuscation);
   }, [settings.fontObfuscation]);
 
+  useEffect(() => {
+    if (settings.magicCursorEnabled) return;
+    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+    for (const iframe of Object.values(iframeRefs.current)) {
+      try {
+        iframe.contentDocument?.getElementById("unstable-cursor-style")?.remove();
+      } catch {}
+    }
+  }, [settings.magicCursorEnabled]);
+
   // Transport encryption toggle (sync to SWs)
   useEffect(() => {
     const msg = (type: string, data: any) => {
@@ -4268,7 +4294,7 @@ function BrowserApp({
 
   return (
     <>
-      <MagicCursor suppressed={gameModeActive} />
+      {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
       <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
       {activeBgEffect && (!activeTab?.url || activeTab.url === "unstable://settings") ? <VantaBackground effect={activeBgEffect} options={vantaOptions} /> : null}
     <motion.div
@@ -4422,14 +4448,13 @@ function BrowserApp({
                       const doc = iframe.contentDocument;
                       if (win && doc) {
                         doc.getElementById("unstable-cursor-style")?.remove();
-                        const cursorStyle = doc.createElement("style");
-                        cursorStyle.id = "unstable-cursor-style";
-                        cursorStyle.textContent = gameMode
-                          ? "html, body, * { cursor: auto !important; }"
-                          : "html, body, * { cursor: none !important; }";
-                        doc.head.appendChild(cursorStyle);
+                        const useMagicCursor = settings.magicCursorEnabled && !gameMode;
+                        if (useMagicCursor) {
+                          const cursorStyle = doc.createElement("style");
+                          cursorStyle.id = "unstable-cursor-style";
+                          cursorStyle.textContent = "html, body, * { cursor: none !important; }";
+                          doc.head.appendChild(cursorStyle);
 
-                        if (!gameMode) {
                           win.addEventListener("mousemove", (e: MouseEvent) => {
                             const rect = iframe.getBoundingClientRect();
                             window.dispatchEvent(new CustomEvent("iframe-mousemove", {
