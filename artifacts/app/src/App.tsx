@@ -4,9 +4,12 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw } from "lucide-react";
 import VantaBackground from "./components/VantaBackground";
+import { ErrorScreen } from "./components/ErrorScreen";
+import NotFound from "./pages/not-found";
 import gamesListData from "./data/games.json";
 import type { CodecType } from "./lib/codec";
 import { makeCodec } from "./lib/codec";
+import { useErrorHandler } from "./lib/errorContext";
 
 declare global {
   interface Window {
@@ -513,6 +516,9 @@ function encodeProxyUrl(url: string, engine: ProxyEngine = "auto", settings?: Se
   if (useScramjet) {
     try { return scrController!.encodeUrl(cleaned); } catch { /* fall through */ }
   }
+  if (effEngine === "scramjet" && !scrController) {
+    throw new Error("Scramjet controller not ready");
+  }
   if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
   return UV_PREFIX + encodeURIComponent(cleaned);
 }
@@ -730,7 +736,8 @@ function emitStatus(patch: Partial<ProxyState>) {
 
 async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor", wispRelayUrl = "", useEncryption = false): Promise<void> {
   if (!("serviceWorker" in navigator)) {
-    emitStatus({ phase: "error", message: "Service workers not supported" }); return;
+    emitStatus({ phase: "error", message: "Service workers not supported" });
+    return;
   }
   emitStatus({ phase: "loading" });
 
@@ -743,7 +750,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
       swRegistered = true;
     }
     emitStatus({ uv: "ready" });
-  } catch {
+  } catch (err) {
     emitStatus({ uv: "error" });
   }
 
@@ -765,7 +772,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
           all: "/eggs/scramjet.all.js",
           sync: "/eggs/scramjet.sync.js",
         },
-        flags: { rewriterLogs: false, cleanErrors: true },
+        flags: { rewriterLogs: false, cleanErrors: false },
         codec: makeCodec(codecType),
       });
       await scrController.init();
@@ -820,7 +827,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
       });
     } catch { /* scope might already be claimed */ }
     emitStatus({ scramjet: "ready" });
-  } catch {
+  } catch (err) {
     emitStatus({ scramjet: "error" });
   }
 
@@ -920,7 +927,8 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
-    emitStatus({ switching: false, phase: "error", message: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    emitStatus({ switching: false, phase: "error", message });
   }
 }
 
@@ -3852,6 +3860,11 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
+  const pathname = window.location.pathname;
+  const isProxyPath = pathname.startsWith("/ham/") || pathname.startsWith("/service/") || pathname.startsWith("/baremux/") || pathname.startsWith("/api/") || pathname.startsWith("/return");
+  if (pathname !== "/" && !isProxyPath) {
+    return <NotFound />;
+  }
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
@@ -3861,6 +3874,7 @@ function BrowserApp({
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
   const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
   const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
+  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {} });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -3883,6 +3897,7 @@ function BrowserApp({
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
   const proxyStatus = useProxyStatus();
+  const { setError } = useErrorHandler();
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
   const activeBgEffect = settings.backgroundEffect;
   const vantaOptions = useMemo(() => {
@@ -3914,6 +3929,15 @@ function BrowserApp({
           }
         };
         setPendingPerm({ id: e.data.id, permission: e.data.permission, origin: e.data.origin });
+        return;
+      }
+      if (e.data?.type === "unstable-navigate") {
+        if (e.data?.action === "newtab") {
+          navRefs.current.handleNewTab();
+        } else if (e.data?.action === "navigate" && e.data?.page) {
+          navRefs.current.handleNavigate("unstable://" + e.data.page);
+        }
+        return;
       }
     }
     window.addEventListener("message", handleMessage);
@@ -3928,8 +3952,10 @@ function BrowserApp({
     }
   }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
 
+
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
+
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
   }, [settings.panicUrl]);
@@ -3956,8 +3982,18 @@ function BrowserApp({
 
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption);
-  }, [settings.transportMode, settings.wispServer]);
+    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption).catch(err => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Proxy setup error:', message);
+    });
+  }, [settings.transportMode, settings.wispServer, settings.codec, settings.proxyEngine]);
+
+  // Watch proxy phase for errors -> show our error screen
+  useEffect(() => {
+    if (proxyStatus.phase === "error") {
+      void setError(new Error(proxyStatus.message || "Proxy connection failed"), "/proxy");
+    }
+  }, [proxyStatus.phase, proxyStatus.message, setError]);
 
   // Font obfuscation toggle
   useEffect(() => {
@@ -4155,7 +4191,13 @@ function BrowserApp({
       domain = new URL(normalized).hostname.replace(/^www\./i, "").toLowerCase();
     } catch { /* ignore */ }
     const engine = isGameModeHost(domain, settings) ? "scramjet" : settings.proxyEngine;
-    const proxyUrl = encodeProxyUrl(normalized, engine, settings);
+    let proxyUrl: string;
+    try {
+      proxyUrl = encodeProxyUrl(normalized, engine, settings);
+    } catch {
+      updateTab(tabId, { loading: false });
+      return;
+    }
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
@@ -4190,6 +4232,7 @@ function BrowserApp({
     setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
   function handleNewTab() { const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
+  navRefs.current = { handleNavigate, handleNewTab };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
     const idx = tabs.findIndex(t => t.id === id);
@@ -4495,6 +4538,10 @@ function BrowserApp({
                   onError={() => {
                     const current = tab.url;
                     if (current.startsWith(SCRAMJET_PREFIX)) {
+                      if (settings.proxyEngine === "scramjet") {
+                        updateTab(tab.id, { loading: false });
+                        return;
+                      }
                       const original = decodeProxyUrl(current);
                       const uvUrl = encodeProxyUrl(original, "uv", settings);
                       if (uvUrl !== current) {
@@ -4502,18 +4549,22 @@ function BrowserApp({
                         return;
                       }
                     } else if (current.startsWith(UV_PREFIX)) {
+                      if (settings.proxyEngine === "uv") {
+                        updateTab(tab.id, { loading: false });
+                        return;
+                      }
                       const original = decodeProxyUrl(current);
                       if (original && original.startsWith("http")) {
+                        if (scrController && settings.proxyEngine !== "uv") {
+                          const scramjetUrl = encodeProxyUrl(original, "scramjet", settings);
+                          if (scramjetUrl !== current) {
+                            updateTab(tab.id, { url: scramjetUrl, loading: true });
+                            return;
+                          }
+                        }
                         const retryUrl = encodeProxyUrl(original, "uv", settings);
                         if (retryUrl !== current) {
                           updateTab(tab.id, { url: retryUrl, loading: true });
-                          return;
-                        }
-                      }
-                      if (scrController) {
-                        const scramjetUrl = encodeProxyUrl(original || current, "scramjet", settings);
-                        if (scramjetUrl !== current) {
-                          updateTab(tab.id, { url: scramjetUrl, loading: true });
                           return;
                         }
                       }
@@ -4551,6 +4602,8 @@ function BrowserApp({
         )}
       </AnimatePresence>
 
+      <ErrorScreen />
+
       <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
     </motion.div>
     </>
@@ -4567,16 +4620,20 @@ export default function App() {
   const [authContext, setAuthContext] = useState<AppAuthContext>({ isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
 
+  console.log('App render state:', { accountLoading, session: !!session, user: !!user, profile: !!profile, accountError });
+
   useEffect(() => {
     let mounted = true;
 
     async function syncSession(nextSession: Session | null, showLoading = true) {
+      console.log('syncSession called:', { nextSession: !!nextSession, showLoading });
       if (!mounted) return;
       setSession(nextSession);
       const nextUser = nextSession?.user ?? null;
       setUser(nextUser);
 
       if (!nextUser) {
+        console.log('No user, setting accountLoading to false');
         setProfile(null);
         setAuthContext({ isBanned: false, banReason: null });
         setAccountLoading(false);
@@ -4593,6 +4650,7 @@ export default function App() {
           ACCOUNT_BOOT_TIMEOUT_MS,
           "Account sync",
         );
+        console.log('Account sync completed:', { nextProfile: !!nextProfile, nextAuthContext });
         if (!mounted) return;
 
         if (nextAuthContext.isBanned) {
@@ -4615,20 +4673,25 @@ export default function App() {
         setAuthContext(nextAuthContext);
         setAccountError(nextProfile ? "" : "Account signed in, but no profile was found.");
       } catch (err) {
+        console.error('Account sync error:', err);
         if (!mounted) return;
         setProfile(null);
         setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
       } finally {
+        console.log('syncSession finally, setting accountLoading to false');
         if (mounted) setAccountLoading(false);
       }
     }
 
     async function loadInitialSession() {
+      console.log('loadInitialSession called');
       try {
         const { data } = await withTimeout(supabase.auth.getSession(), ACCOUNT_BOOT_TIMEOUT_MS, "Session restore");
+        console.log('Session loaded:', { session: !!data.session });
         await syncSession(data.session);
       } catch (err) {
+        console.error('Session load error:', err);
         if (!mounted) return;
         setSession(null);
         setUser(null);
@@ -4642,6 +4705,7 @@ export default function App() {
     void loadInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      console.log('Auth state changed:', { event: _event, session: !!nextSession });
       void syncSession(nextSession, false);
     });
 
@@ -4668,12 +4732,13 @@ export default function App() {
     <>
       <AnimatePresence mode="wait">
         {accountLoading ? (
-          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
+          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
             syncing account…
           </motion.div>
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
             onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
+              console.log('BrowserApp onAuthenticated called');
               setSession(nextSession);
               setUser(nextUser);
               setProfile(nextProfile);
