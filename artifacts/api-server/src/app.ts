@@ -135,6 +135,7 @@ await app.register(fastifyStatic, {
   root: staticDir,
   prefix: "/",
   wildcard: true,
+  preCompressed: true,
   cacheControl: false,
   setHeaders(res, filePath) {
     if (/\.html?$/i.test(filePath)) {

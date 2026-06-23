@@ -3896,6 +3896,30 @@ function BrowserApp({
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
+
+  // Loading progress bar state
+  const loadProgress = useMotionValue(0);
+  const loadProgressSpring = useSpring(loadProgress, { stiffness: 60, damping: 20, mass: 0.6 });
+  const loadBarScaleX = useTransform(loadProgressSpring, [0, 100], [0, 1]);
+  const [loadBarVisible, setLoadBarVisible] = useState(false);
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    if (activeTab?.loading) {
+      setLoadBarVisible(true);
+      loadProgress.set(0);
+      // Animate to 80% quickly then slow down, simulating real progress
+      loadProgress.set(80);
+    } else {
+      // Complete to 100% then hide
+      loadProgress.set(100);
+      loadTimerRef.current = setTimeout(() => {
+        setLoadBarVisible(false);
+        loadProgress.set(0);
+      }, 400);
+    }
+    return () => { if (loadTimerRef.current) clearTimeout(loadTimerRef.current); };
+  }, [activeTab?.loading, activeTabId]);
   const proxyStatus = useProxyStatus();
   const { setError } = useErrorHandler();
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
@@ -4430,6 +4454,38 @@ function BrowserApp({
             <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} title="Fullscreen">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
             </button>
+          </div>
+
+          {/* Loading progress bar */}
+          <div style={{ height: 2, background: "#0d0d0d", overflow: "hidden", flexShrink: 0 }}>
+            <AnimatePresence>
+              {loadBarVisible && (
+                <motion.div
+                  key="loading-bar"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  style={{ height: "100%", width: "100%", position: "relative" }}
+                >
+                  <motion.div
+                    style={{
+                      height: "100%",
+                      scaleX: loadBarScaleX,
+                      transformOrigin: "left",
+                      background: "linear-gradient(90deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.28) 100%)",
+                      boxShadow: "0 0 6px rgba(255,255,255,0.12)",
+                      position: "relative",
+                    }}
+                  >
+                    <motion.div style={{
+                      position: "absolute", right: 0, top: 0, height: "100%", width: 40,
+                      background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.22))",
+                    }} />
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </motion.div>
       )}
