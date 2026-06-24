@@ -9,11 +9,13 @@
     "build:app:stormkit": "pnpm --filter @workspace/app run build",
     "build:api-server": "pnpm --filter @workspace/api-server run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "vite": "vite build --config artifacts/app/vite.config.ts"
   },
   "private": true,
   "devDependencies": {
     "prettier": "^3.8.4",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vite": "catalog:"
   }
 }
