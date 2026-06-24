@@ -6,7 +6,7 @@
     "start": "node ./artifacts/api-server/dist/index.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:app": "pnpm --filter @workspace/app run build",
-    "build:app:stormkit": "cd artifacts/app && pnpm exec vite build --config vite.config.ts",
+    "build:app:stormkit": "pnpm --filter @workspace/app run build",
     "build:api-server": "pnpm --filter @workspace/api-server run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
