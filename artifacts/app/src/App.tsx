@@ -4718,7 +4718,7 @@ export default function App() {
         }
 
         try {
-          await registerCurrentDevice(nextSession!.access_token);
+          await withTimeout(registerCurrentDevice(nextSession!.access_token), ACCOUNT_BOOT_TIMEOUT_MS, "Device registration");
         } catch (err) {
           if (mounted) {
             setAccountError(err instanceof Error ? err.message : "Unable to register this device.");
