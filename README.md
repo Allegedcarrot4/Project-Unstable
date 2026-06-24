@@ -7,9 +7,7 @@ sdk: docker
 pinned: false
 ---
 
-<p align="left">
-  <img src="https://raw.githubusercontent.com/Allegedcarrot4/Project-Unstable/main/logo.svg" alt="Unstable" height="80">
-</p>
+<image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAYAAACOEfKtAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH6gYEEw0BEx4OfAAAABl0RVh0Q29tbWVudABDcmVhdGVkIHdpdGggR0lNUFeBDhcAAACSSURBVHja7dgxEQAgDAAx8G86U8F6gA9IQLK6b86ZpTrgqgXIEggSFCQIChIEBQmCggRBQYKgIEFQkCAoSBAUJAwFSKAIChIEBQmCggRBQYKgIEFQkCAoSBAUJAwFSKAIChIEBQmCggRBQYKgIEFQkCAoSBAUJAwFSKAIChIEBQmCggRBQYKgIEFQkDAUIIEiKPgBe9WvI6eN/YMAAAAASUVORK5CYII=" x="0" y="0" width="80" height="80"/>
 
 <p align="left">
   <a href="https://discord.com/invite/yD9NkcsKcw"><img src="https://skillicons.dev/icons?i=discord" alt="Join our Discord"></a>&nbsp;<a href="https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://skillicons.dev/icons?i=github" alt="View on GitHub"></a>
