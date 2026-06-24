@@ -7,32 +7,99 @@ sdk: docker
 pinned: false
 ---
 
-# Unstable
+<img src="./artifacts/app/public/favicon.png" width="80" alt="Unstable">
 
-A password-protected web proxy browser with a dark void aesthetic. Powered by [Ultraviolet](https://github.com/titaniumnetwork-dev/Ultraviolet), [Scramjet](https://github.com/MercuryWorkshop/scramjet), bare-mux, and Wisp.
+<p align="left">
+  <a href="https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://skillicons.dev/icons?i=github" alt="View on GitHub"></a>
+</p>
 
-## Deploy
+**Unstable** is a fast, password-protected, browser-inspired web proxy with a dark void aesthetic. Powered by Ultraviolet, Scramjet, bare-mux, and Wisp.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Allegedcarrot4/Project-Unstable)
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/new?template=https://github.com/Allegedcarrot4/Project-Unstable)
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/services/deploy?type=git&repository=github.com/Allegedcarrot4/Project-Unstable&builder=dockerfile&instance_type=free&ports=7860;http;/&env[PORT]=7860)
-
-> All three platforms have free tiers and support the full stack (Node server + WebSocket proxy). Set your `PASSWORD` secret before deploying.
+---
 
 ## Features
 
-- Multi-tab browser with favicons, history, and loading progress bar
-- UV + Scramjet dual proxy engines (auto-switching)
+- Browser-like UI with tabs, favicons, history, and a loading progress bar
+- UV + Scramjet dual proxy engines with auto-switching
 - 5 bare proxy servers + Wisp WebSocket transport
 - libcurl, epoxy, and bare-mux transport options
 - Built-in adblock and tracking parameter stripping
-- Canvas/WebGL/WebRTC fingerprint protection
+- Canvas, WebGL, and WebRTC fingerprint protection
 - New tab page with editable shortcuts
 - Tab cloaking (Google Drive, Schoology, ClassLink, Google Classroom)
 - Recordable keyboard shortcuts
 - `unstable://` protocol (newtab, settings, credits, blank)
 - Password-protected access
-- Dark theme with animated Vanta backgrounds
+- Dark themes with animated Vanta backgrounds
+
+---
+
+## Deployment Options
+
+> **Note**
+> Unstable **cannot** be deployed to Netlify, Vercel, GitHub Pages, Stormkit, or any other static hosting platform. It requires a full Node.js server for the proxy to function.
+
+<p>
+  <a href="https://render.com/deploy?repo=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/render.svg" alt="Deploy to Render"></a>&nbsp;
+  <a href="https://railway.com/template/new?template=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/railway.svg" alt="Deploy on Railway"></a>&nbsp;
+  <a href="https://app.koyeb.com/services/deploy?type=git&repository=github.com/Allegedcarrot4/Project-Unstable&builder=dockerfile&instance_type=free&ports=7860%3Bhttp%3B%2F&env[PORT]=7860"><img src="https://binbashbanana.github.io/deploy-buttons/buttons/remade/koyeb.svg" alt="Deploy to Koyeb"></a>
+</p>
+
+---
+
+## Deployment via Terminal
+
+> **Note**
+> Before deploying, install:
+>
+> - [Git](https://git-scm.com/downloads)
+> - [Node.js](https://nodejs.org/en/download/prebuilt-installer)
+>
+> Then install **pnpm**:
+>
+> ```bash
+> npm install -g pnpm
+> ```
+
+### Production
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/Allegedcarrot4/Project-Unstable
+cd Project-Unstable
+```
+
+2. Install dependencies and start the server:
+
+```bash
+pnpm install
+pnpm run build
+pnpm start
+```
+
+### Development
+
+```bash
+pnpm install
+```
+
+In one terminal, start the frontend:
+
+```bash
+pnpm --filter @workspace/app dev
+```
+
+In another terminal, start the API server:
+
+```bash
+pnpm --filter @workspace/api-server build
+pnpm --filter @workspace/api-server start
+```
+
+The dev password (when `PASSWORD` is unset) is `ripmoonlight`.
+
+---
 
 ## Secrets to Configure
 
@@ -40,74 +107,25 @@ Set these in your deployment platform's environment/secrets panel:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PASSWORD` | **Yes** | Password users must enter to access Unstable. The server refuses all logins if unset in production. |
-| `VITE_SUPABASE_URL` | No | Supabase project URL for accounts. Falls back to built-in default. |
+| `PASSWORD` | **Yes** | Password users must enter to access Unstable. |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |
+| `VITE_SUPABASE_URL` | No | Supabase project URL. Falls back to built-in default. |
 | `VITE_SUPABASE_ANON_KEY` | No | Supabase anon key. Falls back to built-in default. |
-| `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features (ban management, device registration). |
 
-Copy `.env.example` to `.env` for local development. Never commit `.env`.
+---
 
-## Platform Notes
+## Contributing
 
-### Render
-Connect your GitHub repo, select **Docker** as the environment, and add your `PASSWORD` secret. Render's free tier sleeps after 15 minutes of inactivity but wakes automatically on the next request.
+Interested in contributing? Open a [pull request](https://github.com/Allegedcarrot4/Project-Unstable/pulls) or file a [GitHub Issue](https://github.com/Allegedcarrot4/Project-Unstable/issues).
 
-### Railway
-Connect your GitHub repo and Railway auto-detects the Dockerfile. Add `PASSWORD` in the Variables tab. The free tier gives $5 credit/month.
+---
 
-### Koyeb
-Use the deploy button above or connect your repo manually. Select the **free nano instance**, set `PORT=7860` and `PASSWORD` in the environment variables section.
+## Credits
 
-### Hugging Face Spaces
-The repo is already configured for HF Spaces via the front-matter above. Set `PASSWORD` in **Settings → Variables and secrets**.
+Huge thanks to everyone who has contributed to Unstable.
 
-### Stormkit
-Stormkit cloud is static hosting only and cannot run the Node.js server — the proxy will not work there. Use one of the platforms above instead.
-
-## Local Development
-
-This repo is a pnpm monorepo.
-
-```bash
-pnpm install
-
-# Terminal 1 — frontend dev server
-pnpm --filter @workspace/app dev
-
-# Terminal 2 — API server
-pnpm --filter @workspace/api-server build
-pnpm --filter @workspace/api-server start
-```
-
-For development mode on Windows PowerShell:
-```powershell
-$env:NODE_ENV='development'; pnpm --filter @workspace/api-server start
-```
-
-The dev password (when `PASSWORD` is unset) is `ripmoonlight`.
-
-## Architecture
-
-```
-Browser
-├── UV service worker (/service/*) → bare servers (/api/cdn/ … /api/cdn5/)
-└── Scramjet service worker (/ham/*) → Wisp WebSocket (/api/wisp/)
-
-Server (Fastify, clustered across all CPU cores)
-├── 5 × bare-server-node instances (HTTP transport)
-├── wisp-js (WebSocket/TCP transport)
-└── Static frontend with pre-compressed .br/.gz assets
-```
-
-## Tech Stack
-
-- **Frontend** — React 19, Framer Motion, Tailwind CSS v4, Vite 7
-- **Proxy** — Ultraviolet, Scramjet, bare-mux, libcurl-transport, epoxy-transport
-- **Server** — Fastify v5, Node.js cluster, wisp-js, bare-server-node
-- **Auth** — Supabase
-
-## Contributors
-
-<a href="https://github.com/Allegedcarrot4/Project-Unstable/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Allegedcarrot4/Project-Unstable" />
-</a>
+<p>
+  <a href="https://github.com/Allegedcarrot4/Project-Unstable/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Allegedcarrot4/Project-Unstable" alt="Contributors">
+  </a>
+</p>
