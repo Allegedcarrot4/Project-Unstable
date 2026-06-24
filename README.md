@@ -10,7 +10,7 @@ pinned: false
 <img src="./artifacts/app/public/favicon.png" width="80" alt="Unstable">
 
 <p align="left">
-  <a href="https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://skillicons.dev/icons?i=github" alt="View on GitHub"></a>
+  <a href="https://discord.com/invite/yD9NkcsKcw"><img src="https://skillicons.dev/icons?i=discord" alt="Join our Discord"></a>&nbsp;<a href="https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://skillicons.dev/icons?i=github" alt="View on GitHub"></a>
 </p>
 
 **Unstable** is a fast, password-protected, browser-inspired web proxy with a dark void aesthetic. Powered by Ultraviolet, Scramjet, bare-mux, and Wisp.
@@ -117,6 +117,15 @@ Set these in your deployment platform's environment/secrets panel:
 ## Contributing
 
 Interested in contributing? Open a [pull request](https://github.com/Allegedcarrot4/Project-Unstable/pulls) or file a [GitHub Issue](https://github.com/Allegedcarrot4/Project-Unstable/issues).
+
+---
+
+## Support
+
+Need help or ran into an issue?
+
+- Open a [GitHub Issue](https://github.com/Allegedcarrot4/Project-Unstable/issues)
+- Ask for help in our [Discord server](https://discord.com/invite/yD9NkcsKcw)
 
 ---
 
