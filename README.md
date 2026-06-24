@@ -8,7 +8,7 @@ pinned: false
 ---
 
 <p align="left">
-  <img src="https://raw.githubusercontent.com/Allegedcarrot4/Project-Unstable/main/logo.svg" alt="Unstable" height="80">
+  <img src="./logo.svg" alt="Unstable" height="80">
 </p>
 
 <p align="left">
