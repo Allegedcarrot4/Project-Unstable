@@ -75,9 +75,10 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes("node_modules/three") || id.includes("node_modules/vanta")) return "vendor-3d";
           if (id.includes("node_modules/framer-motion")) return "vendor-motion";
-          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) return "vendor-react";
-          if (id.includes("node_modules/@radix-ui") || id.includes("node_modules/class-variance-authority") || id.includes("node_modules/clsx") || id.includes("node_modules/tailwind-merge")) return "vendor-ui";
           if (id.includes("node_modules/@supabase")) return "vendor-supabase";
+          // React, Radix, and everything else stays in one vendor chunk
+          // to avoid circular init ordering — splitting React out causes
+          // "Cannot read properties of undefined (reading 'forwardRef')" crashes
           if (id.includes("node_modules")) return "vendor";
         },
       },

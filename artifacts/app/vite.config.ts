@@ -77,30 +77,13 @@ export default defineConfig({
         // Split chunks so the browser can cache vendor libs independently of app code.
         // A deploy only busts the chunks that actually changed.
         manualChunks(id) {
-          // Heavy 3D / animation libs — rarely change, large, cache forever
-          if (id.includes("node_modules/three") || id.includes("node_modules/vanta")) {
-            return "vendor-3d";
-          }
-          // Framer Motion — medium-sized, changes with library updates only
-          if (id.includes("node_modules/framer-motion")) {
-            return "vendor-motion";
-          }
-          // React runtime — almost never changes
-          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
-            return "vendor-react";
-          }
-          // Radix UI primitives + shadcn utils — UI component library
-          if (id.includes("node_modules/@radix-ui") || id.includes("node_modules/class-variance-authority") || id.includes("node_modules/clsx") || id.includes("node_modules/tailwind-merge")) {
-            return "vendor-ui";
-          }
-          // Supabase client
-          if (id.includes("node_modules/@supabase")) {
-            return "vendor-supabase";
-          }
-          // Everything else in node_modules goes into a general vendor chunk
-          if (id.includes("node_modules")) {
-            return "vendor";
-          }
+          if (id.includes("node_modules/three") || id.includes("node_modules/vanta")) return "vendor-3d";
+          if (id.includes("node_modules/framer-motion")) return "vendor-motion";
+          if (id.includes("node_modules/@supabase")) return "vendor-supabase";
+          // React, Radix, and everything else stays in one vendor chunk
+          // to avoid circular init ordering — splitting React out causes
+          // "Cannot read properties of undefined (reading 'forwardRef')" crashes
+          if (id.includes("node_modules")) return "vendor";
         },
       },
     },
