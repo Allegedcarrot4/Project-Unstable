@@ -20,16 +20,16 @@ const require = createRequire(import.meta.url);
 
 const httpAgent = new http.Agent({
   keepAlive: true,
-  maxSockets: 32,
-  maxFreeSockets: 8,
-  keepAliveMsecs: 10000,
+  maxSockets: 128,
+  maxFreeSockets: 32,
+  keepAliveMsecs: 30000,
   timeout: 30000,
 });
 const httpsAgent = new https.Agent({
   keepAlive: true,
-  maxSockets: 32,
-  maxFreeSockets: 8,
-  keepAliveMsecs: 10000,
+  maxSockets: 128,
+  maxFreeSockets: 32,
+  keepAliveMsecs: 30000,
   timeout: 30000,
 });
 
@@ -74,6 +74,9 @@ const staticDir = staticCandidates.find((candidate) => fs.existsSync(candidate))
 if (!staticDir) {
   throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
 }
+
+// Cache index.html in memory — read once, serve forever (avoids disk I/O on every SPA fallback)
+const indexHtml = fs.readFileSync(path.join(staticDir, "index.html"), "utf-8");
 
 const app = Fastify({
   logger: false,
@@ -184,8 +187,7 @@ app.setNotFoundHandler((request, reply) => {
     !url.startsWith("/ham") &&
     !url.startsWith("/baremux")
   ) {
-    const indexPath = path.join(staticDir, "index.html");
-    return reply.type("text/html").send(fs.readFileSync(indexPath, "utf-8"));
+    return reply.type("text/html").send(indexHtml);
   }
   return reply.status(404).send("Not found");
 });
