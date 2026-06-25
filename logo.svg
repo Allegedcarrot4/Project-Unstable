@@ -1,4 +1,4 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="260" height="80" viewBox="0 0 260 80">
+﻿<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="380" height="80" viewBox="0 0 380 80">
   <defs>
     <style>
       @font-face {
@@ -8,7 +8,7 @@
       }
       .title {
         font-family: 'Space Grotesk', sans-serif;
-        font-size: 32px;
+        font-size: 64px;
         font-weight: 700;
         dominant-baseline: middle;
       }
@@ -16,6 +16,6 @@
       @media (prefers-color-scheme: light) { .title { fill: #0d0d0d; } }
     </style>
   </defs>
-  <image href="https://huggingface.co/spaces/Allegedcarrot4/Unstable-Node/resolve/main/artifacts/app/public/favicon.png" x="0" y="0" width="80" height="80"/> x="0" y="0" width="80" height="80"/>
+  <image href="https://huggingface.co/spaces/Allegedcarrot4/Unstable-Node/resolve/main/artifacts/app/public/favicon.png" x="0" y="0" width="80" height="80"/>
   <text class="title" x="92" y="42">Unstable</text>
 </svg>
