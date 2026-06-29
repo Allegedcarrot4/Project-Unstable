@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTra
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw } from "lucide-react";
-import VantaBackground from "./components/VantaBackground";
+
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
 import gamesListData from "./data/games.json";
@@ -155,16 +155,6 @@ const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEff
   },
 };
 
-const VANTA_DEFAULTS: Record<string, Record<string, any>> = {
-  fog: { highlightColor: 0x606080, midtoneColor: 0x303055, lowlightColor: 0x151530, baseColor: 0x0a0a1a },
-  net: { color: 0xff00ff, backgroundColor: 0x0d0a1a, points: 12, maxDistance: 22, spacing: 16 },
-  globe: { color: 0x44aaff, backgroundColor: 0x0a0a14, size: 1.2 },
-  clouds: { color: 0x5588aa, backgroundColor: 0x0a1520, skyColor: 0x0a1520, cloudColor: 0x5588aa, cloudShadowColor: 0x2a4a6a, sunColor: 0xff8844, sunGlareColor: 0xff6633, sunlightColor: 0xff8844 },
-  dots: { color: 0x00ff41, backgroundColor: 0x0a0f0a, size: 3, spacing: 25, showLines: true },
-  halo: { baseColor: 0x1a0a2e, color: 0x8833ff, amplitudeFactor: 1.5, ringFactor: 2, yOffset: 0, size: 1.5 },
-  rings: { color: 0xff4488, backgroundColor: 0x0a0a12, ringSize: 1.4 },
-};
-
 interface Settings {
   cloak: CloakId;
   shortcuts: KeyShortcuts;
@@ -172,12 +162,10 @@ interface Settings {
   transportMode: TransportMode;
   theme: ThemeId;
   wallpaper: string;
-  backgroundEffect: string;
   gameModeEnabled: boolean;
   gameModeSites: string[];
   panicUrl: string;
   wispServer: string;
-  vantaAdvanced: Record<string, any>;
   searchEngine: string;
   adblockEnabled: boolean;
   codec: CodecType;
@@ -283,13 +271,11 @@ const DEFAULT_SETTINGS: Settings = {
   proxyEngine: "auto",
   transportMode: "wisp",
   theme: "dark",
-  wallpaper: "",
-  backgroundEffect: "",
+  wallpaper: "https://picsum.photos/seed/unstable/1920/1080",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
   wispServer: "",
-  vantaAdvanced: {},
   searchEngine: "duckduckgo",
   adblockEnabled: true,
   codec: "xor",
@@ -604,14 +590,12 @@ function loadSettings(): Settings {
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
       theme: (parsed.theme ?? "dark") as ThemeId,
       wallpaper: (parsed.wallpaper ?? "") as string,
-      backgroundEffect: (parsed.backgroundEffect ?? "") as string,
       gameModeEnabled: parsed.gameModeEnabled ?? true,
       gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
         ? parsed.gameModeSites
         : [...DEFAULT_GAME_MODE_SITES],
       panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
       wispServer: typeof parsed.wispServer === "string" ? parsed.wispServer : "",
-      vantaAdvanced: parsed.vantaAdvanced ?? {},
       searchEngine: parsed.searchEngine ?? "duckduckgo",
       adblockEnabled: parsed.adblockEnabled ?? true,
       codec: (parsed.codec ?? "xor") as CodecType,
@@ -1093,6 +1077,42 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
 }
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
+
+function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, transportEncryption }: { transportMode: TransportMode; wispServer: string; wispRelayUrl: string; transportEncryption: boolean }) {
+  const s = useProxyStatus();
+  const green = "rgba(80,200,120,0.9)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)", gray = "rgba(255,255,255,0.3)";
+  const phaseLabel = s.phase === "idle" ? "Initializing…"
+    : s.phase === "loading" ? "Starting proxy…"
+      : s.switching ? `Switching ws${s.bare}…`
+        : s.phase === "ready" ? (s.transport === "libcurl" ? "Libcurl + Wisp" : `Bare ws${s.bare}`)
+          : s.phase === "error" ? `Error: ${s.message?.slice(0, 60)}`
+            : "…";
+  const phaseColor = s.phase === "ready" ? green : s.phase === "error" ? red : amber;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", fontSize: "0.68rem", color: "var(--t-text-muted)" }}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <EngineBadge label="UV" status={s.uv} />
+        <span style={{ color: gray }}>|</span>
+        <EngineBadge label="SCR" status={s.scramjet} />
+      </div>
+      <span style={{ color: phaseColor }}>{phaseLabel}</span>
+      {s.transport === "bare" && (
+        <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ color: gray, fontSize: "0.6rem" }}>Bare servers:</span>
+          {[1, 2, 3, 4, 5].map(n => (
+            <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
+              background: s.bare === n ? "rgba(80,200,120,0.15)" : "none",
+              border: `1px solid ${s.bare === n ? green : "#333"}`,
+              color: s.bare === n ? green : gray,
+              padding: "0.2rem 0.5rem", fontSize: "0.6rem", cursor: "pointer", borderRadius: "2px",
+              fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em",
+            }}>ws{n}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function EngineBadge({ label, status }: { label: string; status: EngineStatus }) {
   const color = status === "ready" ? "rgba(80,200,120,0.9)" : status === "error" ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.2)";
@@ -1578,7 +1598,7 @@ function PrivacyPage() {
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { settings: Settings; onSettingsChange: (s: Settings) => void; vantaActive?: boolean; onLogout?: () => void }) {
+function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void }) {
   const [recording, setRecording] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1624,9 +1644,9 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       id="settings-scroll"
-      style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}
+      style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: vantaActive ? "rgba(13,13,13,0.85)" : "var(--t-bg)", backdropFilter: vantaActive ? "blur(12px)" : "none", WebkitBackdropFilter: vantaActive ? "blur(12px)" : "none" }}>
+      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: "var(--t-bg)" }}>
       <div style={{
         width: 160, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.06)", padding: "2.5rem 0",
         display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "stretch", overflowY: "auto",
@@ -1656,38 +1676,9 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
       </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>color theme</p>
-        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Choose a color theme for the entire application.
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(Object.keys(THEMES) as ThemeId[]).map(id => {
-            const active = settings.theme === id;
-            const t = THEMES[id].colors;
-            return (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                key={id}
-                onClick={() => onSettingsChange({ ...settings, theme: id, wallpaper: THEMES[id]?.wallpaper ?? settings.wallpaper, backgroundEffect: id === "tuff" ? "" : settings.backgroundEffect })}
-                style={{
-                  background: active ? t.accent : t.bgSecondary,
-                  color: active ? t.accentText : t.textSecondary,
-                  border: `1px solid ${active ? t.accent : t.borderLight}`,
-                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  transition: "all 0.15s",
-                }}
-              >{THEMES[id].label}</motion.button>
-            );
-          })}
-        </div>
-      </motion.section>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>background</p>
         <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Set a wallpaper URL or upload an image. Optionally add a Vanta effect behind the UI.
+          Set a wallpaper URL, upload an image, or pick a random one from Unsplash.
         </p>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <input
@@ -1711,6 +1702,16 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
               }}
             />
           </label>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onSettingsChange({ ...settings, wallpaper: `https://picsum.photos/seed/${Date.now()}/1920/1080` })}
+            style={{
+              background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
+              padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >random</motion.button>
           {settings.wallpaper && (
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -1730,80 +1731,7 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
           </div>
         )}
 
-        <div style={{ marginTop: "1.5rem" }}>
-          <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>vanta effect</p>
-          <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-            An animated Three.js background. Pick an effect, or leave empty for none.
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-            {(["", "fog", "net", "globe", "clouds", "dots", "halo", "rings"] as const).map(effect => {
-              const active = settings.backgroundEffect === effect;
-              return (
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  key={effect}
-                  onClick={() => onSettingsChange({ ...settings, backgroundEffect: effect })}
-                  style={{
-                    background: active ? "#e8e8e8" : "#111",
-                    color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                    border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                    padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                    letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                    transition: "all 0.15s",
-                  }}
-                >{effect || "none"}</motion.button>
-              );
-            })}
-          </div>
-        </div>
       </motion.section>
-
-      {(() => {
-        const effect = settings.backgroundEffect;
-        if (!effect) return null;
-        const adv = settings.vantaAdvanced?.[effect] ?? {};
-        const defaults = VANTA_DEFAULTS[effect] ?? {};
-        const allKeys = [...new Set([...Object.keys(defaults), ...Object.keys(adv)])];
-        if (!allKeys.length) return null;
-        return (
-          <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }} style={{ marginBottom: "2.5rem" }}>
-            <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>advanced — {effect}</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-              {allKeys.map(key => {
-                const val = adv[key] ?? defaults[key];
-                const defaultIsNum = typeof defaults[key] === "number";
-                const isColor = (key.toLowerCase().includes("color") || key.toLowerCase().includes("light")) && defaultIsNum;
-                const isNum = defaultIsNum && !isColor;
-                return (
-                  <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                    <label style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.5)", minWidth: 120, flexShrink: 0, textTransform: "capitalize" }}>{key.replace(/([A-Z])/g, " $1")}</label>
-                    {isColor ? (
-                      <input type="color" value={`#${(val ?? 0).toString(16).padStart(6, "0")}`} onChange={e => {
-                        const hex = parseInt(e.target.value.slice(1), 16);
-                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: hex } } });
-                      }} style={{ width: 36, height: 28, padding: 0, border: "1px solid #333", borderRadius: "4px", cursor: "pointer", background: "none" }} />
-                    ) : isNum ? (
-                      <input type="number" value={val ?? 0} onChange={e => {
-                        const n = parseFloat(e.target.value);
-                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: isNaN(n) ? 0 : n } } });
-                      }} style={{ width: 80, background: "#0a0a0a", border: "1px solid #222", color: "#e0e0e0", padding: "0.25rem 0.5rem", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "4px" }} />
-                    ) : (
-                      <input type="text" value={String(val ?? "")} onChange={e => {
-                        onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: { ...adv, [key]: e.target.value } } });
-                      }} style={{ flex: 1, background: "#0a0a0a", border: "1px solid #222", color: "#e0e0e0", padding: "0.25rem 0.5rem", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "4px" }} />
-                    )}
-                    <button onClick={() => {
-                      const next = { ...adv }; delete next[key];
-                      onSettingsChange({ ...settings, vantaAdvanced: { ...settings.vantaAdvanced, [effect]: next } });
-                    }} style={{ background: "none", border: "1px solid #333", color: "rgba(255,255,255,0.3)", cursor: "pointer", padding: "0.2rem 0.5rem", fontSize: "0.6rem", borderRadius: "4px" }}>reset</button>
-                  </div>
-                );
-              })}
-            </div>
-          </motion.section>
-        );
-      })()}
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>search engine</p>
@@ -2278,6 +2206,11 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.23 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy status</p>
+        <ConnectionStatusSummary transportMode={settings.transportMode} wispServer={settings.wispServer} wispRelayUrl={settings.wispRelayUrl ?? ""} transportEncryption={settings.transportEncryption} />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>settings management</p>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <motion.button
@@ -2339,6 +2272,16 @@ function SettingsPage({ settings, onSettingsChange, vantaActive, onLogout }: { s
       </div>
 
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} style={{ display: "flex", gap: "1.5rem", marginTop: "1.5rem" }}>
+        {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+          <motion.button
+            whileHover={{ color: "var(--t-text-secondary)" }}
+            key={label}
+            onClick={() => onNavigate?.(url)}
+            style={{ background: "none", border: "none", color: "var(--t-text-muted)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
+          >{label}</motion.button>
+        ))}
+      </motion.div>
       </div>
       </div>
     </motion.div>
@@ -3558,17 +3501,6 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         )}
       </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
-          <motion.button
-            whileHover={{ color: "var(--t-text-secondary)" }}
-            key={label}
-            onClick={() => onNavigate(url)}
-            style={{ background: "none", border: "none", color: "var(--t-text-muted)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
-          >{label}</motion.button>
-        ))}
-      </motion.div>
-
       <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
       </div>
     </motion.div>
@@ -3923,10 +3855,6 @@ function BrowserApp({
   const proxyStatus = useProxyStatus();
   const { setError } = useErrorHandler();
   const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
-  const activeBgEffect = settings.backgroundEffect;
-  const vantaOptions = useMemo(() => {
-    return { ...(VANTA_DEFAULTS[activeBgEffect] ?? {}), ...(settings.vantaAdvanced?.[activeBgEffect] ?? {}) };
-  }, [activeBgEffect, JSON.stringify(settings.vantaAdvanced?.[activeBgEffect] ?? {})]);
   const [gameModeToast, setGameModeToast] = useState(false);
   const lastGameToastHost = useRef<string | null>(null);
 
@@ -3959,7 +3887,12 @@ function BrowserApp({
         if (e.data?.action === "newtab") {
           navRefs.current.handleNewTab();
         } else if (e.data?.action === "navigate" && e.data?.page) {
-          navRefs.current.handleNavigate("unstable://" + e.data.page);
+          const page = e.data.page;
+          if (page.startsWith("http://") || page.startsWith("https://")) {
+            navRefs.current.handleNavigate(page);
+          } else {
+            navRefs.current.handleNavigate("unstable://" + page);
+          }
         }
         return;
       }
@@ -4023,6 +3956,16 @@ function BrowserApp({
   useEffect(() => {
     document.documentElement.classList.toggle("unstable-font-obfuscated", settings.fontObfuscation);
   }, [settings.fontObfuscation]);
+
+  // Sync search engine to Mue iframes
+  useEffect(() => {
+    const searchUrl = SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=";
+    for (const iframe of Object.values(iframeRefs.current)) {
+      try {
+        iframe.contentWindow?.postMessage({ type: "set-search-engine", searchUrl }, "*");
+      } catch {}
+    }
+  }, [settings.searchEngine]);
 
   useEffect(() => {
     if (settings.magicCursorEnabled) return;
@@ -4363,12 +4306,11 @@ function BrowserApp({
     <>
       {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
       <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
-      {activeBgEffect && (!activeTab?.url || activeTab.url === "unstable://settings") ? <VantaBackground effect={activeBgEffect} options={vantaOptions} /> : null}
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: activeBgEffect ? "transparent" : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1, transform: `scale(${settings.uiScale})`, transformOrigin: "top left", width: `${100 / settings.uiScale}vw`, minHeight: `${100 / settings.uiScale}vh` }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1, transform: `scale(${settings.uiScale})`, transformOrigin: "top left", width: `${100 / settings.uiScale}vw`, minHeight: `${100 / settings.uiScale}vh` }}
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
@@ -4515,13 +4457,13 @@ function BrowserApp({
                   style={{ position: "absolute", inset: 0 }}
                 >
               {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={THEMES[settings.theme]?.wallpaper ?? settings.wallpaper} vantaActive={!!activeBgEffect} searchEngine={settings.searchEngine} />
+                <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
                 <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://settings" ? (
-                <SettingsPage settings={settings} onSettingsChange={setSettings} vantaActive={!!activeBgEffect} onLogout={onLogout} />
+                <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://games" ? (
                 <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://credits" ? (
@@ -4636,7 +4578,7 @@ function BrowserApp({
         </div>
       </div>
 
-      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
+      <StatusBar visible={false} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
 
       <AnimatePresence>
         {pendingPerm && (

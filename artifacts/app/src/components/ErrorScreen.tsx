@@ -204,7 +204,7 @@ export function ErrorScreen() {
                   <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>← Back</p>
                   <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Alt + ←</p>
                 </motion.button>
-                <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => (window.location.href = '/')} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>
+                <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => window.parent.postMessage({ type: "unstable-navigate", action: "navigate", page: "newtab" }, "*")} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>
                   <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>⌂ Home</p>
                   <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Alt + H</p>
                 </motion.button>
