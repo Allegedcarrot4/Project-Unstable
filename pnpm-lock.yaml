@@ -245,8 +245,8 @@ importers:
         specifier: https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz
         version: '@mercuryworkshop/bare-mux@https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz'
       three:
-        specifier: ^0.162.0
-        version: 0.162.0
+        specifier: ^0.185.0
+        version: 0.185.0
       vanta:
         specifier: ^0.5.24
         version: 0.5.24
@@ -3778,8 +3778,8 @@ packages:
   thread-stream@3.1.0:
     resolution: {integrity: sha512-OqyPZ9u96VohAyMfJykzmivOrY2wfMSf3C5TtFJVgN+Hm6aj+voFhlK+kZEIv2FBh1X6Xp3DlnCOfEQ3B2J86A==}
 
-  three@0.162.0:
-    resolution: {integrity: sha512-xfCYj4RnlozReCmUd+XQzj6/5OjDNHBy5nT6rVwrOKGENAvpXe2z1jL+DZYaMu4/9pNsjH/4Os/VvS9IrH7IOQ==}
+  three@0.185.0:
+    resolution: {integrity: sha512-+yRrcRO2iZa8uzvNNl0d7cL4huhgKgBvVJ0njcTe8xFqZ6DMAFZdCKDP91SEAuj25bNAj7k1QQdf+srZywVK6w==}
 
   through2@2.0.5:
     resolution: {integrity: sha512-/mrRod8xqpA+IHSLyGCQ2s8SPHiCDEeQJSep1jqLYeEUClOFG2Qsh+4FU6G9VeqpZnGW/Su8LQGc4YKni5rYSQ==}
@@ -7292,7 +7292,7 @@ snapshots:
     dependencies:
       real-require: 0.2.0
 
-  three@0.162.0: {}
+  three@0.185.0: {}
 
   through2@2.0.5:
     dependencies:
