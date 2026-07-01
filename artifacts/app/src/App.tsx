@@ -176,6 +176,7 @@ interface Settings {
   uiScale: number;
   confirmLeave: boolean;
   magicCursorEnabled: boolean;
+  newtabMode: "mue" | "legacy";
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -271,7 +272,7 @@ const DEFAULT_SETTINGS: Settings = {
   proxyEngine: "auto",
   transportMode: "wisp",
   theme: "dark",
-  wallpaper: "https://picsum.photos/seed/unstable/1920/1080",
+  wallpaper: "https://source.unsplash.com/random/1920x1080",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
@@ -286,6 +287,7 @@ const DEFAULT_SETTINGS: Settings = {
   uiScale: 1,
   confirmLeave: false,
   magicCursorEnabled: false,
+  newtabMode: "mue",
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -606,6 +608,7 @@ function loadSettings(): Settings {
       uiScale: typeof parsed.uiScale === "number" ? parsed.uiScale : 1,
       confirmLeave: parsed.confirmLeave ?? false,
       magicCursorEnabled: parsed.magicCursorEnabled ?? false,
+      newtabMode: parsed.newtabMode ?? "mue",
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -1705,7 +1708,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => onSettingsChange({ ...settings, wallpaper: `https://picsum.photos/seed/${Date.now()}/1920/1080` })}
+            onClick={() => onSettingsChange({ ...settings, wallpaper: `https://source.unsplash.com/random/1920x1080?sig=${Date.now()}` })}
             style={{
               background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
               padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
@@ -1731,6 +1734,33 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
           </div>
         )}
 
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>new tab page</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose between the classic Unstable new tab page or the Mue-powered new tab.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["mue", "legacy"] as const).map(mode => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={mode}
+              onClick={() => onSettingsChange({ ...settings, newtabMode: mode })}
+              style={{
+                flex: 1,
+                background: settings.newtabMode === mode ? "var(--t-bg-card)" : "none",
+                border: "1px solid", borderColor: settings.newtabMode === mode ? "var(--t-border-light)" : "var(--t-border)",
+                color: settings.newtabMode === mode ? "var(--t-text)" : "var(--t-text-muted)",
+                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", textTransform: "uppercase",
+                transition: "background 0.15s, border-color 0.15s, color 0.15s",
+              }}
+            >{mode === "mue" ? "Mue" : "Legacy"}</motion.button>
+          ))}
+        </div>
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }} style={{ marginBottom: "2.5rem" }}>
@@ -3633,7 +3663,7 @@ function CollapsedSidebar({
               key={games.url}
               whileTap={{ scale: 0.96 }}
               onClick={() => onNavigate(games.url)}
-              title={games.label}
+              data-tooltip={games.label} aria-label={games.label}
               style={{
                 ...buttonBase,
                 background: active ? "#101010" : "none",
@@ -3668,7 +3698,7 @@ function CollapsedSidebar({
               key={url}
               whileTap={{ scale: 0.96 }}
               onClick={() => onNavigate(url)}
-              title={label}
+              data-tooltip={label} aria-label={label}
               style={{
                 ...buttonBase,
                 background: active ? "#101010" : "none",
@@ -3699,7 +3729,7 @@ function CollapsedSidebar({
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
-          title="GitHub"
+          data-tooltip="GitHub" aria-label="GitHub"
           style={{
             ...buttonBase,
           }}
@@ -3721,7 +3751,7 @@ function CollapsedSidebar({
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://discord.gg/yD9NkcsKcw", "_blank")}
-          title="Discord"
+          data-tooltip="Discord" aria-label="Discord"
           style={{
             ...buttonBase,
           }}
@@ -3748,7 +3778,7 @@ function CollapsedSidebar({
               key={settings.url}
               whileTap={{ scale: 0.96 }}
               onClick={() => onNavigate(settings.url)}
-              title={settings.label}
+              data-tooltip={settings.label} aria-label={settings.label}
               style={{
                 ...buttonBase,
                 background: active ? "#101010" : "none",
@@ -3817,6 +3847,8 @@ function BrowserApp({
   const suggestListRef = useRef<HTMLDivElement>(null);
   const [urlEngineOpen, setUrlEngineOpen] = useState(false);
   const urlEngineRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const tooltipTimer = useRef<number | null>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -3889,6 +3921,7 @@ function BrowserApp({
         } else if (e.data?.action === "navigate" && e.data?.page) {
           const page = e.data.page;
           if (page.startsWith("http://") || page.startsWith("https://")) {
+            try { if (new URL(page).origin === location.origin) return; } catch {}
             navRefs.current.handleNavigate(page);
           } else {
             navRefs.current.handleNavigate("unstable://" + page);
@@ -3976,6 +4009,21 @@ function BrowserApp({
       } catch {}
     }
   }, [settings.magicCursorEnabled]);
+
+  useEffect(() => {
+    function onOver(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest("[data-tooltip]") as HTMLElement | null;
+      if (target) {
+        const rect = target.getBoundingClientRect();
+        setTooltip({ text: target.getAttribute("data-tooltip") || "", x: rect.left + rect.width / 2, y: rect.top - 8 });
+        if (tooltipTimer.current !== null) { clearTimeout(tooltipTimer.current); tooltipTimer.current = null; }
+      } else {
+        tooltipTimer.current = window.setTimeout(() => setTooltip(null), 80);
+      }
+    }
+    document.addEventListener("mouseover", onOver);
+    return () => { document.removeEventListener("mouseover", onOver); if (tooltipTimer.current !== null) clearTimeout(tooltipTimer.current); };
+  }, []);
 
   // Transport encryption toggle (sync to SWs)
   useEffect(() => {
@@ -4320,14 +4368,14 @@ function BrowserApp({
                 {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} />)}
               </AnimatePresence>
               <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
-                onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</motion.button>
+                onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} data-tooltip="New tab" aria-label="New tab">+</motion.button>
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</motion.button>
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</motion.button>
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward">→</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} data-tooltip="Reload" aria-label="Reload">↺</motion.button>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
@@ -4336,7 +4384,7 @@ function BrowserApp({
                   style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", height: 26, width: 26, padding: 0, borderRadius: "2px", transition: "background 0.1s" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
                   onMouseLeave={e => e.currentTarget.style.background = "none"}
-                  title={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
+                  data-tooltip={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`} aria-label={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
                   <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={16} height={16} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
                 </button>
                 <AnimatePresence>
@@ -4387,13 +4435,13 @@ function BrowserApp({
               </AnimatePresence>
             </div>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
-            <button onClick={toggleDevTools} style={btn} {...hov(true)} title="DevTools">
+            <button onClick={toggleDevTools} style={btn} {...hov(true)} data-tooltip="DevTools" aria-label="DevTools">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></svg>
             </button>
-            <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} title="Open in new window">
+            <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} data-tooltip="Open in new window" aria-label="Open in new window">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
-            <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} title="Fullscreen">
+            <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} data-tooltip="Fullscreen" aria-label="Fullscreen">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
             </button>
           </div>
@@ -4457,7 +4505,11 @@ function BrowserApp({
                   style={{ position: "absolute", inset: 0 }}
                 >
               {!tab.url ? (
-                <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+                settings.newtabMode === "legacy" ? (
+                  <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} vantaActive={false} />
+                ) : (
+                  <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+                )
               ) : tab.url === "unstable://ai" ? (
                 <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
               ) : tab.url === "unstable://chat" ? (
@@ -4602,7 +4654,9 @@ function BrowserApp({
 
       <ErrorScreen />
 
-      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
+      <div id="unstable-tooltip" className={tooltip ? "visible" : ""} style={{ left: tooltip ? tooltip.x : 0, top: tooltip ? tooltip.y : 0, transform: "translateX(-50%) translateY(-100%)" }}>{tooltip?.text ?? ""}</div>
+
+      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} @keyframes tooltipFade{0%{opacity:0;transform:translateY(-4px)}100%{opacity:1;transform:translateY(0)}} #unstable-tooltip{position:fixed;background:#000000b3;backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:#fff;border-radius:12px;padding:5px 10px;font-size:0.6rem;font-family:'Space Grotesk',sans-serif;white-space:nowrap;box-shadow:0 0 0 1px #484848;pointer-events:none;z-index:99999;opacity:0;transition:opacity .15s ease} #unstable-tooltip.visible{opacity:1} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
     </motion.div>
     </>
   );

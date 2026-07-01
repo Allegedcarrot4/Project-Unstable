@@ -13,6 +13,9 @@ localStorage.setItem('theme', 'dark');
 localStorage.setItem('quote', 'false');
 localStorage.setItem('quicklinksenabled', 'true');
 localStorage.setItem('seconds', 'true');
+localStorage.setItem('backgroundType', 'api');
+localStorage.setItem('backgroundAPI', 'unsplash');
+localStorage.setItem('background', 'true');
 if (!localStorage.getItem('quicklinks')) {
   localStorage.setItem('quicklinks', JSON.stringify([
     { name: 'Google',     url: 'https://www.google.com' },
@@ -35,7 +38,9 @@ if (!localStorage.getItem('quicklinks')) {
       var newUrl = location.href.replace(/#.*$/, '');
       _href = location.href;
       if (oldUrl === newUrl) return;
-      window.parent.postMessage({ type: 'unstable-navigate', action: 'navigate', page: location.href }, '*');
+      var page = location.href;
+      try { if (new URL(page).origin === location.origin) return; } catch(e) {}
+      window.parent.postMessage({ type: 'unstable-navigate', action: 'navigate', page: page }, '*');
     }
   }, 200);
   window.addEventListener('message', function(e) {
