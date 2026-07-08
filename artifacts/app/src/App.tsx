@@ -283,11 +283,11 @@ const DEFAULT_SETTINGS: Settings = {
   siteEngineOverrides: {},
   wispRelayUrl: "",
   transportEncryption: false,
-  fontObfuscation: false,
+  fontObfuscation: true,
   uiScale: 1,
   confirmLeave: false,
   magicCursorEnabled: false,
-  newtabMode: "mue",
+  newtabMode: "legacy",
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -604,11 +604,11 @@ function loadSettings(): Settings {
       siteEngineOverrides: parsed.siteEngineOverrides ?? {},
       wispRelayUrl: typeof parsed.wispRelayUrl === "string" ? parsed.wispRelayUrl : "",
       transportEncryption: parsed.transportEncryption ?? false,
-      fontObfuscation: parsed.fontObfuscation ?? false,
+      fontObfuscation: parsed.fontObfuscation ?? true,
       uiScale: typeof parsed.uiScale === "number" ? parsed.uiScale : 1,
       confirmLeave: parsed.confirmLeave ?? false,
       magicCursorEnabled: parsed.magicCursorEnabled ?? false,
-      newtabMode: parsed.newtabMode ?? "mue",
+      newtabMode: parsed.newtabMode ?? "legacy",
     };
   } catch { return DEFAULT_SETTINGS; }
 }
