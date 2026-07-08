@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
@@ -177,6 +177,7 @@ interface Settings {
   confirmLeave: boolean;
   magicCursorEnabled: boolean;
   newtabMode: "mue" | "legacy";
+  verticalTabs: boolean;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -288,6 +289,7 @@ const DEFAULT_SETTINGS: Settings = {
   confirmLeave: false,
   magicCursorEnabled: false,
   newtabMode: "legacy",
+  verticalTabs: true,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -609,6 +611,7 @@ function loadSettings(): Settings {
       confirmLeave: parsed.confirmLeave ?? false,
       magicCursorEnabled: parsed.magicCursorEnabled ?? false,
       newtabMode: parsed.newtabMode ?? "legacy",
+      verticalTabs: parsed.verticalTabs ?? true,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -1759,6 +1762,33 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
                 transition: "background 0.15s, border-color 0.15s, color 0.15s",
               }}
             >{mode === "mue" ? "Mue" : "Legacy"}</motion.button>
+          ))}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>tab layout</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose between horizontal tabs at the top or vertical tabs on the side.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {[{ id: false, label: "Horizontal" }, { id: true, label: "Vertical" }].map(opt => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={String(opt.id)}
+              onClick={() => onSettingsChange({ ...settings, verticalTabs: opt.id })}
+              style={{
+                flex: 1,
+                background: settings.verticalTabs === opt.id ? "var(--t-bg-card)" : "none",
+                border: "1px solid", borderColor: settings.verticalTabs === opt.id ? "var(--t-border-light)" : "var(--t-border)",
+                color: settings.verticalTabs === opt.id ? "var(--t-text)" : "var(--t-text-muted)",
+                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", textTransform: "uppercase",
+                transition: "background 0.15s, border-color 0.15s, color 0.15s",
+              }}
+            >{opt.label}</motion.button>
           ))}
         </div>
       </motion.section>
@@ -3597,11 +3627,26 @@ function CollapsedSidebar({
   activeUrl,
   onNavigate,
   canReturnToBrowse,
+  tabs,
+  activeTabId,
+  onTabActivate,
+  onTabClose,
+  onNewTab,
+  verticalTabs,
 }: {
   activeUrl: string;
   onNavigate: (url: string) => void;
   canReturnToBrowse?: boolean;
+  tabs?: Tab[];
+  activeTabId?: string;
+  onTabActivate?: (id: string) => void;
+  onTabClose?: (id: string) => void;
+  onNewTab?: () => void;
+  verticalTabs?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const sidebarW = expanded ? 200 : 56;
+
   const items: Array<{
     label: string;
     url: string;
@@ -3626,38 +3671,63 @@ function CollapsedSidebar({
   const settings = items.find(i => i.url === "unstable://settings");
   const middle = items.filter(i => i.url !== "unstable://games" && i.url !== "unstable://settings");
 
-  const buttonBase: React.CSSProperties = {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+  const iconBtn: React.CSSProperties = {
+    width: 38, height: 38, borderRadius: 12,
+    display: "flex", alignItems: "center", justifyContent: "center",
     border: "1px solid transparent",
-    background: "none",
-    color: "rgba(255,255,255,0.28)",
-    cursor: "pointer",
-    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+    background: "none", color: "rgba(255,255,255,0.28)",
+    cursor: "pointer", transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  };
+
+  const linkBtn: React.CSSProperties = {
+    ...iconBtn,
+    width: "auto", height: "auto", padding: "0.5rem 0.7rem", gap: "0.55rem", borderRadius: 10,
+    justifyContent: "flex-start", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+    color: "rgba(255,255,255,0.5)", letterSpacing: "0.01em",
+  };
+
+  const tabLinkBtn: React.CSSProperties = {
+    ...iconBtn,
+    width: "auto", height: "auto", padding: "0.4rem 0.5rem", gap: "0.4rem", borderRadius: 8,
+    justifyContent: "flex-start", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+    color: "rgba(255,255,255,0.45)", letterSpacing: "0.01em",
   };
 
   return (
-    <div
+    <motion.div
+      animate={{ width: sidebarW }}
+      transition={{ type: "spring", stiffness: 300, damping: 28 }}
       style={{
-        width: 56,
         flexShrink: 0,
         background: "#080808",
         borderRight: "1px solid #1a1a1a",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
         padding: "0.65rem 0",
-        gap: "0.55rem",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+      {/* TOP: toggle (if verticalTabs) + Games */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: verticalTabs ? (expanded ? "stretch" : "center") : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0, marginBottom: "0.55rem" }}>
+        {verticalTabs && (
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setExpanded(!expanded)}
+            style={{
+              ...(expanded ? linkBtn : iconBtn),
+              width: expanded ? "auto" : 38, height: 38, flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: expanded ? "flex-start" : "center",
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
+          >
+            {expanded ? <PanelLeftClose size={16} /> : <PanelLeft size={16} />}
+          </motion.button>
+        )}
         {games && !games.hidden && (() => {
           const active = isActive(games.url);
           const Icon = games.icon;
+          const s = expanded ? linkBtn : iconBtn;
           return (
             <motion.button
               key={games.url}
@@ -3665,114 +3735,171 @@ function CollapsedSidebar({
               onClick={() => onNavigate(games.url)}
               data-tooltip={games.label} aria-label={games.label}
               style={{
-                ...buttonBase,
+                ...s,
                 background: active ? "#101010" : "none",
                 borderColor: active ? "#1f1f1f" : "transparent",
                 color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
             >
               <Icon size={18} />
+              {expanded && games.label}
             </motion.button>
           );
         })()}
       </div>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
-        {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
-          const active = isActive(url);
-          return (
-            <motion.button
-              key={url}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => onNavigate(url)}
-              data-tooltip={label} aria-label={label}
-              style={{
-                ...buttonBase,
-                background: active ? "#101010" : "none",
-                borderColor: active ? "#1f1f1f" : "transparent",
-                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
-              }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+      {/* MIDDLE: tabs (if verticalTabs) + Home, AI, Chat */}
+      {verticalTabs && tabs && onTabActivate && onTabClose && onNewTab ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", gap: "0.15rem", alignItems: expanded ? "stretch" : "center" }}>
+          {/* Tab list */}
+          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", width: "100%", display: "flex", flexDirection: "column", alignItems: expanded ? "stretch" : "center", padding: expanded ? "0 0.4rem" : 0 }}>
+            {tabs.map(tab => {
+              const active = tab.id === activeTabId;
+              const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
+              const label = rawLabel.length > 14 ? rawLabel.slice(0, 14) + "…" : rawLabel;
+              const s = expanded ? tabLinkBtn : iconBtn;
+              return (
+                <motion.div
+                  key={tab.id}
+                  layout
+                  onClick={() => onTabActivate(tab.id)}
+                  onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onTabClose(tab.id); } }}
+                  style={{
+                    ...s,
+                    marginBottom: "0.15rem",
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { const el = e.currentTarget; if (!active) { el.style.background = "#0f0f0f"; el.style.color = "rgba(255,255,255,0.55)"; el.style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { const el = e.currentTarget; el.style.background = active ? "#101010" : "none"; el.style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; el.style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <div style={{ width: 18, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {tab.loading
+                      ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
+                      : tab.favicon ? <img src={tab.favicon} alt="" width={18} height={18} style={{ borderRadius: "4px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+                    }
+                  </div>
+                  {expanded && (
+                    <>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onTabClose(tab.id); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 12, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+                        onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
+                        onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
+                      >×</motion.button>
+                    </>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+          {/* + New Tab */}
+          <div style={{ display: "flex", padding: expanded ? "0 0.4rem" : 0 }}>
+            <motion.button whileTap={{ scale: 0.96 }} onClick={onNewTab} style={{
+              ...(expanded ? { ...linkBtn, justifyContent: "center", padding: "0.35rem 0.5rem", fontSize: "0.6rem" } : iconBtn),
+              border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.25)" as const,
+              width: expanded ? "100%" : 38, height: 38, flex: expanded ? 1 : undefined,
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#2a2a2a"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.25)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)"; }}
             >
-              <Icon size={18} />
+              {expanded ? "+ New Tab" : "+"}
             </motion.button>
-          );
-        })}
+          </div>
+          {/* Middle nav items (Home, AI, Chat) */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: expanded ? "stretch" : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0 }}>
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+              const active = isActive(url);
+              const s = expanded ? linkBtn : iconBtn;
+              return (
+                <motion.button
+                  key={url}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => onNavigate(url)}
+                  data-tooltip={label} aria-label={label}
+                  style={{
+                    ...s,
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <Icon size={18} />
+                  {expanded && label}
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+              const active = isActive(url);
+              return (
+                <motion.button
+                  key={url}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => onNavigate(url)}
+                  data-tooltip={label} aria-label={label}
+                  style={{
+                    ...iconBtn,
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <Icon size={18} />
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+      {/* BOTTOM: GitHub, Discord, Settings */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: verticalTabs ? (expanded ? "stretch" : "center") : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0 }}>
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
           data-tooltip="GitHub" aria-label="GitHub"
           style={{
-            ...buttonBase,
+            ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
           }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-            (e.currentTarget as HTMLButtonElement).style.color = "#fff";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = "none";
-            (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent";
-          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "#fff" as const; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
           </svg>
+          {expanded && "GitHub"}
         </motion.button>
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://discord.gg/yD9NkcsKcw", "_blank")}
           data-tooltip="Discord" aria-label="Discord"
           style={{
-            ...buttonBase,
+            ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
           }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-            (e.currentTarget as HTMLButtonElement).style.color = "#5865F2";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = "none";
-            (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent";
-          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "#5865F2" as const; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
             <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0741.0741 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z"/>
           </svg>
+          {expanded && "Discord"}
         </motion.button>
         {settings && !settings.hidden && (() => {
           const active = isActive(settings.url);
           const Icon = settings.icon;
+          const s = expanded ? linkBtn : iconBtn;
           return (
             <motion.button
               key={settings.url}
@@ -3780,30 +3907,21 @@ function CollapsedSidebar({
               onClick={() => onNavigate(settings.url)}
               data-tooltip={settings.label} aria-label={settings.label}
               style={{
-                ...buttonBase,
+                ...s,
                 background: active ? "#101010" : "none",
                 borderColor: active ? "#1f1f1f" : "transparent",
                 color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
             >
               <Icon size={18} />
+              {expanded && settings.label}
             </motion.button>
           );
         })()}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -4362,6 +4480,7 @@ function BrowserApp({
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
+          {!settings.verticalTabs && (
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
             <div className="tab-scroll" style={{ display: "flex", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
               <AnimatePresence>
@@ -4371,6 +4490,7 @@ function BrowserApp({
                 onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} data-tooltip="New tab" aria-label="New tab">+</motion.button>
             </div>
           </div>
+          )}
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
@@ -4486,6 +4606,12 @@ function BrowserApp({
             activeUrl={activeTab?.url || ""}
             canReturnToBrowse={Boolean(activeTab?.url.startsWith("unstable://") && activeTab.lastProxyUrl)}
             onNavigate={(url) => handleNavigate(url, activeTabId)}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabActivate={(id) => setActiveTabId(id)}
+            onTabClose={(id) => handleCloseTab(id)}
+            onNewTab={handleNewTab}
+            verticalTabs={settings.verticalTabs}
           />
         )}
 
