@@ -6995,5 +6995,13 @@
         "url": "https://client.eaglercraft.win/eagler-files/1.5.2/precisionbeta2/index.html",
         "author": "Samuel Mitrani",
         "authorLink": "https://gitlab.com/smitrani"
+    },
+    {
+        "id": 789,
+        "name": "Half-Life 2",
+        "cover": "https://cdn.phototourl.com/free/2026-07-09-53e752ef-981b-4303-a118-48449b5ebbb6.jpg",
+        "url": "https://hl2.slqnt.dev/",
+        "author": "Slqnts",
+        "authorLink": "https://slqnt.dev/"
     }
 ]
