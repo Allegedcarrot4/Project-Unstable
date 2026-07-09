@@ -3645,7 +3645,9 @@ function CollapsedSidebar({
   verticalTabs?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const sidebarW = expanded ? 200 : 56;
+  const sidebarW = 56;
+
+  useEffect(() => { setExpanded(false); }, [verticalTabs]);
 
   const items: Array<{
     label: string;
@@ -3707,24 +3709,9 @@ function CollapsedSidebar({
         overflow: "hidden",
       }}
     >
-      {/* TOP: toggle (if verticalTabs) + Games */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: verticalTabs ? (expanded ? "stretch" : "center") : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0, marginBottom: "0.55rem" }}>
-        {verticalTabs && (
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={() => setExpanded(!expanded)}
-            style={{
-              ...(expanded ? linkBtn : iconBtn),
-              width: expanded ? "auto" : 38, height: 38, flexShrink: 0,
-              display: "flex", alignItems: "center", justifyContent: expanded ? "flex-start" : "center",
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
-          >
-            {expanded ? <PanelLeftClose size={16} /> : <PanelLeft size={16} />}
-          </motion.button>
-        )}
-        {games && !games.hidden && (() => {
+      {/* TOP: Games (only when horizontal) */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
+        {!verticalTabs && games && !games.hidden && (() => {
           const active = isActive(games.url);
           const Icon = games.icon;
           const s = expanded ? linkBtn : iconBtn;
@@ -3864,8 +3851,31 @@ function CollapsedSidebar({
         </div>
       )}
 
-      {/* BOTTOM: GitHub, Discord, Settings */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: verticalTabs ? (expanded ? "stretch" : "center") : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0 }}>
+      {/* BOTTOM: Games (if vertical), GitHub, Discord, Settings */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {verticalTabs && games && !games.hidden && (() => {
+          const active = isActive(games.url);
+          const Icon = games.icon;
+          const s = iconBtn;
+          return (
+            <motion.button
+              key={games.url}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onNavigate(games.url)}
+              data-tooltip={games.label} aria-label={games.label}
+              style={{
+                ...s,
+                background: active ? "#101010" : "none",
+                borderColor: active ? "#1f1f1f" : "transparent",
+                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+            >
+              <Icon size={18} />
+            </motion.button>
+          );
+        })()}
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
