@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
@@ -183,6 +183,7 @@ interface Settings {
   magicCursorEnabled: boolean;
   newtabMode: "mue" | "legacy";
   verticalTabs: boolean;
+  showMsIndicator: boolean;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -295,6 +296,7 @@ const DEFAULT_SETTINGS: Settings = {
   magicCursorEnabled: false,
   newtabMode: "legacy",
   verticalTabs: false,
+  showMsIndicator: false,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -617,6 +619,7 @@ function loadSettings(): Settings {
       magicCursorEnabled: parsed.magicCursorEnabled ?? false,
       newtabMode: parsed.newtabMode ?? "legacy",
       verticalTabs: parsed.verticalTabs ?? false,
+      showMsIndicator: parsed.showMsIndicator ?? false,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -1959,6 +1962,19 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
           Replace the regular system cursor with Unstable's animated cursor.
         </p>
       </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.34 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>clock</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, showMsIndicator: !settings.showMsIndicator })} style={{ position: "relative", width: "36px", height: "20px", background: settings.showMsIndicator ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.showMsIndicator ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.showMsIndicator ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.showMsIndicator ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Show milliseconds on the clock.
+        </p>
+      </motion.section>
       </div>
 
       <div id="settings-advanced">
@@ -3199,12 +3215,13 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, searchEngine }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, searchEngine, showMs }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
   wallpaper?: string;
   searchEngine?: string;
+  showMs?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -3321,7 +3338,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
           style={{ position: "absolute", top: -8, right: -8, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)", cursor: "pointer", padding: "5px", borderRadius: "6px", opacity: 0.5, transition: "opacity 0.15s", zIndex: 10, lineHeight: 1 }}
         ><Settings2 size={13} /></button>
       </div>
-      <WidgetBar config={widgetConfig} />
+      <WidgetBar config={widgetConfig} showMs={showMs} />
       {showWidgetSettings && (
         <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
           style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "8px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
@@ -3483,7 +3500,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   );
 }
 
-function WidgetBar({ config }: { config: WidgetConfig }) {
+function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [greeting, setGreeting] = useState("");
   useEffect(() => {
@@ -3494,7 +3511,7 @@ function WidgetBar({ config }: { config: WidgetConfig }) {
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", marginBottom: "0.5rem" }}>
       {config.enabled.includes("clock") && (
-        <ClockWidget />
+        <ClockWidget showMs={showMs} />
       )}
       {config.enabled.includes("date") && (
         <p style={{ margin: 0, fontSize: "0.7rem", color: "var(--t-text-muted)", letterSpacing: "0.02em" }}>
@@ -3514,16 +3531,25 @@ function WidgetBar({ config }: { config: WidgetConfig }) {
   );
 }
 
-function ClockWidget() {
+function ClockWidget({ showMs }: { showMs?: boolean }) {
   const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  const [ms, setMs] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setTime(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })), 1000);
-    return () => clearInterval(id);
+    let timer: ReturnType<typeof setTimeout>;
+    function tick() {
+      const now = new Date();
+      setTime(now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      setMs(now.getMilliseconds());
+      timer = setTimeout(tick, 1000 - now.getMilliseconds());
+    }
+    const delay = 1000 - Date.now() % 1000;
+    timer = setTimeout(tick, delay);
+    return () => clearTimeout(timer);
   }, []);
   return (
     <motion.p initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-      style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1 }}
-    >{time}</motion.p>
+      style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1, display: "flex", alignItems: "baseline", gap: "0.05rem" }}
+    >{time}{showMs && <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums" }}>{String(ms).padStart(3, "0")}</span>}</motion.p>
   );
 }
 
@@ -3734,9 +3760,9 @@ function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
 
 // ─── Browser tab ──────────────────────────────────────────────────────────────
 
-function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers }: {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
-  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void;
 }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
@@ -3777,6 +3803,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tab</motion.button>
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Refresh tab</motion.button>}
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Duplicate tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onSplit?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Split view</motion.button>}
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tabs to right</motion.button>
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close other tabs</motion.button>
           </motion.div>
@@ -4127,6 +4154,8 @@ function BrowserApp({
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
+  const [adblockCount, setAdblockCount] = useState(0);
+  const [splitTabId, setSplitTabId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
@@ -4354,6 +4383,29 @@ function BrowserApp({
     msg("ADBLOCK", { enabled: settings.adblockEnabled });
     msg("CODEC", { type: settings.codec });
   }, [settings.adblockEnabled, settings.codec]);
+
+  // Poll adblock count from service worker
+  useEffect(() => {
+    if (!settings.adblockEnabled) { setAdblockCount(0); return; }
+    let cancelled = false;
+    async function poll() {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) {
+          if (reg.active) {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (e) => {
+              if (!cancelled && typeof e.data?.count === "number") setAdblockCount(e.data.count);
+            };
+            reg.active.postMessage({ type: "GET_ADBLOCK_COUNT" }, [channel.port2]);
+          }
+        }
+      } catch {}
+    }
+    const id = setInterval(poll, 3000);
+    poll();
+    return () => { cancelled = true; clearInterval(id); };
+  }, [settings.adblockEnabled]);
 
   // Confirm leave toggle
   useEffect(() => {
@@ -4656,6 +4708,112 @@ function BrowserApp({
     onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color = on ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.14)"; (e.target as HTMLButtonElement).style.background = "none"; },
   });
 
+  const renderTabContent = useCallback((tab: Tab) => {
+    if (!tab.url) {
+      return settings.newtabMode === "legacy" ? (
+        <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} showMs={settings.showMsIndicator} />
+      ) : (
+        <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+      );
+    }
+    if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://games") return <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>Coming soon</div>;
+    if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://bookmarks") return <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://downloads") return <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://credits") return <CreditsPage />;
+    if (tab.url === "unstable://tos") return <ToSPage />;
+    if (tab.url === "unstable://privacy") return <PrivacyPage />;
+    if (tab.url === "unstable://blank") return <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />;
+    return (
+      <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
+        src={tab.url}
+        style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+        allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation"
+        onLoad={() => {
+          updateTab(tab.id, { loading: false });
+          try {
+            const iframe = iframeRefs.current[tab.id];
+            if (iframe) {
+              const doc = iframe.contentDocument;
+              const title = doc?.title || tab.title;
+              const favicon = tab.favicon || undefined;
+              if (title && tab.url && !tab.url.startsWith("unstable://")) {
+                const originalUrl = decodeProxyUrl(tab.url);
+                addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
+              }
+            }
+          } catch {}
+          const gameMode = isGameModeTabUrl(tab.url, settings);
+          try {
+            const iframe = iframeRefs.current[tab.id];
+            if (!iframe) return;
+            const win = iframe.contentWindow as any;
+            const doc = iframe.contentDocument;
+            if (win && doc) {
+              doc.getElementById("unstable-cursor-style")?.remove();
+              const useMagicCursor = settings.magicCursorEnabled && !gameMode;
+              if (useMagicCursor) {
+                const cursorStyle = doc.createElement("style");
+                cursorStyle.id = "unstable-cursor-style";
+                cursorStyle.textContent = "html, body, * { cursor: none !important; }";
+                doc.head.appendChild(cursorStyle);
+                win.addEventListener("mousemove", (e: MouseEvent) => {
+                  const rect = iframe.getBoundingClientRect();
+                  window.dispatchEvent(new CustomEvent("iframe-mousemove", { detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect } }));
+                });
+                doc.addEventListener("mousemove", (e: MouseEvent) => {
+                  const rect = iframe.getBoundingClientRect();
+                  window.dispatchEvent(new CustomEvent("iframe-mousemove", { detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect } }));
+                });
+                const handleIframeHover = (e: MouseEvent) => {
+                  const target = e.target as HTMLElement;
+                  if (target && (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || win.getComputedStyle(target).cursor === "pointer")) {
+                    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
+                  } else {
+                    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+                  }
+                };
+                win.addEventListener("mouseover", handleIframeHover);
+                win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+              }
+              doc.addEventListener("keydown", (e: KeyboardEvent) => {
+                const ae = doc.activeElement;
+                if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || (ae as HTMLElement).isContentEditable)) return;
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, code: e.code, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, metaKey: e.metaKey, bubbles: true, cancelable: true }));
+              });
+            }
+          } catch {}
+          const current = tab.url;
+          if (!current) return;
+          try {
+            if (current.startsWith(SCRAMJET_PREFIX)) {
+              if (settings.proxyEngine === "scramjet") { updateTab(tab.id, { loading: false }); return; }
+              const original = decodeProxyUrl(current);
+              const uvUrl = encodeProxyUrl(original, "uv", settings);
+              if (uvUrl !== current) { updateTab(tab.id, { url: uvUrl, loading: true }); return; }
+            } else if (current.startsWith(UV_PREFIX)) {
+              if (settings.proxyEngine === "uv") { updateTab(tab.id, { loading: false }); return; }
+              const original = decodeProxyUrl(current);
+              if (original && original.startsWith("http")) {
+                if (scrController && settings.proxyEngine !== "uv") {
+                  const scramjetUrl = encodeProxyUrl(original, "scramjet", settings);
+                  if (scramjetUrl !== current) { updateTab(tab.id, { url: scramjetUrl, loading: true }); return; }
+                }
+                const retryUrl = encodeProxyUrl(original, "uv", settings);
+                if (retryUrl !== current) { updateTab(tab.id, { url: retryUrl, loading: true }); return; }
+              }
+            }
+          } catch {}
+          updateTab(tab.id, { loading: false });
+        }}
+      />
+    );
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController]);
+
   return (
     <>
       {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
@@ -4672,7 +4830,7 @@ function BrowserApp({
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
             <div className="tab-scroll" style={{ display: "flex", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
               <AnimatePresence>
-                {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} />)}
+                {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => setSplitTabId(splitTabId === tab.id ? null : tab.id)} />)}
               </AnimatePresence>
               <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
                 onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} data-tooltip="New tab" aria-label="New tab">+</motion.button>
@@ -4684,6 +4842,12 @@ function BrowserApp({
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward">→</motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} data-tooltip="Reload" aria-label="Reload">↺</motion.button>
+            {settings.adblockEnabled && adblockCount > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", padding: "0 0.2rem", color: "rgba(255,255,255,0.3)", fontSize: "0.55rem", flexShrink: 0 }}>
+                <Shield size={10} />
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{adblockCount}</span>
+              </div>
+            )}
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
@@ -4829,7 +4993,18 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          <div style={{ position: "relative", width: "100%", height: "100%" }}>
+          <div style={{ position: "relative", width: "100%", height: "100%", display: "flex" }}>
+            {splitTabId && splitTabId !== activeTabId && (() => {
+              const splitTab = tabs.find(t => t.id === splitTabId);
+              if (!splitTab) return null;
+              return (
+                <div style={{ width: "50%", height: "100%", position: "relative", borderRight: "1px solid #1a1a1a" }}>
+                  <button onClick={() => setSplitTabId(null)} style={{ position: "absolute", top: 4, right: 4, zIndex: 10, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "2px 6px", borderRadius: "4px", fontSize: "0.5rem", fontFamily: "'Space Grotesk', sans-serif" }}>×</button>
+                  {renderTabContent(splitTab)}
+                </div>
+              );
+            })()}
+            <div style={{ flex: 1, position: "relative", height: "100%" }}>
             <AnimatePresence mode="wait">
               {tabs.filter(t => t.id === activeTabId).map(tab => (
                 <motion.div
@@ -4840,149 +5015,11 @@ function BrowserApp({
                   transition={{ type: "spring", stiffness: 300, damping: 25 }}
                   style={{ position: "absolute", inset: 0 }}
                 >
-              {!tab.url ? (
-                settings.newtabMode === "legacy" ? (
-                  <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} wallpaper={false} />
-                ) : (
-                  <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
-                )
-              ) : tab.url === "unstable://ai" ? (
-                <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
-              ) : tab.url === "unstable://chat" ? (
-                <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />
-              ) : tab.url === "unstable://settings" ? (
-                <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />
-              ) : tab.url === "unstable://games" ? (
-                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>
-                  Coming soon
-                </div>
-              ) : tab.url === "unstable://history" ? (
-                <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />
-              ) : tab.url === "unstable://bookmarks" ? (
-                <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />
-              ) : tab.url === "unstable://downloads" ? (
-                <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />
-              ) : tab.url === "unstable://credits" ? (
-                <CreditsPage />
-              ) : tab.url === "unstable://tos" ? (
-                <ToSPage />
-              ) : tab.url === "unstable://privacy" ? (
-                <PrivacyPage />
-              ) : tab.url === "unstable://blank" ? (
-                <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />
-              ) : (
-                <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
-                  src={tab.url}
-                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-                  allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation"
-                  onLoad={() => {
-                    updateTab(tab.id, { loading: false });
-                    try {
-                      const iframe = iframeRefs.current[tab.id];
-                      if (iframe) {
-                        const doc = iframe.contentDocument;
-                        const title = doc?.title || tab.title;
-                        const favicon = tab.favicon || undefined;
-                        if (title && tab.url && !tab.url.startsWith("unstable://")) {
-                          const originalUrl = decodeProxyUrl(tab.url);
-                          addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
-                        }
-                      }
-                    } catch {}
-                    const gameMode = isGameModeTabUrl(tab.url, settings);
-                    try {
-                      const iframe = iframeRefs.current[tab.id];
-                      if (!iframe) return;
-                      const win = iframe.contentWindow as any;
-                      const doc = iframe.contentDocument;
-                      if (win && doc) {
-                        doc.getElementById("unstable-cursor-style")?.remove();
-                        const useMagicCursor = settings.magicCursorEnabled && !gameMode;
-                        if (useMagicCursor) {
-                          const cursorStyle = doc.createElement("style");
-                          cursorStyle.id = "unstable-cursor-style";
-                          cursorStyle.textContent = "html, body, * { cursor: none !important; }";
-                          doc.head.appendChild(cursorStyle);
-
-                          win.addEventListener("mousemove", (e: MouseEvent) => {
-                            const rect = iframe.getBoundingClientRect();
-                            window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                              detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                            }));
-                          });
-                          doc.addEventListener("mousemove", (e: MouseEvent) => {
-                            const rect = iframe.getBoundingClientRect();
-                            window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                              detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                            }));
-                          });
-                          const handleIframeHover = (e: MouseEvent) => {
-                            const target = e.target as HTMLElement;
-                            if (target && (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || win.getComputedStyle(target).cursor === "pointer")) {
-                              window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
-                            } else {
-                              window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
-                            }
-                          };
-                          win.addEventListener("mouseover", handleIframeHover);
-                          win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
-                        }
-
-                        doc.addEventListener("keydown", (e: KeyboardEvent) => {
-                          const ae = doc.activeElement;
-                          if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || (ae as HTMLElement).isContentEditable)) return;
-                          window.dispatchEvent(new KeyboardEvent("keydown", {
-                            key: e.key, code: e.code, ctrlKey: e.ctrlKey, altKey: e.altKey,
-                            shiftKey: e.shiftKey, metaKey: e.metaKey, bubbles: true, cancelable: true,
-                          }));
-                        });
-                      }
-                    } catch {
-                      // ignore cross-origin errors if any
-                    }
-                  }}
-                  onError={() => {
-                    const current = tab.url;
-                    if (current.startsWith(SCRAMJET_PREFIX)) {
-                      if (settings.proxyEngine === "scramjet") {
-                        updateTab(tab.id, { loading: false });
-                        return;
-                      }
-                      const original = decodeProxyUrl(current);
-                      const uvUrl = encodeProxyUrl(original, "uv", settings);
-                      if (uvUrl !== current) {
-                        updateTab(tab.id, { url: uvUrl, loading: true });
-                        return;
-                      }
-                    } else if (current.startsWith(UV_PREFIX)) {
-                      if (settings.proxyEngine === "uv") {
-                        updateTab(tab.id, { loading: false });
-                        return;
-                      }
-                      const original = decodeProxyUrl(current);
-                      if (original && original.startsWith("http")) {
-                        if (scrController && settings.proxyEngine !== "uv") {
-                          const scramjetUrl = encodeProxyUrl(original, "scramjet", settings);
-                          if (scramjetUrl !== current) {
-                            updateTab(tab.id, { url: scramjetUrl, loading: true });
-                            return;
-                          }
-                        }
-                        const retryUrl = encodeProxyUrl(original, "uv", settings);
-                        if (retryUrl !== current) {
-                          updateTab(tab.id, { url: retryUrl, loading: true });
-                          return;
-                        }
-                      }
-                    }
-                    updateTab(tab.id, { loading: false });
-                  }}
-                />
-              )}
+              {renderTabContent(tab)}
             </motion.div>
           ))}
           </AnimatePresence>
+            </div>
           </div>
         </div>
       </div>

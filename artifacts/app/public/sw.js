@@ -8,6 +8,7 @@ const COOKIE_CHANNEL = "__unstable_cookie_sync";
 // Single long-lived BroadcastChannel — no per-response construction/teardown cost
 const cookieBC = new BroadcastChannel(COOKIE_CHANNEL);
 let adblockEnabled = true;
+let adblockCount = 0;
 const CUSTOM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 // ─── Adblock rules ──────────────────────────────────────────────────────────
@@ -201,6 +202,7 @@ async function handleRequest(event) {
 
   // Adblock: block known ad/tracker requests
   if (adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes("/cdn-cgi/"))) {
+    adblockCount++;
     return new Response(null, { status: 204 });
   }
 
@@ -230,7 +232,11 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("message", (event) => {
   const { type, data } = event.data || {};
-  if (type === "ADBLOCK") adblockEnabled = !!data?.enabled;
+  if (type === "ADBLOCK") { adblockEnabled = !!data?.enabled; if (!data?.enabled) adblockCount = 0; }
+  if (type === "GET_ADBLOCK_COUNT" && event.ports?.[0]) {
+    event.ports[0].postMessage({ count: adblockCount });
+  }
+  if (type === "RESET_ADBLOCK_COUNT") { adblockCount = 0; }
   if (type === "CODEC" && data?.type && self.__uv$setCodec) {
     self.__uv$setCodec(data.type);
     // Re-register the UV config functions
