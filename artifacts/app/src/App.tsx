@@ -2,14 +2,15 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
-import gamesListData from "./data/games.json";
+
 import type { CodecType } from "./lib/codec";
 import { makeCodec } from "./lib/codec";
 import { useErrorHandler } from "./lib/errorContext";
+
 
 declare global {
   interface Window {
@@ -289,7 +290,7 @@ const DEFAULT_SETTINGS: Settings = {
   confirmLeave: false,
   magicCursorEnabled: false,
   newtabMode: "legacy",
-  verticalTabs: true,
+  verticalTabs: false,
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -611,7 +612,7 @@ function loadSettings(): Settings {
       confirmLeave: parsed.confirmLeave ?? false,
       magicCursorEnabled: parsed.magicCursorEnabled ?? false,
       newtabMode: parsed.newtabMode ?? "legacy",
-      verticalTabs: parsed.verticalTabs ?? true,
+      verticalTabs: parsed.verticalTabs ?? false,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -1366,125 +1367,6 @@ function AccountAuthScreen({
           </motion.button>
         </form>
       </motion.div>
-    </motion.div>
-  );
-}
-
-// ─── Games page ──────────────────────────────────────────────────────────────
-
-const GAMES_LIST = gamesListData as Array<{ id: number; name: string; cover: string; url: string; author: string; authorLink: string }>;
-
-function GamesPage({ onNavigate }: { onNavigate: (url: string) => void }) {
-  const [search, setSearch] = useState("");
-  const filtered = search.trim()
-    ? GAMES_LIST.filter(g => g.name.toLowerCase().includes(search.toLowerCase()))
-    : GAMES_LIST;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
-    >
-      {/* Header */}
-      <div style={{ padding: "1.5rem 2rem 1rem", flexShrink: 0, borderBottom: "1px solid #161616" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 0 1rem" }}>unstable — games</p>
-        <input
-          autoFocus
-          placeholder="search games…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            width: "100%", maxWidth: 360, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)",
-            color: "#e0e0e0", padding: "0.45rem 0.9rem", fontSize: "0.78rem",
-            fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "8px",
-            letterSpacing: "0.01em", transition: "border-color 0.15s", boxSizing: "border-box",
-          }}
-          onFocus={e => (e.target.style.borderColor = "#444")}
-          onBlur={e => (e.target.style.borderColor = "#222")}
-        />
-        <p style={{ margin: "0.5rem 0 0", fontSize: "0.58rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.04em" }}>
-          {filtered.length} game{filtered.length !== 1 ? "s" : ""}
-        </p>
-      </div>
-
-      {/* Grid */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem 1.5rem" }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-          gap: "0.85rem",
-        }}>
-          {filtered.map((game, i) => (
-            <GameCard key={game.id} game={game} index={i} onNavigate={onNavigate} />
-          ))}
-        </div>
-        {filtered.length === 0 && (
-          <div style={{ textAlign: "center", marginTop: "4rem", color: "rgba(255,255,255,0.2)", fontSize: "0.75rem", letterSpacing: "0.06em" }}>
-            no games found
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        .game-card:hover .game-card-overlay { opacity: 1 !important; }
-        .game-card:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-      `}</style>
-    </motion.div>
-  );
-}
-
-function GameCard({ game, index, onNavigate }: { game: typeof GAMES_LIST[0]; index: number; onNavigate: (url: string) => void }) {
-  const [imgErr, setImgErr] = useState(false);
-  return (
-    <motion.div
-      className="game-card"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(index * 0.015, 0.4) }}
-      onClick={() => onNavigate(game.url)}
-      style={{
-        position: "relative", borderRadius: "8px", overflow: "hidden",
-        background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", cursor: "pointer",
-        transition: "transform 0.2s ease, box-shadow 0.2s ease",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      }}
-    >
-      {/* Cover image */}
-      <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#0a0a0a", overflow: "hidden", position: "relative" }}>
-        {!imgErr ? (
-          <img
-            src={game.cover}
-            alt={game.name}
-            onError={() => setImgErr(true)}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-          />
-        ) : (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem" }}>🎮</div>
-        )}
-        {/* Hover overlay */}
-        <div className="game-card-overlay" style={{
-          position: "absolute", inset: 0,
-          background: "rgba(0,0,0,0.65)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          opacity: 0, transition: "opacity 0.2s ease",
-        }}>
-          <div style={{
-            background: "rgba(255,255,255,0.92)", color: "#0d0d0d",
-            borderRadius: "50%", width: 36, height: 36,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "1rem", fontWeight: 700,
-          }}>▶</div>
-        </div>
-      </div>
-      {/* Info */}
-      <div style={{ padding: "0.5rem 0.6rem 0.55rem" }}>
-        <p style={{ margin: 0, fontSize: "0.68rem", fontWeight: 600, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{game.name}</p>
-        {game.author && (
-          <p style={{ margin: "0.15rem 0 0", fontSize: "0.56rem", color: "rgba(255,255,255,0.28)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.02em" }}>{game.author}</p>
-        )}
-      </div>
     </motion.div>
   );
 }
@@ -4653,7 +4535,9 @@ function BrowserApp({
               ) : tab.url === "unstable://settings" ? (
                 <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://games" ? (
-                <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
+                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>
+                  Coming soon
+                </div>
               ) : tab.url === "unstable://credits" ? (
                 <CreditsPage />
               ) : tab.url === "unstable://tos" ? (
