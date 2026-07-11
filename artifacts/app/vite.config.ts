@@ -32,7 +32,7 @@ export default defineConfig({
     }),
     ...(isProd ? [javascriptObfuscator({
       include: [/\.js$/],
-      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /vanta/, /three/],
+      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/],
       options: {
         compact: true,
         controlFlowFlattening: true,
@@ -77,7 +77,7 @@ export default defineConfig({
         // Split chunks so the browser can cache vendor libs independently of app code.
         // A deploy only busts the chunks that actually changed.
         manualChunks(id) {
-          if (id.includes("node_modules/three") || id.includes("node_modules/vanta")) return "vendor-3d";
+          if (id.includes("node_modules/three")) return "vendor-3d";
           if (id.includes("node_modules/framer-motion")) return "vendor-motion";
           if (id.includes("node_modules/@supabase")) return "vendor-supabase";
           // React, Radix, and everything else stays in one vendor chunk

@@ -241,9 +241,6 @@ importers:
       three:
         specifier: ^0.162.0
         version: 0.162.0
-      vanta:
-        specifier: ^0.5.24
-        version: 0.5.24
       vite-plugin-static-copy:
         specifier: ^4.1.0
         version: 4.1.0(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))
@@ -3930,9 +3927,6 @@ packages:
     resolution: {integrity: sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==}
     engines: {node: '>= 0.10'}
 
-  vanta@0.5.24:
-    resolution: {integrity: sha512-fvieEbHy1ZS23zrcX+topzqAgA4Uct1enngOEWLFBgs9TtOf6RDFOYatH7KSVdrABzQDMCQ5myQy+nTSZZwLzg==}
-
   vaul@1.1.2:
     resolution: {integrity: sha512-ZFkClGpWyI2WUQjdLJ/BaGuV6AVQiJ3uELGk3OYtP+B6yCO7Cmn9vPFXVJkRaGkOJu3m8bQMgtyzNHixULceQA==}
     peerDependencies:
@@ -7424,8 +7418,6 @@ snapshots:
       which-typed-array: 1.1.22
 
   validator@13.15.35: {}
-
-  vanta@0.5.24: {}
 
   vaul@1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0):
     dependencies:

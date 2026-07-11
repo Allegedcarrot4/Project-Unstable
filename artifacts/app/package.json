@@ -83,7 +83,6 @@
     "@supabase/supabase-js": "^2.105.4",
     "bare-mux-fork": "https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz",
     "three": "^0.162.0",
-    "vanta": "^0.5.24",
     "vite-plugin-static-copy": "^4.1.0"
   }
 }

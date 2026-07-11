@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
@@ -10,6 +10,10 @@ import NotFound from "./pages/not-found";
 import type { CodecType } from "./lib/codec";
 import { makeCodec } from "./lib/codec";
 import { useErrorHandler } from "./lib/errorContext";
+import { addHistory, getHistory, clearHistory, deleteHistoryEntry, searchHistory } from "./lib/history";
+import { getBookmarks, addBookmark, removeBookmark, searchBookmarks, isBookmarked } from "./lib/bookmarks";
+import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload } from "./lib/downloads";
+import { loadWidgetConfig, saveWidgetConfig, toggleWidget, getGreeting, QUOTES, type WidgetType, type WidgetConfig, type Quote } from "./lib/widgets";
 
 
 declare global {
@@ -54,7 +58,7 @@ interface ThemeColors {
   cardBg: string; cardBorder: string;
 }
 
-const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEffect?: string; vantaOptions?: Record<string, any>; colors: ThemeColors }> = {
+const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEffect?: string; colors: ThemeColors }> = {
   dark: {
     label: "Dark",
     colors: {
@@ -274,7 +278,7 @@ const DEFAULT_SETTINGS: Settings = {
   proxyEngine: "auto",
   transportMode: "wisp",
   theme: "dark",
-  wallpaper: "https://source.unsplash.com/random/1920x1080",
+  wallpaper: "",
   gameModeEnabled: true,
   gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
@@ -1381,7 +1385,7 @@ function CreditsPage() {
     ["wisp-js", "wisp server"], ["React", "frontend library"],
     ["Vite", "build tool"], ["TypeScript", "language"],
     ["framer-motion", "animations"], ["lucide-react", "icons"],
-    ["three.js", "3D engine"], ["vanta", "animated backgrounds"],
+    ["three.js", "3D engine"],
     ["Supabase", "auth, database, realtime"], ["Radix UI", "UI primitives"],
     ["Tailwind CSS", "utility CSS"], ["Space Grotesk", "typeface"],
   ];
@@ -1654,7 +1658,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
           Choose between horizontal tabs at the top or vertical tabs on the side.
         </p>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {[{ id: false, label: "Horizontal" }, { id: true, label: "Vertical" }].map(opt => (
+          {[{ id: false, label: "Horizontal" }, { id: true, label: "Vertical (beta)" }].map(opt => (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -2577,7 +2581,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflow: "hidden", background: "radial-gradient(circle at top left, rgba(120,170,255,0.14), transparent 28%), radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 22%), #0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}
+       style={{ height: "100%", overflow: "hidden", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}
     >
       <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", gap: "0.75rem" }}>
         {/* ── Sidebar ── */}
@@ -3195,12 +3199,11 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, vantaActive, searchEngine }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, searchEngine }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
   wallpaper?: string;
-  vantaActive?: boolean;
   searchEngine?: string;
 }) {
   const [input, setInput] = useState("");
@@ -3218,6 +3221,8 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   const [hiddenDefaultIds, setHiddenDefaultIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(HIDDEN_DEFAULTS_KEY) || "[]"); } catch { return []; }
   });
+  const [widgetConfig, setWidgetConfig] = useState<WidgetConfig>(() => loadWidgetConfig());
+  const [showWidgetSettings, setShowWidgetSettings] = useState(false);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -3299,22 +3304,51 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       style={{ 
-        height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: vantaActive ? "transparent" : wallpaper ? `var(--t-bg) url(${wallpaper}) center/cover no-repeat` : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" 
+        height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: wallpaper ? `var(--t-bg) url(${wallpaper}) center/cover no-repeat` : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" 
       }}
     >
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center", gap: "1.75rem", padding: "2.5rem 3rem",
-        background: (wallpaper || vantaActive) ? "color-mix(in srgb, var(--t-bg) 45%, transparent)" : "transparent",
-        backdropFilter: (wallpaper || vantaActive) ? "blur(20px) saturate(1.3)" : "none",
-        WebkitBackdropFilter: (wallpaper || vantaActive) ? "blur(20px) saturate(1.3)" : "none",
-        borderRadius: "12px", border: (wallpaper || vantaActive) ? "1px solid var(--t-border-light)" : "none",
-        boxShadow: (wallpaper || vantaActive) ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
+        background: wallpaper ? "color-mix(in srgb, var(--t-bg) 45%, transparent)" : "transparent",
+        backdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
+        WebkitBackdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
+        borderRadius: "12px", border: wallpaper ? "1px solid var(--t-border-light)" : "none",
+        boxShadow: wallpaper ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
       }}>
+      <div style={{ position: "relative", width: "100%" }}>
+        <button onClick={() => setShowWidgetSettings(!showWidgetSettings)}
+          className="widget-btn"
+          style={{ position: "absolute", top: -8, right: -8, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)", cursor: "pointer", padding: "5px", borderRadius: "6px", opacity: 0.5, transition: "opacity 0.15s", zIndex: 10, lineHeight: 1 }}
+        ><Settings2 size={13} /></button>
+      </div>
+      <WidgetBar config={widgetConfig} />
+      {showWidgetSettings && (
+        <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "8px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
+        >
+          <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>Widgets</p>
+          {(["clock", "date", "greeting", "quote", "branding"] as WidgetType[]).map(t => (
+            <label key={t} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.68rem", color: "var(--t-text)", cursor: "pointer", padding: "0.25rem 0" }}>
+              <input type="checkbox" checked={widgetConfig.enabled.includes(t)}
+                onChange={() => {
+                  const next = toggleWidget(widgetConfig, t);
+                  setWidgetConfig(next);
+                  saveWidgetConfig(next);
+                }}
+                style={{ accentColor: "var(--t-accent)" }}
+              />
+              {t === "clock" ? "Clock" : t === "date" ? "Date" : t === "greeting" ? "Greeting" : t === "quote" ? "Quote" : "Branding"}
+            </label>
+          ))}
+        </motion.div>
+      )}
+      {widgetConfig.enabled.includes("branding") && (
       <motion.p
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", margin: 0 }}
       >unstable</motion.p>
+      )}
 
       <motion.form
         initial={{ scale: 0.95, opacity: 0 }}
@@ -3443,7 +3477,256 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         )}
       </AnimatePresence>
 
-      <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+      <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)} .widget-btn:hover{opacity:1!important}`}</style>
+      </div>
+    </motion.div>
+  );
+}
+
+function WidgetBar({ config }: { config: WidgetConfig }) {
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [greeting, setGreeting] = useState("");
+  useEffect(() => {
+    setGreeting(getGreeting());
+    setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  }, []);
+  if (!config.enabled.length) return null;
+  return (
+    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", marginBottom: "0.5rem" }}>
+      {config.enabled.includes("clock") && (
+        <ClockWidget />
+      )}
+      {config.enabled.includes("date") && (
+        <p style={{ margin: 0, fontSize: "0.7rem", color: "var(--t-text-muted)", letterSpacing: "0.02em" }}>
+          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+        </p>
+      )}
+      {config.enabled.includes("greeting") && (
+        <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--t-text-secondary)", letterSpacing: "0.02em" }}>{greeting}</p>
+      )}
+      {config.enabled.includes("quote") && quote && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
+          <p style={{ margin: "0.1rem 0 0", fontSize: "0.6rem", color: "var(--t-text-muted)", fontStyle: "italic", maxWidth: 400, textAlign: "center", letterSpacing: "0.01em", lineHeight: 1.4 }}>"{quote.text}"</p>
+          <p style={{ margin: 0, fontSize: "0.55rem", color: "var(--t-text-muted)", opacity: 0.7, textAlign: "center", letterSpacing: "0.02em" }}>— {quote.author}</p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function ClockWidget() {
+  const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <motion.p initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+      style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1 }}
+    >{time}</motion.p>
+  );
+}
+
+const ENTRY_BTN: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: "0.65rem", cursor: "pointer",
+  padding: "0.55rem 0.75rem", borderRadius: "8px", border: "none",
+  background: "transparent", color: "var(--t-text)", fontFamily: "'Space Grotesk', sans-serif",
+  textAlign: "left", width: "100%", transition: "background 0.12s",
+};
+
+function HistoryPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<Awaited<ReturnType<typeof getHistory>>>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = search.trim() ? await searchHistory(search) : await getHistory(200);
+    setEntries(data);
+    setLoading(false);
+  }, [search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, typeof entries> = {};
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+    for (const e of entries) {
+      const d = new Date(e.visitedAt);
+      const key = d >= today ? "Today" : d >= yesterday ? "Yesterday" : d >= weekAgo ? "This Week" : "Older";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(e);
+    }
+    return groups;
+  }, [entries]);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <HistoryIcon size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>History</h2>
+        <input placeholder="search history..." value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.35rem 0.65rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "6px", width: 200 }}
+        />
+        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+          onClick={async () => { await clearHistory(); load(); }}
+          style={{ background: "none", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,120,120,0.8)", padding: "0.35rem 0.7rem", borderRadius: "6px", fontSize: "0.6rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.3rem" }}
+        ><Trash2 size={12} /> Clear</motion.button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {loading ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>Loading…</p>
+        ) : entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>{search ? "No results" : "No history yet"}</p>
+        ) : (
+          Object.entries(grouped).map(([label, items]) => (
+            <div key={label} style={{ marginBottom: "1rem" }}>
+              <p style={{ margin: "0 0 0.35rem 0.2rem", fontSize: "0.58rem", color: "var(--t-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                {items.map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+                    onMouseEnter={e2 => { const t = e2.currentTarget.querySelector(".hist-del") as HTMLElement; if (t) t.style.opacity = "1"; }}
+                    onMouseLeave={e2 => { const t = e2.currentTarget.querySelector(".hist-del") as HTMLElement; if (t) t.style.opacity = "0"; }}
+                  >
+                    <button onClick={() => onNavigate(e.url)} style={ENTRY_BTN}
+                      onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-secondary)"}
+                      onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                    >
+                      {e.favicon ? <img src={e.favicon} alt="" width={16} height={16} style={{ borderRadius: 3, flexShrink: 0 }} onError={e2 => { (e2.target as HTMLImageElement).style.display = "none"; }} /> : <Globe size={14} style={{ flexShrink: 0, color: "var(--t-text-muted)" }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</p>
+                        <p style={{ margin: "0.05rem 0 0", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.url}</p>
+                      </div>
+                      <span style={{ fontSize: "0.52rem", color: "var(--t-text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{new Date(e.visitedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>
+                    </button>
+                    <button onClick={async () => { await deleteHistoryEntry(e.id); load(); }}
+                      className="hist-del"
+                      style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                      onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-secondary)"}
+                      onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                    ><X size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function BookmarksPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<Awaited<ReturnType<typeof getBookmarks>>>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = search.trim() ? await searchBookmarks(search) : await getBookmarks();
+    setEntries(data);
+    setLoading(false);
+  }, [search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <Bookmark size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>Bookmarks</h2>
+        <input placeholder="search bookmarks..." value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.35rem 0.65rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "6px", width: 200 }}
+        />
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {loading ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>Loading…</p>
+        ) : entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>{search ? "No results" : "No bookmarks yet"}</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem" }}>
+            {entries.map(e => (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.75rem", borderRadius: "8px", border: "1px solid var(--t-border-light)", background: "var(--t-bg-secondary)", position: "relative" }}
+                onMouseEnter={e2 => { const t = e2.currentTarget.querySelector(".bm-del") as HTMLElement; if (t) t.style.opacity = "1"; }}
+                onMouseLeave={e2 => { const t = e2.currentTarget.querySelector(".bm-del") as HTMLElement; if (t) t.style.opacity = "0"; }}
+              >
+                <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => onNavigate(e.url)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                    {e.favicon ? <img src={e.favicon} alt="" width={18} height={18} style={{ borderRadius: 4, flexShrink: 0 }} onError={e2 => { (e2.target as HTMLImageElement).style.display = "none"; }} /> : <Bookmark size={14} style={{ flexShrink: 0, color: "var(--t-accent)" }} />}
+                    <p style={{ margin: 0, fontSize: "0.72rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</p>
+                  </div>
+                  <p style={{ margin: "0.1rem 0 0 1.55rem", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.url}</p>
+                </div>
+                <button onClick={async () => { await removeBookmark(e.id); load(); }}
+                  className="bm-del"
+                  style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                  onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                ><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<DownloadEntry[]>(() => getDownloads());
+
+  const refresh = useCallback(() => setEntries(getDownloads()), []);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <Download size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>Downloads</h2>
+        {entries.length > 0 && (
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={() => { clearDownloads(); refresh(); }}
+            style={{ background: "none", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,120,120,0.8)", padding: "0.35rem 0.7rem", borderRadius: "6px", fontSize: "0.6rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.3rem" }}
+          ><Trash2 size={12} /> Clear</motion.button>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>No downloads yet</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            {entries.map(d => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.75rem", borderRadius: "8px", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--t-bg-tertiary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Download size={14} style={{ color: d.state === "complete" ? "var(--t-accent)" : "var(--t-text-muted)" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</p>
+                  <p style={{ margin: "0.05rem 0 0", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {d.state === "complete" ? `${(d.totalBytes / 1024 / 1024).toFixed(1)} MB` : d.state === "error" ? "Failed" : "Downloading…"}
+                    {" · "}{new Date(d.startedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "0.25rem" }}>
+                  {d.state === "complete" && (
+                    <button onClick={() => onNavigate(d.url)}
+                      style={{ background: "var(--t-bg-tertiary)", border: "none", color: "var(--t-text-secondary)", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                    ><ExternalLink size={12} /></button>
+                  )}
+                  <button onClick={() => { removeDownload(d.id); refresh(); }}
+                    style={{ background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "5px", borderRadius: "6px" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  ><X size={12} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -3539,6 +3822,9 @@ function CollapsedSidebar({
   }> = [
     { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
     { label: "Games", url: "unstable://games", icon: Gamepad },
+    { label: "History", url: "unstable://history", icon: HistoryIcon },
+    { label: "Bookmarks", url: "unstable://bookmarks", icon: Bookmark },
+    { label: "Downloads", url: "unstable://downloads", icon: Download },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
     { label: "Settings", url: "unstable://settings", icon: Settings },
@@ -3840,6 +4126,7 @@ function BrowserApp({
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
+  const [bookmarked, setBookmarked] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
@@ -4085,6 +4372,15 @@ function BrowserApp({
   }, [activeTabId, activeTab?.url]);
 
   useEffect(() => {
+    if (!activeTab?.url || activeTab.url.startsWith("unstable://")) {
+      setBookmarked(false);
+      return;
+    }
+    const url = decodeProxyUrl(activeTab.url);
+    isBookmarked(url).then(setBookmarked);
+  }, [activeTabId, activeTab?.url]);
+
+  useEffect(() => {
     clearTimeout(suggestTimer.current);
     const q = urlInput.trim();
     if (q.length < 2 || q.includes(".") || q.includes("/") || q.includes(" ")) {
@@ -4188,7 +4484,7 @@ function BrowserApp({
         updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
         return;
       }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games"].includes(page)) {
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
         setTabs(prev => prev.map(tab => {
           if (tab.id !== tabId) return tab;
@@ -4414,23 +4710,45 @@ function BrowserApp({
                   )}
                 </AnimatePresence>
               </div>
-              <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
-                  onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
-                  onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
-                  onKeyDown={e => {
-                    if (!showSuggestions || !searchSuggestions.length) return;
-                    if (e.key === "ArrowDown") { e.preventDefault(); setSuggestIndex(i => Math.min(i + 1, searchSuggestions.length - 1)); }
-                    if (e.key === "ArrowUp") { e.preventDefault(); setSuggestIndex(i => Math.max(i - 1, -1)); }
-                    if (e.key === "Enter" && suggestIndex >= 0) {
-                      e.preventDefault();
-                      const s = searchSuggestions[suggestIndex];
-                      setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1);
-                      handleNavigate(searchUrl(s, settings.searchEngine));
-                    }
-                  }}
-                  placeholder="search, url, or unstable://…"
-                  style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
-                />
+              <div style={{ position: "relative", flex: 1 }}>
+                <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
+                    onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
+                    onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
+                    onKeyDown={e => {
+                      if (!showSuggestions || !searchSuggestions.length) return;
+                      if (e.key === "ArrowDown") { e.preventDefault(); setSuggestIndex(i => Math.min(i + 1, searchSuggestions.length - 1)); }
+                      if (e.key === "ArrowUp") { e.preventDefault(); setSuggestIndex(i => Math.max(i - 1, -1)); }
+                      if (e.key === "Enter" && suggestIndex >= 0) {
+                        e.preventDefault();
+                        const s = searchSuggestions[suggestIndex];
+                        setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1);
+                        handleNavigate(searchUrl(s, settings.searchEngine));
+                      }
+                    }}
+                    placeholder="search, url, or unstable://…"
+                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 1.5rem 0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
+                  />
+                <button type="button" onClick={async () => {
+                  if (!activeTab?.url || activeTab.url.startsWith("unstable://")) return;
+                  const url = decodeProxyUrl(activeTab.url);
+                  if (bookmarked) {
+                    await removeBookmark(url);
+                    setBookmarked(false);
+                  } else {
+                    let domain = "";
+                    try { domain = new URL(url).hostname; } catch {}
+                    await addBookmark(url, activeTab.title || domain, activeTab.favicon || faviconUrl(domain));
+                    setBookmarked(true);
+                  }
+                }} style={{
+                  position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer", display: "flex",
+                  alignItems: "center", justifyContent: "center", padding: "2px",
+                  color: bookmarked ? "#f0c040" : "rgba(255,255,255,0.25)", transition: "color 0.15s",
+                }} data-tooltip={bookmarked ? "Remove bookmark" : "Bookmark"} aria-label={bookmarked ? "Remove bookmark" : "Bookmark"}>
+                  <Star size={12} fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth={bookmarked ? 1.5 : 2.5} />
+                </button>
+              </div>
               </form>
               <AnimatePresence>
                 {showSuggestions && (
@@ -4524,7 +4842,7 @@ function BrowserApp({
                 >
               {!tab.url ? (
                 settings.newtabMode === "legacy" ? (
-                  <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} vantaActive={false} />
+                  <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} wallpaper={false} />
                 ) : (
                   <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
                 )
@@ -4538,6 +4856,12 @@ function BrowserApp({
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>
                   Coming soon
                 </div>
+              ) : tab.url === "unstable://history" ? (
+                <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />
+              ) : tab.url === "unstable://bookmarks" ? (
+                <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />
+              ) : tab.url === "unstable://downloads" ? (
+                <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />
               ) : tab.url === "unstable://credits" ? (
                 <CreditsPage />
               ) : tab.url === "unstable://tos" ? (
@@ -4551,8 +4875,21 @@ function BrowserApp({
                   src={tab.url}
                   style={{ width: "100%", height: "100%", border: "none", display: "block" }}
                   allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation"
                   onLoad={() => {
                     updateTab(tab.id, { loading: false });
+                    try {
+                      const iframe = iframeRefs.current[tab.id];
+                      if (iframe) {
+                        const doc = iframe.contentDocument;
+                        const title = doc?.title || tab.title;
+                        const favicon = tab.favicon || undefined;
+                        if (title && tab.url && !tab.url.startsWith("unstable://")) {
+                          const originalUrl = decodeProxyUrl(tab.url);
+                          addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
+                        }
+                      }
+                    } catch {}
                     const gameMode = isGameModeTabUrl(tab.url, settings);
                     try {
                       const iframe = iframeRefs.current[tab.id];
