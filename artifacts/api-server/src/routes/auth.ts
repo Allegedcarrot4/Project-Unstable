@@ -7,11 +7,12 @@ import {
   requireDeviceId,
 } from "../lib/supabase-admin";
 
+const SALT = crypto.randomBytes(16).toString("hex");
 const expectedHash = (() => {
   const raw = process.env.PASSWORD;
   if (!raw) return null;
   const trimmed = raw.trim().replace(/^['"]|['"]$/g, "");
-  return crypto.createHash("sha256").update(trimmed).digest("hex");
+  return crypto.pbkdf2Sync(trimmed, SALT, 100000, 64, "sha512").toString("hex");
 })();
 
 const authRoute: FastifyPluginAsync = async (app) => {
@@ -27,7 +28,7 @@ const authRoute: FastifyPluginAsync = async (app) => {
       return reply.status(401).send({ ok: false });
     }
 
-    const providedHash = crypto.createHash("sha256").update(provided).digest("hex");
+    const providedHash = crypto.pbkdf2Sync(provided, SALT, 100000, 64, "sha512").toString("hex");
     const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
     if (!valid) {
       return reply.status(401).send({ ok: false });

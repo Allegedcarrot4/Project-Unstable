@@ -3436,7 +3436,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
               style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
             >
               <div style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
+                <img src={sc.favicon && /^(https?:)?\/\//i.test(sc.favicon) ? sc.favicon : ""} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
                   onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }}
                 />
                 <span style={{ display: "none", width: 24, height: 24, background: "var(--t-bg-tertiary)", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "var(--t-text-secondary)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
@@ -4279,7 +4279,7 @@ function BrowserApp({
     const t = THEMES[settings.theme]?.colors ?? THEMES.dark.colors;
     const wpUrl = THEMES[settings.theme]?.wallpaper ?? settings.wallpaper;
     const props = Object.entries(t).map(([k, v]) => `--t-${k.replace(/([A-Z])/g, "-$1").toLowerCase()}: ${v}`).join(";");
-    const wp = wpUrl ? `--t-wallpaper: url("${wpUrl.replace(/"/g, '\\"')}")` : "--t-wallpaper: none";
+    const wp = wpUrl ? `--t-wallpaper: url("${wpUrl.replace(/[\\"()\x00-\x1f]/g, "")}")` : "--t-wallpaper: none";
     let el = document.getElementById("unstable-theme");
     if (!el) { el = document.createElement("style"); el.id = "unstable-theme"; document.head.appendChild(el); }
     el.textContent = `:root{${props};${wp}}`;

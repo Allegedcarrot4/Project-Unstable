@@ -117,7 +117,7 @@
     }
 
     window.addEventListener("message", (e) => {
-      if (e.data?.type === "unstable-permission-response" && e.data.id && pendingPerms[e.data.id]) {
+      if (e.data?.type === "unstable-permission-response" && e.data.id && typeof pendingPerms[e.data.id] === "function") {
         pendingPerms[e.data.id](e.data.allowed);
         delete pendingPerms[e.data.id];
       }
