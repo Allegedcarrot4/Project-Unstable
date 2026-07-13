@@ -34,10 +34,6 @@ export function getSupabaseAdmin() {
 }
 
 export function hashDeviceId(deviceId: string): string {
-  console.log("DEBUG: Checking secrets...");
-  console.log("DEVICE_ID_HMAC_SECRET length:", process.env.DEVICE_ID_HMAC_SECRET?.trim()?.length);
-  console.log("SESSION_SECRET length:", process.env.SESSION_SECRET?.trim()?.length);
-
   const secret = process.env.DEVICE_ID_HMAC_SECRET?.trim() || process.env.SESSION_SECRET?.trim();
   if (!secret) {
     throw new Error("Missing required environment variable: DEVICE_ID_HMAC_SECRET");

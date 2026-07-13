@@ -3788,7 +3788,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
           : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
-            : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
+            : <Globe size={14} strokeWidth={1.5} style={{ opacity: 0.35 }} />
         }
       </div>
       <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
