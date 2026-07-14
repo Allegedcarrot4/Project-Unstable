@@ -2652,14 +2652,14 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                     onClick={() => setActiveId(conv.id)}
                     style={{
                       cursor: "pointer", borderRadius: "10px", padding: "0.6rem 0.7rem",
-                      marginBottom: "0.2rem", position: "relative",
+                      marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem",
                       background: active ? "rgba(255,255,255,0.06)" : "transparent",
                       border: active ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
                     }}
                     onMouseEnter={() => setHoveredMsgId(conv.id)}
                     onMouseLeave={() => setHoveredMsgId(null)}
                   >
-                    <p style={{ margin: 0, fontSize: "0.72rem", color: "#e0e0e0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: active ? 170 : 200 }}>
+                    <p style={{ margin: 0, fontSize: "0.72rem", color: "#e0e0e0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
                       {conv.title || "Untitled"}
                     </p>
                     {hoveredMsgId === conv.id && (
@@ -2667,7 +2667,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
                         onClick={(e) => { e.stopPropagation(); deleteChat(conv.id); }}
-                        style={{ position: "absolute", right: "0.4rem", top: "50%", transform: "translateY(-50%)", background: "rgba(220,80,80,0.15)", border: "1px solid rgba(220,80,80,0.3)", borderRadius: "6px", color: "rgba(220,80,80,0.8)", fontSize: "0.55rem", cursor: "pointer", padding: "0.15rem 0.4rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                        style={{ flexShrink: 0, background: "rgba(220,80,80,0.15)", border: "1px solid rgba(220,80,80,0.3)", borderRadius: "6px", color: "rgba(220,80,80,0.8)", fontSize: "0.55rem", cursor: "pointer", padding: "0.15rem 0.4rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
                       >delete</motion.button>
                     )}
                   </motion.div>

@@ -1,7 +1,18 @@
 import "dotenv/config";
 import { logger } from "./lib/logger";
 
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "Uncaught exception");
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled rejection");
+});
+
 const { default: app } = await import("./app");
+
+// Root-level health check — Railway pings this
+app.get("/", async (_req, reply) => reply.type("text/plain").send("OK"));
 
 const rawPort = process.env["PORT"] || "8080";
 const port = Number(rawPort);
