@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
@@ -2593,6 +2593,22 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
 
   const sidebarWidth = 260;
 
+  function ActionButton({ icon, label, active, activeColor, onClick }: { icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void }) {
+    return (
+      <button onClick={onClick} style={{ background: active ? "rgba(120,170,255,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(120,170,255,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "6px", color: active ? activeColor || "rgba(120,170,255,0.8)" : "rgba(255,255,255,0.4)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.45rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+        {icon}{label}
+      </button>
+    );
+  }
+
+  function IconButton({ icon, active, activeColor, onClick }: { icon: React.ReactNode; active?: boolean; activeColor?: string; onClick: () => void }) {
+    return (
+      <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: active ? activeColor || "rgba(120,200,120,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
+        {icon}
+      </button>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -2676,13 +2692,48 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
         >
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.9rem 1.2rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div>
-              <p style={{ margin: 0, fontSize: "0.88rem", color: "#eceff4", fontWeight: 500 }}>
-                {activeId ? (conversations.find(c => c.id === activeId)?.title || "Chat") : "AI"}
-              </p>
-              <p style={{ margin: "0.15rem 0 0", fontSize: "0.58rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
-                {modeMeta[mode].label}
-              </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div>
+                <p style={{ margin: 0, fontSize: "0.88rem", color: "#eceff4", fontWeight: 500 }}>
+                  {activeId ? (conversations.find(c => c.id === activeId)?.title || "Chat") : "AI"}
+                </p>
+              </div>
+              {/* Mode selector moved to header */}
+              <div style={{ position: "relative" }}>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={(e) => { e.stopPropagation(); setModeDropdownOpen(!modeDropdownOpen); }}
+                  style={{ background: mode === "think" ? "rgba(120,80,200,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${mode === "think" ? "rgba(120,80,200,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: "999px", padding: "0.3rem 0.6rem", cursor: "pointer", color: mode === "think" ? "rgba(180,140,255,0.8)" : "rgba(255,255,255,0.45)", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}
+                >
+                  {mode === "fast" ? <><Zap size={11} />fast</> : <><Brain size={11} />think</>}
+                </motion.button>
+                <AnimatePresence>
+                  {modeDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                      transition={{ duration: 0.12 }}
+                      style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#181818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.3rem", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", minWidth: 140, zIndex: 10 }}
+                    >
+                      {(["fast", "think"] as AIMode[]).map((opt) => (
+                        <motion.button
+                          key={opt}
+                          whileHover={{ background: "rgba(255,255,255,0.06)" }}
+                          onClick={() => { setMode(opt); setModeDropdownOpen(false); }}
+                          style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "100%", textAlign: "left", background: mode === opt ? "rgba(255,255,255,0.08)" : "transparent", border: "none", borderRadius: "8px", padding: "0.45rem 0.7rem", cursor: "pointer", color: mode === opt ? "#e8e8e8" : "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                        >
+                          <span style={{ display: "inline-flex" }}>{opt === "fast" ? <Zap size={13} /> : <Brain size={13} />}</span>
+                          <span style={{ flex: 1 }}>{opt === "fast" ? "Fast" : "Think"}</span>
+                          {mode === opt && <span style={{ fontSize: "0.5rem", color: "rgba(120,200,120,0.6)" }}>active</span>}
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
               {activeId && (
@@ -2765,37 +2816,29 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                             <p style={{ margin: 0, color: "#e0e0e0", fontSize: "0.8rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
                               {message.content}
                             </p>
-                            {isUser && isHovered && !isEditing && (
+                            {isHovered && !isEditing && (
                               <motion.div
                                 initial={{ opacity: 0, y: 4 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                style={{ display: "flex", gap: "0.3rem", marginTop: "0.55rem", justifyContent: "flex-end" }}
+                                style={{ display: "flex", gap: "0.2rem", marginTop: "0.55rem", justifyContent: isUser ? "flex-end" : "space-between", alignItems: "center" }}
                               >
-                                <button onClick={() => copyMessage(message.content)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}>copy</button>
-                                <button onClick={() => startEdit(message)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}>edit</button>
-                              </motion.div>
-                            )}
-                            {!isUser && isHovered && !isEditing && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                style={{ display: "flex", gap: "0.3rem", marginTop: "0.55rem", alignItems: "center" }}
-                              >
-                                <button onClick={() => speakMessage(message.id, message.content)} style={{ background: speakingMessageId === message.id ? "rgba(120,170,255,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${speakingMessageId === message.id ? "rgba(120,170,255,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: "6px", color: speakingMessageId === message.id ? "rgba(120,170,255,0.8)" : "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                                  <Volume2 size={12} />
-                                  {speakingMessageId === message.id ? "stop" : "read"}
-                                </button>
-                                <button onClick={regenerateMessage} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", color: "rgba(255,255,255,0.45)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.5rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-                                  <RefreshCw size={11} />
-                                  regenerate
-                                </button>
-                                <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.1)" }} />
-                                <button onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: feedback[message.id] === "like" ? "rgba(120,200,120,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
-                                  <ThumbsUp size={12} />
-                                </button>
-                                <button onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: feedback[message.id] === "dislike" ? "rgba(220,100,100,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
-                                  <ThumbsDown size={12} />
-                                </button>
+                                <div style={{ display: "flex", gap: "0.2rem", alignItems: "center" }}>
+                                  {!isUser && (
+                                    <>
+                                      <ActionButton icon={<Volume2 size={11} />} label={speakingMessageId === message.id ? "stop" : "read"} active={speakingMessageId === message.id} activeColor="rgba(120,170,255,0.8)" onClick={() => speakMessage(message.id, message.content)} />
+                                      <ActionButton icon={<RefreshCw size={11} />} label="redo" onClick={regenerateMessage} />
+                                    </>
+                                  )}
+                                  <ActionButton icon={<Copy size={11} />} label="copy" onClick={() => copyMessage(message.content)} />
+                                  {isUser && <ActionButton icon={<Pencil size={11} />} label="edit" onClick={() => startEdit(message)} />}
+                                </div>
+                                {!isUser && (
+                                  <div style={{ display: "flex", gap: "0.1rem", alignItems: "center" }}>
+                                    <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.2rem" }} />
+                                    <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} />
+                                    <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} />
+                                  </div>
+                                )}
                               </motion.div>
                             )}
                           </div>
@@ -2824,7 +2867,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
           {/* Input area */}
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem", background: "linear-gradient(180deg, rgba(11,11,11,0.96), rgba(8,8,8,0.98))" }}>
             {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>{error}</p>}
-            <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.6rem 0.8rem" }}>
+            <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.5rem 0.5rem 0.5rem 0.8rem" }}>
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -2834,45 +2877,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                 rows={1}
                 style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 220, overflowY: "auto" }}
               />
-              {/* Mode dropdown */}
-              <div style={{ position: "relative", flexShrink: 0 }}>
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={(e) => { e.stopPropagation(); setModeDropdownOpen(!modeDropdownOpen); }}
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.4rem 0.65rem", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em", whiteSpace: "nowrap" }}
-                >
-                  {mode === "fast" ? <><Zap size={12} style={{ marginRight: "0.2rem" }} />fast</> : <><Brain size={12} style={{ marginRight: "0.2rem" }} />think</>}
-                </motion.button>
-                <AnimatePresence>
-                  {modeDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                      transition={{ duration: 0.12 }}
-                      style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#181818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.3rem", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", minWidth: 120, zIndex: 10 }}
-                    >
-                      {(["fast", "think"] as AIMode[]).map((opt) => (
-                        <motion.button
-                          key={opt}
-                          whileHover={{ background: "rgba(255,255,255,0.06)" }}
-                          onClick={() => { setMode(opt); setModeDropdownOpen(false); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", background: mode === opt ? "rgba(255,255,255,0.08)" : "transparent", border: "none", borderRadius: "8px", padding: "0.45rem 0.7rem", cursor: "pointer", color: mode === opt ? "#e8e8e8" : "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
-                        >
-                          <span style={{ marginRight: "0.4rem", display: "inline-flex", verticalAlign: "middle" }}>{opt === "fast" ? <Zap size={13} /> : <Brain size={13} />}</span>
-                          {opt === "fast" ? "Fast" : "Think"}
-                          <span style={{ display: "block", fontSize: "0.52rem", color: "rgba(255,255,255,0.25)", marginTop: "0.1rem" }}>
-                            {opt === "fast" ? "Low latency" : "More reasoning"}
-                          </span>
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-              {/* Voice button */}
+              {/* Voice input */}
               <motion.button
                 type="button"
                 whileHover={{ scale: 1.03 }}
@@ -2893,9 +2898,9 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                   recognition.onerror = () => setListening(false);
                   try { recognition.start(); } catch { setListening(false); }
                 }}
-                style={{ flexShrink: 0, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: listening ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(220,80,80,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "50%", cursor: "pointer", color: listening ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.4)", padding: 0, position: "relative" }}
+                style={{ flexShrink: 0, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: listening ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(220,80,80,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "50%", cursor: "pointer", color: listening ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.4)", padding: 0, position: "relative" }}
               >
-                {listening ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc4444", display: "block", position: "absolute" }} /><Mic size={16} /></> : <Mic size={16} />}
+                {listening ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc4444", display: "block", position: "absolute" }} /><Mic size={14} /></> : <Mic size={14} />}
               </motion.button>
               {/* Send button */}
               <motion.button
@@ -2903,9 +2908,9 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                 whileTap={{ scale: loading ? 1 : 0.98 }}
                 type="submit"
                 disabled={loading || !input.trim()}
-                style={{ flexShrink: 0, alignSelf: "stretch", minWidth: 80, background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
+                style={{ flexShrink: 0, height: 34, minWidth: 72, background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 0.9rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" }}
               >
-                {loading ? "sending" : "send"}
+                {loading ? "sending" : <><Send size={12} />send</>}
               </motion.button>
             </form>
           </div>
