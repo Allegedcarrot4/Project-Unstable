@@ -1,12 +1,3 @@
----
-title: Unstable
-emoji: 🌑
-colorFrom: gray
-colorTo: gray
-sdk: docker
-pinned: false
----
-
 <p align="left">
   <img src="logo.svg" alt="Unstable" height="80">
 </p>
