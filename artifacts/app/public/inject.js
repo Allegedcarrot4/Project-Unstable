@@ -156,5 +156,16 @@
         return origWatch(succ, fail, opts);
       };
     }
+    // ─── 6. Download Interception ──────────────────────────────────────────
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest("a");
+      if (!a || !a.download) return;
+      e.preventDefault();
+      PARENT.postMessage({
+        type: "unstable-download",
+        url: a.href,
+        filename: a.download || a.href.split("/").pop() || "download",
+      }, "*");
+    }, true);
   } catch (e) { console.warn("[unstable-inject] error:", e); }
 })();

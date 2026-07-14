@@ -4255,6 +4255,22 @@ function BrowserApp({
         }
         return;
       }
+      if (e.data?.type === "unstable-download" && e.data?.url) {
+        const url = e.data.url;
+        const filename = e.data.filename || "download";
+        fetch(url).then(r => r.blob()).then(blob => {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+          addDownload(filename, url, blob.size, blob.type);
+        }).catch(() => {});
+        return;
+      }
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
@@ -4732,7 +4748,7 @@ function BrowserApp({
         src={tab.url}
         style={{ width: "100%", height: "100%", border: "none", display: "block" }}
         allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
         onLoad={() => {
           updateTab(tab.id, { loading: false });
           try {
