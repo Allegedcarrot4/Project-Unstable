@@ -31,6 +31,7 @@ RUN pnpm --filter @workspace/api-server run build
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
 FROM base AS runner
+RUN apt-get update -qq && apt-get install -y -qq tini && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # API server compiled bundle (matches pnpm start's CWD expectations)
@@ -65,4 +66,5 @@ ENV NODE_ENV=production
 # PASSWORD must be set as a Space secret — the app will refuse auth without it
 # SESSION_SECRET is optional but recommended for production hardening
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
