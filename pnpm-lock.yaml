@@ -30,6 +30,9 @@ catalogs:
     clsx:
       specifier: ^2.1.1
       version: 2.1.1
+    drizzle-orm:
+      specifier: ^0.45.2
+      version: 0.45.2
     framer-motion:
       specifier: ^12.23.24
       version: 12.35.1
@@ -48,6 +51,9 @@ catalogs:
     tailwindcss:
       specifier: ^4.1.14
       version: 4.2.1
+    tsx:
+      specifier: ^4.21.0
+      version: 4.22.4
     vite:
       specifier: ^7.3.5
       version: 7.3.5
@@ -149,7 +155,7 @@ importers:
         version: 6.0.3
       vite:
         specifier: 'catalog:'
-        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0)
+        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
 
   artifacts/api-server:
     dependencies:
@@ -243,11 +249,11 @@ importers:
         version: 0.162.0
       vite-plugin-static-copy:
         specifier: ^4.1.0
-        version: 4.1.0(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))
+        version: 4.1.0(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
     devDependencies:
       '@hookform/resolvers':
-        specifier: ^3.10.0
-        version: 3.10.0(react-hook-form@7.79.0(react@19.1.0))
+        specifier: ^5.4.0
+        version: 5.4.0(react-hook-form@7.79.0(react@19.1.0))
       '@radix-ui/react-accordion':
         specifier: ^1.2.4
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -334,7 +340,7 @@ importers:
         version: 0.5.19(tailwindcss@4.2.1)
       '@tailwindcss/vite':
         specifier: 'catalog:'
-        version: 4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))
+        version: 4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
       '@tanstack/react-query':
         specifier: 'catalog:'
         version: 5.101.0(react@19.1.0)
@@ -349,7 +355,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))
+        version: 5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
@@ -424,10 +430,10 @@ importers:
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       vite:
         specifier: 'catalog:'
-        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)
+        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
       vite-plugin-compression2:
         specifier: 1.3.3
-        version: 1.3.3(rollup@4.59.0)(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))
+        version: 1.3.3(rollup@4.59.0)(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
       vite-plugin-javascript-obfuscator:
         specifier: ^3.1.0
         version: 3.1.0
@@ -441,8 +447,8 @@ importers:
   artifacts/mockup-sandbox:
     devDependencies:
       '@hookform/resolvers':
-        specifier: ^3.10.0
-        version: 3.10.0(react-hook-form@7.79.0(react@19.1.0))
+        specifier: ^5.4.0
+        version: 5.4.0(react-hook-form@7.79.0(react@19.1.0))
       '@radix-ui/react-accordion':
         specifier: ^1.2.12
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -526,7 +532,7 @@ importers:
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
-        version: 4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
@@ -538,7 +544,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0))
+        version: 5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
@@ -610,7 +616,7 @@ importers:
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       vite:
         specifier: 'catalog:'
-        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0)
+        version: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
       zod:
         specifier: 'catalog:'
         version: 3.25.76
@@ -862,10 +868,10 @@ packages:
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
 
-  '@hookform/resolvers@3.10.0':
-    resolution: {integrity: sha512-79Dv+3mDF7i+2ajj7SkypSKHhl1cbln1OGavqrsF7p6mbUv11xpqpacPsGDCTRvCSjEEIez2ef1NveSVL3b0Ag==}
+  '@hookform/resolvers@5.4.0':
+    resolution: {integrity: sha512-EIsqr/t/qbinPIhGjMdtvutIN1Kk4uwbROE9/UQ93CAVGR7GkA7Y92+fX80OzXi/OB67jVFYwKGO1WzkxmkFZw==}
     peerDependencies:
-      react-hook-form: ^7.0.0
+      react-hook-form: ^7.55.0
 
   '@inversifyjs/common@1.3.3':
     resolution: {integrity: sha512-ZH0wrgaJwIo3s9gMCDM2wZoxqrJ6gB97jWXncROfYdqZJv8f3EkqT57faZqN5OTeHWgtziQ6F6g3L8rCvGceCw==}
@@ -1748,6 +1754,9 @@ packages:
   '@sindresorhus/merge-streams@4.0.0':
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
+
+  '@standard-schema/utils@0.3.0':
+    resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
 
   '@supabase/auth-js@2.105.4':
     resolution: {integrity: sha512-Ejfa37M5xoIwoxVebxRahnwubPo8g22qkXQ4p50+N9MIvU9UZoN+A8dwVPtczzGf8oV/YXN80ZPxK4aWXuSN/A==}
@@ -3811,6 +3820,11 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
+  tsx@4.23.0:
+    resolution: {integrity: sha512-eUdUIaCr963q2h5u3+QwvYp0+eqPvn+egeqZUm0hwERCqqx1E3kK5ehbGCvqSE5MQAULr67ww0cA3jKc3YkM1w==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
   ttf2woff2@8.0.1:
     resolution: {integrity: sha512-nWSZLaXOgYtvgY6G0SFI8dVHsGWIchlnNMNRglT3Amp2WGy0GSPd9kLAkFd+HvEOzZ/aY6EUrpOF66QaPbipgg==}
     engines: {node: '>=20.11.1'}
@@ -4311,8 +4325,9 @@ snapshots:
       '@shikijs/types': 3.23.0
       '@shikijs/vscode-textmate': 10.0.2
 
-  '@hookform/resolvers@3.10.0(react-hook-form@7.79.0(react@19.1.0))':
+  '@hookform/resolvers@5.4.0(react-hook-form@7.79.0(react@19.1.0))':
     dependencies:
+      '@standard-schema/utils': 0.3.0
       react-hook-form: 7.79.0(react@19.1.0)
 
   '@inversifyjs/common@1.3.3': {}
@@ -5329,6 +5344,8 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@standard-schema/utils@0.3.0': {}
+
   '@supabase/auth-js@2.105.4':
     dependencies:
       tslib: 2.8.1
@@ -5397,19 +5414,12 @@ snapshots:
       postcss-selector-parser: 6.0.10
       tailwindcss: 4.2.1
 
-  '@tailwindcss/vite@4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0))':
+  '@tailwindcss/vite@4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))':
     dependencies:
       '@tailwindcss/node': 4.2.1
       '@tailwindcss/oxide': 4.2.1
       tailwindcss: 4.2.1
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0)
-
-  '@tailwindcss/vite@4.2.1(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))':
-    dependencies:
-      '@tailwindcss/node': 4.2.1
-      '@tailwindcss/oxide': 4.2.1
-      tailwindcss: 4.2.1
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)
+      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
 
   '@tanstack/query-core@5.101.0': {}
 
@@ -5511,7 +5521,7 @@ snapshots:
     dependencies:
       '@types/node': 25.3.5
 
-  '@vitejs/plugin-react@5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0))':
+  '@vitejs/plugin-react@5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.7)
@@ -5519,19 +5529,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-rc.3
       '@types/babel__core': 7.20.5
       react-refresh: 0.18.0
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@vitejs/plugin-react@5.1.4(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1))':
-    dependencies:
-      '@babel/core': 7.29.7
-      '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.7)
-      '@babel/plugin-transform-react-jsx-source': 7.27.1(@babel/core@7.29.7)
-      '@rolldown/pluginutils': 1.0.0-rc.3
-      '@types/babel__core': 7.20.5
-      react-refresh: 0.18.0
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)
+      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -5920,7 +5918,7 @@ snapshots:
   drizzle-kit@0.31.10:
     dependencies:
       '@drizzle-team/brocli': 0.10.2
-      '@esbuild-kit/esm-loader': tsx@4.22.4
+      '@esbuild-kit/esm-loader': tsx@4.23.0
       esbuild: 0.28.1
       tsx: 4.22.4
 
@@ -7320,6 +7318,12 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
+  tsx@4.23.0:
+    dependencies:
+      esbuild: 0.28.1
+    optionalDependencies:
+      fsevents: 2.3.3
+
   ttf2woff2@8.0.1:
     dependencies:
       bindings: 1.5.0
@@ -7445,11 +7449,11 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite-plugin-compression2@1.3.3(rollup@4.59.0)(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)):
+  vite-plugin-compression2@1.3.3(rollup@4.59.0)(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       '@rollup/pluginutils': 5.4.0(rollup@4.59.0)
       tar-mini: 0.2.0
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)
+      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - rollup
 
@@ -7458,15 +7462,15 @@ snapshots:
       anymatch: 3.1.3
       javascript-obfuscator: 4.2.2
 
-  vite-plugin-static-copy@4.1.0(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)):
+  vite-plugin-static-copy@4.1.0(vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       chokidar: 3.6.0
       p-map: 7.0.4
       picocolors: 1.1.1
       tinyglobby: 0.2.15
-      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)
+      vite: 7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0)
 
-  vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1):
+  vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.0)(yaml@2.9.0):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
@@ -7479,21 +7483,7 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.31.1
-
-  vite@7.3.5(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.22.4)(yaml@2.9.0):
-    dependencies:
-      esbuild: 0.28.1
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
-      postcss: 8.5.15
-      rollup: 4.59.0
-      tinyglobby: 0.2.15
-    optionalDependencies:
-      '@types/node': 25.3.5
-      fsevents: 2.3.3
-      jiti: 2.6.1
-      lightningcss: 1.31.1
-      tsx: 4.22.4
+      tsx: 4.23.0
       yaml: 2.9.0
 
   when-exit@2.1.5: {}
