@@ -20,7 +20,8 @@ const { default: app } = await import("./app");
 // Root-level health check — Railway pings this
 app.get("/", async (_req, reply) => reply.type("text/plain").send("OK"));
 
-const rawPort = process.env["PORT"] || "8080";
+const rawPort = process.env["PORT"];
+if (!rawPort) throw new Error("PORT env not set");
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"`);
 
