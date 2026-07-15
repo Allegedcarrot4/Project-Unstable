@@ -58,9 +58,9 @@ COPY --from=builder /app/runtime_node_modules ./node_modules
 # Vite copies artifacts/app/public/** into the output during build
 COPY --from=builder /app/artifacts/app/dist/public          ./artifacts/app/dist/public
 
-EXPOSE 7860
+EXPOSE 8080
 
-ENV PORT=7860
+ENV PORT=8080
 ENV NODE_ENV=production
 
 # PASSWORD must be set as a Space secret — the app will refuse auth without it
