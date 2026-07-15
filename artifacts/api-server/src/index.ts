@@ -8,6 +8,12 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   logger.error({ reason }, "Unhandled rejection");
 });
+process.on("beforeExit", (code) => {
+  logger.error({ code }, "Event loop draining — server likely not keeping process alive");
+});
+
+// Keep event loop alive even if server doesn't register handles properly
+setInterval(() => {}, 60000);
 
 const { default: app } = await import("./app");
 
@@ -21,6 +27,7 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"
 try {
   await app.listen({ port, host: "0.0.0.0" });
   logger.info({ port, pid: process.pid }, "Server listening");
+  console.log(`[startup] HTTP server active: ${app.server.listening}`);
 } catch (err) {
   logger.error({ err }, "Server failed to listen");
   process.exit(1);
