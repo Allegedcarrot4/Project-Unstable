@@ -84,19 +84,27 @@ const app = Fastify({
     const server = createServer();
 
     server.on("request", (req, res) => {
-      for (const bare of bares) {
-        if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
+      try {
+        for (const bare of bares) {
+          if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
+        }
+      } catch (e) {
+        logger.error({ err: e, url: req.url }, "Bare server routing error — falling back to Fastify");
       }
       handler(req, res);
     });
 
     server.on("upgrade", (req, socket, head) => {
-      if (req.url?.startsWith("/api/wisp/") && wispHandler) {
-        wispHandler(req, socket, head);
-        return;
-      }
-      for (const bare of bares) {
-        if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
+      try {
+        if (req.url?.startsWith("/api/wisp/") && wispHandler) {
+          wispHandler(req, socket, head);
+          return;
+        }
+        for (const bare of bares) {
+          if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
+        }
+      } catch (e) {
+        logger.error({ err: e, url: req.url }, "Upgrade handler error");
       }
       socket.destroy();
     });
