@@ -27,7 +27,7 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"
 try {
   await app.listen({ port, host: "0.0.0.0" });
   logger.info({ port, pid: process.pid }, "Server listening");
-  console.log(`[startup] HTTP server active: ${app.server.listening}`);
+  console.log(`[startup] HTTP server active: ${app.server.listening} on port ${port} (PORT env: "${process.env["PORT"]}")`);
 } catch (err) {
   logger.error({ err }, "Server failed to listen");
   process.exit(1);
