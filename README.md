@@ -99,7 +99,9 @@ Set these in your deployment platform's environment/secrets panel:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `PORT` | **Yes** | Port the server listens on. Set to `7860` (also match your platform's exposed port). |
 | `PASSWORD` | **Yes** | Password users must enter to access Unstable. |
+| `SESSION_SECRET` | No | Optional but recommended for production session hardening. |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |
 | `VITE_SUPABASE_URL` | No | Supabase project URL. Falls back to built-in default. |
 | `VITE_SUPABASE_ANON_KEY` | No | Supabase anon key. Falls back to built-in default. |
