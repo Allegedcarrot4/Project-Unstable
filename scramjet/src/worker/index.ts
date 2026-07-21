@@ -68,9 +68,12 @@ export class ScramjetServiceWorker extends EventTarget {
 
 			if ("scramjet$token" in data) {
 				// (ack message)
-			const cb = this.syncPool[data.scramjet$token];
-			delete this.syncPool[data.scramjet$token];
-			if (typeof cb === "function") cb(data);
+				const token = data.scramjet$token;
+				if (Object.prototype.hasOwnProperty.call(this.syncPool, token)) {
+					const cb = this.syncPool[token];
+					delete this.syncPool[token];
+					if (typeof cb === "function") cb(data);
+				}
 
 				return;
 			}
