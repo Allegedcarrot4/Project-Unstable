@@ -519,10 +519,10 @@ async function handleResponse(
 			const header = responseHeaders["content-disposition"];
 
 			// validate header and test for filename
-			if (!/\s*?((inline|attachment);\s*?)filename=/i.test(header)) {
+			if (!/^\s*(inline|attachment);\s*filename=/i.test(header)) {
 				// if filename= wasn"t specified then maybe the remote specified to download this as an attachment?
 				// if it"s invalid then we can still possibly test for the attachment/inline type
-				const type = /^\s*?attachment/i.test(header) ? "attachment" : "inline";
+				const type = /^\s*attachment/i.test(header) ? "attachment" : "inline";
 
 				// set the filename
 				const [filename] = new URL(response.finalURL).pathname

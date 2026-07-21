@@ -41,7 +41,7 @@ const SEC_HEADERS = new Set([
 const URL_HEADERS = new Set(["location", "content-location", "referer"]);
 
 function rewriteLinkHeader(link: string, meta: URLMeta) {
-	return link.replace(/<(.*)>/gi, (match) => rewriteUrl(match, meta));
+	return link.replace(/<([^>]*)>/gi, (match) => rewriteUrl(match, meta));
 }
 
 /**

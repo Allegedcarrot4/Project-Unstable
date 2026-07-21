@@ -467,6 +467,7 @@ export class ScramjetClient {
 	RawProxy(target: any, prop: string, handler: Proxy) {
 		if (!target) return;
 		if (!prop) return;
+		if (prop === "__proto__" || prop === "prototype" || prop === "constructor") return;
 		if (!Reflect.has(target, prop)) return;
 
 		const value = Reflect.get(target, prop);

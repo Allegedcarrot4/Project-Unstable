@@ -59,10 +59,10 @@
     "react": "catalog:",
     "react-day-picker": "^9.11.1",
     "react-dom": "catalog:",
-    "react-hook-form": "^7.55.0",
+    "react-hook-form": "^7.79.0",
     "react-icons": "^5.4.0",
     "react-resizable-panels": "^2.1.7",
-    "recharts": "^2.15.2",
+    "recharts": "^3.9.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "catalog:",
     "tailwindcss": "catalog:",
@@ -70,19 +70,19 @@
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
     "vite": "catalog:",
+    "vite-plugin-compression2": "1.3.3",
     "vite-plugin-javascript-obfuscator": "^3.1.0",
-    "wouter": "^3.3.5",
+    "wouter": "^3.10.0",
     "zod": "catalog:"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.8",
+    "@mercuryworkshop/bare-mux": "^2.1.9",
     "@mercuryworkshop/epoxy-transport": "^3.0.1",
     "@mercuryworkshop/libcurl-transport": "^1.5.1",
     "@mercuryworkshop/scramjet": "2.0.2-alpha",
     "@supabase/supabase-js": "^2.105.4",
     "bare-mux-fork": "https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz",
-    "three": "^0.162.0",
-    "vanta": "^0.5.24",
+    "three": "^0.185.1",
     "vite-plugin-static-copy": "^4.1.0"
   }
 }

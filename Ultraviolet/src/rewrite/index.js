@@ -118,6 +118,10 @@ class Ultraviolet {
 			return "javascript:" + this.js.rewrite(str.slice("javascript:".length));
 		}
 
+		if (/^[a-z][a-z0-9+.-]*:/i.test(str) && !/^https?:\/\//i.test(str)) {
+			return str;
+		}
+
 		try {
 			return (
 				meta.origin + this.prefix + this.encodeUrl(new URL(str, meta.base).href)

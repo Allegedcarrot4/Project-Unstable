@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import javascriptObfuscator from "vite-plugin-javascript-obfuscator";
+import { compression } from "vite-plugin-compression2";
 
 const rawPort = process.env.PORT || "5173";
 
@@ -31,7 +32,7 @@ export default defineConfig({
     }),
     ...(isProd ? [javascriptObfuscator({
       include: [/\.js$/],
-      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /vanta/, /three/],
+      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/],
       options: {
         compact: true,
         controlFlowFlattening: true,
@@ -53,7 +54,12 @@ export default defineConfig({
         transformObjectKeys: true,
         unicodeEscapeSequence: false,
       },
-    })] : []),
+    }),
+    // Pre-compress all JS/CSS/HTML/wasm assets at build time.
+    // Fastify serves the .br/.gz sidecars directly, saving per-request CPU.
+    compression({ algorithm: "brotliCompress", exclude: [/\.(br|gz)$/] }),
+    compression({ algorithm: "gzip", exclude: [/\.(br|gz)$/] }),
+    ] : []),
   ],
   resolve: {
     alias: {
@@ -66,6 +72,21 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Split chunks so the browser can cache vendor libs independently of app code.
+        // A deploy only busts the chunks that actually changed.
+        manualChunks(id) {
+          if (id.includes("node_modules/three")) return "vendor-3d";
+          if (id.includes("node_modules/framer-motion")) return "vendor-motion";
+          if (id.includes("node_modules/@supabase")) return "vendor-supabase";
+          // React, Radix, and everything else stays in one vendor chunk
+          // to avoid circular init ordering — splitting React out causes
+          // "Cannot read properties of undefined (reading 'forwardRef')" crashes
+          if (id.includes("node_modules")) return "vendor";
+        },
+      },
+    },
   },
   server: {
     port,

@@ -41,7 +41,7 @@ export function rewriteUrl(url: string | URL, meta: URLMeta) {
 		return location.origin + config.prefix + url;
 	} else if (url.startsWith("data:")) {
 		return location.origin + config.prefix + url;
-	} else if (url.startsWith("mailto:") || url.startsWith("about:")) {
+	} else if (url.startsWith("mailto:") || url.startsWith("about:") || url.startsWith("file:") || url.startsWith("ftp:")) {
 		return url;
 	} else {
 		let base = meta.base.href;
@@ -78,7 +78,7 @@ export function unrewriteUrl(url: string | URL) {
 		return url.substring(prefixed.length);
 	} else if (url.startsWith(prefixed + "data:")) {
 		return url.substring(prefixed.length);
-	} else if (url.startsWith("mailto:") || url.startsWith("about:")) {
+	} else if (url.startsWith("mailto:") || url.startsWith("about:") || url.startsWith("file:") || url.startsWith("ftp:")) {
 		return url;
 	} else {
 		const realUrl = tryCanParseURL(url);

@@ -1,93 +1,134 @@
-﻿---
-title: Unstable
-emoji: 🌑
-colorFrom: gray
-colorTo: gray
-sdk: docker
-pinned: false
+<p align="left">
+  <img src="logo.svg" alt="Unstable" height="80">
+</p>
+<p align="left">
+  <a href="https://discord.com/invite/yD9NkcsKcw"><img src="https://skillicons.dev/icons?i=discord" alt="Join our Discord"></a>&nbsp;<a href="https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://skillicons.dev/icons?i=github" alt="View on GitHub"></a>
+</p>
+
+**Unstable** is a fast, password-protected, browser-inspired web proxy with a dark void aesthetic. Powered by Ultraviolet, Scramjet, bare-mux, and Wisp.
+
 ---
-
-# Unstable
-
-A password-protected web proxy browser with a dark void aesthetic. Powered by [Ultraviolet](https://github.com/titaniumnetwork-dev/Ultraviolet), bare-mux, and bare-server-node.
 
 ## Features
 
-- Multi-tab browser with favicons and history
-- 5 bare proxy servers + optional Wisp protocol
+- Browser-like UI with tabs, favicons, history, and a loading progress bar
+- UV + Scramjet dual proxy engines with auto-switching
+- 5 bare proxy servers + Wisp WebSocket transport
+- libcurl, epoxy, and bare-mux transport options
+- Built-in adblock and tracking parameter stripping
+- Canvas, WebGL, and WebRTC fingerprint protection
 - New tab page with editable shortcuts
 - Tab cloaking (Google Drive, Schoology, ClassLink, Google Classroom)
 - Recordable keyboard shortcuts
 - `unstable://` protocol (newtab, settings, credits, blank)
 - Password-protected access
+- Dark themes with animated Vanta backgrounds
 
-## Deployment — Secrets to Configure
+---
 
-Go to **Settings → Variables and secrets** in your Space and add:
+## Deployment Options
 
-| Secret name | Required | Description |
-|-------------|----------|-------------|
-| `PASSWORD` | **Yes** | The password users must enter to access Unstable. If not set, the Space will refuse all login attempts in production. |
-| `SESSION_SECRET` | No | An optional random string for future session signing. Recommended for hardening. |
+> **Note**
+> Unstable **cannot** be deployed to Netlify, Vercel, GitHub Pages, Stormkit, or any other static hosting platform. It requires a full Node.js server for the proxy to function.
 
-Copy `.env.example` to `.env` and fill in your own values for local development. `.env` files are ignored by git and should never be committed.
+<p>
+  <a href="https://render.com/deploy?repo=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/render.svg" alt="Deploy to Render"></a>&nbsp;
+  <a href="https://railway.com/template/new?template=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/railway.svg" alt="Deploy on Railway"></a>&nbsp;
+  <a href="https://app.koyeb.com/services/deploy?type=git&repository=github.com/Allegedcarrot4/Project-Unstable&builder=dockerfile&instance_type=free&ports=7860%3Bhttp%3B%2F&env[PORT]=7860"><img src="https://binbashbanana.github.io/deploy-buttons/buttons/remade/koyeb.svg" alt="Deploy to Koyeb"></a>
+</p>
 
-## Deployment — Stormkit
+---
 
-When deploying with Stormkit, do not use the root workspace build script `pnpm run build` because it builds the entire monorepo.
+## Deployment via Terminal
 
-Use the app-only build command instead:
+> **Note**
+> Before deploying, install:
+>
+> - [Git](https://git-scm.com/downloads)
+> - [Node.js](https://nodejs.org/en/download/prebuilt-installer)
+>
+> Then install **pnpm**:
+>
+> ```bash
+> npm install -g pnpm
+> ```
 
-```bash
-pnpm run build:app:stormkit
-```
+### Production
 
-And set Stormkit's output directory to:
-
-```text
-artifacts/app/dist
-```
-
-This forces Stormkit to build only `@workspace/app` and then deploy only the actual frontend bundle.
-
-> **Security note:** Because the password is validated server-side against the `PASSWORD` secret, it is never exposed in the client bundle or source code. The Space can be public without leaking access credentials.
-
-## Local Development
-
-This repo is a pnpm monorepo. The two dev servers are:
-
-- `artifacts/api-server` — Express + bare-server proxy
-- `artifacts/app` — Vite dev server
-
-When `PASSWORD` is not set, the server returns a `503 {dev:true}` response and the frontend falls back to the local development password (`ripmoonlight`).
-
-## Wisp Protocol (optional)
-
-To enable the Wisp transport alongside the 5 bare servers:
+1. Clone the repository:
 
 ```bash
-pnpm --filter @workspace/api-server add wisp-server-node
+git clone https://github.com/Allegedcarrot4/Project-Unstable
+cd Project-Unstable
 ```
 
-Restart the API server — the Wisp endpoint activates automatically at `/api/wisp`.
-
-### Commands
+2. Install dependencies and start the server:
 
 ```bash
 pnpm install
+pnpm run build
+pnpm start
+```
+
+### Development
+
+```bash
+pnpm install
+```
+
+In one terminal, start the frontend:
+
+```bash
 pnpm --filter @workspace/app dev
 ```
 
-In another terminal:
+In another terminal, start the API server:
 
 ```bash
 pnpm --filter @workspace/api-server build
 pnpm --filter @workspace/api-server start
 ```
 
-If you want development behavior (`NODE_ENV=development`):
+The dev password (when `PASSWORD` is unset) is `ripmoonlight`.
 
-- macOS/Linux: `NODE_ENV=development pnpm --filter @workspace/api-server start`
-- Windows PowerShell: `$env:NODE_ENV='development'; pnpm --filter @workspace/api-server start`
+---
 
+## Secrets to Configure
 
+Set these in your deployment platform's environment/secrets panel:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | **Yes** | Port the server listens on. Set to `7860` (also match your platform's exposed port). |
+| `PASSWORD` | **Yes** | Password users must enter to access Unstable. |
+| `SESSION_SECRET` | No | Optional but recommended for production session hardening. |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |
+| `VITE_SUPABASE_URL` | No | Supabase project URL. Falls back to built-in default. |
+| `VITE_SUPABASE_ANON_KEY` | No | Supabase anon key. Falls back to built-in default. |
+
+---
+
+## Contributing
+
+Interested in contributing? Open a [pull request](https://github.com/Allegedcarrot4/Project-Unstable/pulls) or file a [GitHub Issue](https://github.com/Allegedcarrot4/Project-Unstable/issues).
+
+---
+
+## Support
+
+Need help or ran into an issue?
+
+- Open a [GitHub Issue](https://github.com/Allegedcarrot4/Project-Unstable/issues)
+- Ask for help in our [Discord server](https://discord.com/invite/yD9NkcsKcw)
+
+---
+
+## Credits
+
+Huge thanks to everyone who has contributed to Unstable.
+
+<p>
+  <a href="https://github.com/Allegedcarrot4/Project-Unstable/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Allegedcarrot4/Project-Unstable" alt="Contributors">
+  </a>
+</p>

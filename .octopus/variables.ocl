@@ -1,0 +1,5 @@
+Project.DockerRegistry = "docker.io"
+Project.DockerRegistryUsername = ""
+Project.DockerRegistryPassword = ""
+Project.KubernetesNamespace = "default"
+Project.ReplicaCount = "2"

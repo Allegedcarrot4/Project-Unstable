@@ -13,23 +13,23 @@ import https from "https";
 import { createServer } from "http";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import type { IncomingMessage, ServerResponse } from "http";
+import type { IncomingMessage } from "http";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 const httpAgent = new http.Agent({
   keepAlive: true,
-  maxSockets: 32,
-  maxFreeSockets: 8,
-  keepAliveMsecs: 10000,
+  maxSockets: 128,
+  maxFreeSockets: 32,
+  keepAliveMsecs: 30000,
   timeout: 30000,
 });
 const httpsAgent = new https.Agent({
   keepAlive: true,
-  maxSockets: 32,
-  maxFreeSockets: 8,
-  keepAliveMsecs: 10000,
+  maxSockets: 128,
+  maxFreeSockets: 32,
+  keepAliveMsecs: 30000,
   timeout: 30000,
 });
 
@@ -75,25 +75,36 @@ if (!staticDir) {
   throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
 }
 
+// Cache index.html in memory — read once, serve forever (avoids disk I/O on every SPA fallback)
+const indexHtml = fs.readFileSync(path.join(staticDir, "index.html"), "utf-8");
+
 const app = Fastify({
   logger: false,
   serverFactory: (handler) => {
     const server = createServer();
 
     server.on("request", (req, res) => {
-      for (const bare of bares) {
-        if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
+      try {
+        for (const bare of bares) {
+          if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
+        }
+      } catch (e) {
+        logger.error({ err: e, url: req.url }, "Bare server routing error — falling back to Fastify");
       }
       handler(req, res);
     });
 
     server.on("upgrade", (req, socket, head) => {
-      if (req.url?.startsWith("/api/wisp/") && wispHandler) {
-        wispHandler(req, socket, head);
-        return;
-      }
-      for (const bare of bares) {
-        if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
+      try {
+        if (req.url?.startsWith("/api/wisp/") && wispHandler) {
+          wispHandler(req, socket, head);
+          return;
+        }
+        for (const bare of bares) {
+          if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
+        }
+      } catch (e) {
+        logger.error({ err: e, url: req.url }, "Upgrade handler error");
       }
       socket.destroy();
     });
@@ -108,13 +119,13 @@ await app.register(fastifyCompress, {
 });
 
 await app.register(fastifyCors, {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  origin: (origin, callback) => {
     const allowed = (process.env.CORS_ORIGINS || "").split(",").map((s: string) => s.trim()).filter(Boolean);
     if (!origin || allowed.length === 0) return callback(null, true);
     if (allowed.some((o: string) => origin === o || origin.endsWith("." + o.replace(/^https?:\/\//, "")))) {
       return callback(null, true);
     }
-    callback(new Error("Not allowed by CORS"));
+    callback(new Error("Not allowed by CORS"), false);
   },
   credentials: true,
 });
@@ -135,8 +146,9 @@ await app.register(fastifyStatic, {
   root: staticDir,
   prefix: "/",
   wildcard: true,
+  preCompressed: true,
   cacheControl: false,
-  setHeaders(res: ServerResponse, filePath: string) {
+  setHeaders(res, filePath) {
     if (/\.html?$/i.test(filePath)) {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     } else {
@@ -183,8 +195,7 @@ app.setNotFoundHandler((request, reply) => {
     !url.startsWith("/ham") &&
     !url.startsWith("/baremux")
   ) {
-    const indexPath = path.join(staticDir, "index.html");
-    return reply.type("text/html").send(fs.readFileSync(indexPath, "utf-8"));
+    return reply.type("text/html").send(indexHtml);
   }
   return reply.status(404).send("Not found");
 });

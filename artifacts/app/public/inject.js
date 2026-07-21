@@ -117,7 +117,7 @@
     }
 
     window.addEventListener("message", (e) => {
-      if (e.data?.type === "unstable-permission-response" && e.data.id && pendingPerms[e.data.id]) {
+      if (e.data?.type === "unstable-permission-response" && Object.hasOwn(pendingPerms, e.data.id) && typeof pendingPerms[e.data.id] === "function") {
         pendingPerms[e.data.id](e.data.allowed);
         delete pendingPerms[e.data.id];
       }
@@ -156,5 +156,16 @@
         return origWatch(succ, fail, opts);
       };
     }
+    // ─── 6. Download Interception ──────────────────────────────────────────
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest("a");
+      if (!a || !a.download) return;
+      e.preventDefault();
+      PARENT.postMessage({
+        type: "unstable-download",
+        url: a.href,
+        filename: a.download || a.href.split("/").pop() || "download",
+      }, "*");
+    }, true);
   } catch (e) { console.warn("[unstable-inject] error:", e); }
 })();
