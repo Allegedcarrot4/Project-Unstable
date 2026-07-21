@@ -2,8 +2,19 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Shield, Atom, House } from "lucide-react";
-import gamesListData from "./data/games.json";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send } from "lucide-react";
+
+import { ErrorScreen } from "./components/ErrorScreen";
+import NotFound from "./pages/not-found";
+
+import type { CodecType } from "./lib/codec";
+import { makeCodec } from "./lib/codec";
+import { useErrorHandler } from "./lib/errorContext";
+import { addHistory, getHistory, clearHistory, deleteHistoryEntry, searchHistory } from "./lib/history";
+import { getBookmarks, addBookmark, removeBookmark, searchBookmarks, isBookmarked } from "./lib/bookmarks";
+import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload } from "./lib/downloads";
+import { loadWidgetConfig, saveWidgetConfig, toggleWidget, getGreeting, QUOTES, type WidgetType, type WidgetConfig, type Quote } from "./lib/widgets";
+
 
 declare global {
   interface Window {
@@ -32,13 +43,155 @@ interface KeyShortcuts {
 }
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
-type TransportMode = "auto" | "wisp" | "bare";
-interface Settings { cloak: CloakId; shortcuts: KeyShortcuts; proxyEngine: ProxyEngine; transportMode: TransportMode; }
+type TransportMode = "auto" | "wisp" | "bare" | "epoxy";
+type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
+
+interface ThemeColors {
+  bg: string; bgSecondary: string; bgTertiary: string; bgHover: string;
+  text: string; textSecondary: string; textMuted: string;
+  border: string; borderLight: string;
+  accent: string; accentHover: string; accentText: string;
+  inputBg: string; inputBorder: string; inputText: string;
+  btnBg: string; btnHover: string; btnText: string;
+  scrollbar: string; scrollbarThumb: string;
+  tabActive: string; tabInactive: string; tabBorder: string;
+  cardBg: string; cardBorder: string;
+}
+
+const THEMES: Record<ThemeId, { label: string; wallpaper?: string; backgroundEffect?: string; colors: ThemeColors }> = {
+  dark: {
+    label: "Dark",
+    colors: {
+      bg: "#0d0d0d", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
+      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
+      border: "#1e1e1e", borderLight: "#222",
+      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
+      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
+      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
+      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
+      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
+      cardBg: "#111", cardBorder: "#222",
+    },
+  },
+  midnight: {
+    label: "Midnight Blue",
+    colors: {
+      bg: "#0a0a1a", bgSecondary: "#101028", bgTertiary: "#161636", bgHover: "#1c1c42",
+      text: "#c8c8e0", textSecondary: "rgba(200,200,224,0.6)", textMuted: "rgba(200,200,224,0.35)",
+      border: "#1e1e3a", borderLight: "#2a2a4a",
+      accent: "#5588ff", accentHover: "#7799ff", accentText: "#fff",
+      inputBg: "#0e0e22", inputBorder: "#2a2a4a", inputText: "#c8c8e0",
+      btnBg: "#161636", btnHover: "#1e1e42", btnText: "rgba(200,200,224,0.5)",
+      scrollbar: "#1e1e3a", scrollbarThumb: "#3a3a5a",
+      tabActive: "#101028", tabInactive: "#08081a", tabBorder: "#1a1a3a",
+      cardBg: "#101028", cardBorder: "#2a2a4a",
+    },
+  },
+  ocean: {
+    label: "Ocean",
+    colors: {
+      bg: "#0a1520", bgSecondary: "#0e1e2c", bgTertiary: "#122535", bgHover: "#16303f",
+      text: "#b0d0e0", textSecondary: "rgba(176,208,224,0.6)", textMuted: "rgba(176,208,224,0.35)",
+      border: "#1a3040", borderLight: "#243e50",
+      accent: "#00aacc", accentHover: "#22ccee", accentText: "#fff",
+      inputBg: "#0c1a26", inputBorder: "#243e50", inputText: "#b0d0e0",
+      btnBg: "#122535", btnHover: "#1a3545", btnText: "rgba(176,208,224,0.5)",
+      scrollbar: "#1a3040", scrollbarThumb: "#2a5060",
+      tabActive: "#0e1e2c", tabInactive: "#081018", tabBorder: "#1a3040",
+      cardBg: "#0e1e2c", cardBorder: "#243e50",
+    },
+  },
+  sunset: {
+    label: "Sunset",
+    colors: {
+      bg: "#1a0e0e", bgSecondary: "#221414", bgTertiary: "#2a1818", bgHover: "#341e1e",
+      text: "#e8c8b8", textSecondary: "rgba(232,200,184,0.6)", textMuted: "rgba(232,200,184,0.35)",
+      border: "#3a2020", borderLight: "#4a2828",
+      accent: "#ff6644", accentHover: "#ff8866", accentText: "#fff",
+      inputBg: "#1e1010", inputBorder: "#3a2020", inputText: "#e8c8b8",
+      btnBg: "#2a1818", btnHover: "#342020", btnText: "rgba(232,200,184,0.5)",
+      scrollbar: "#3a2020", scrollbarThumb: "#5a3030",
+      tabActive: "#221414", tabInactive: "#140a0a", tabBorder: "#2a1818",
+      cardBg: "#221414", cardBorder: "#3a2020",
+    },
+  },
+  cyberpunk: {
+    label: "Cyberpunk",
+    colors: {
+      bg: "#0d0a1a", bgSecondary: "#15102a", bgTertiary: "#1c1536", bgHover: "#241a42",
+      text: "#e0c0ff", textSecondary: "rgba(224,192,255,0.6)", textMuted: "rgba(224,192,255,0.35)",
+      border: "#2a1e44", borderLight: "#3a2858",
+      accent: "#ff00ff", accentHover: "#ff44ff", accentText: "#fff",
+      inputBg: "#120e22", inputBorder: "#2a1e44", inputText: "#e0c0ff",
+      btnBg: "#1c1536", btnHover: "#2a1e44", btnText: "rgba(224,192,255,0.5)",
+      scrollbar: "#2a1e44", scrollbarThumb: "#4a2e6e",
+      tabActive: "#15102a", tabInactive: "#0a0816", tabBorder: "#2a1e44",
+      cardBg: "#15102a", cardBorder: "#2a1e44",
+    },
+  },
+  matrix: {
+    label: "Matrix",
+    colors: {
+      bg: "#0a0f0a", bgSecondary: "#0e160e", bgTertiary: "#121c12", bgHover: "#162216",
+      text: "#88cc88", textSecondary: "rgba(136,204,136,0.6)", textMuted: "rgba(136,204,136,0.35)",
+      border: "#1a2a1a", borderLight: "#243424",
+      accent: "#00ff41", accentHover: "#33ff66", accentText: "#000",
+      inputBg: "#0c120c", inputBorder: "#1a2a1a", inputText: "#88cc88",
+      btnBg: "#121c12", btnHover: "#1a2a1a", btnText: "rgba(136,204,136,0.5)",
+      scrollbar: "#1a2a1a", scrollbarThumb: "#2a4a2a",
+      tabActive: "#0e160e", tabInactive: "#080c08", tabBorder: "#1a2a1a",
+      cardBg: "#0e160e", cardBorder: "#1a2a1a",
+    },
+  },
+  tuff: {
+    label: "Allegedcarrot's theme",
+    wallpaper: "/wallpaper-tuff.png",
+    colors: {
+      bg: "#0d0d0d", bgSecondary: "#111", bgTertiary: "#161616", bgHover: "#1a1a1a",
+      text: "#e0e0e0", textSecondary: "rgba(255,255,255,0.55)", textMuted: "rgba(255,255,255,0.3)",
+      border: "#1e1e1e", borderLight: "#222",
+      accent: "#e8e8e8", accentHover: "#fff", accentText: "#0d0d0d",
+      inputBg: "#0a0a0a", inputBorder: "#1e1e1e", inputText: "#e0e0e0",
+      btnBg: "#111", btnHover: "#1a1a1a", btnText: "rgba(255,255,255,0.45)",
+      scrollbar: "#1e1e1e", scrollbarThumb: "#333",
+      tabActive: "#111", tabInactive: "#080808", tabBorder: "#1a1a1a",
+      cardBg: "#111", cardBorder: "#222",
+    },
+  },
+};
+
+interface Settings {
+  cloak: CloakId;
+  shortcuts: KeyShortcuts;
+  proxyEngine: ProxyEngine;
+  transportMode: TransportMode;
+  theme: ThemeId;
+  wallpaper: string;
+  gameModeEnabled: boolean;
+  gameModeSites: string[];
+  panicUrl: string;
+  wispServer: string;
+  searchEngine: string;
+  adblockEnabled: boolean;
+  codec: CodecType;
+  siteEngineOverrides: Record<string, ProxyEngine>;
+  wispRelayUrl: string;
+  transportEncryption: boolean;
+  fontObfuscation: boolean;
+  uiScale: number;
+  confirmLeave: boolean;
+  magicCursorEnabled: boolean;
+  newtabMode: "mue" | "legacy";
+  verticalTabs: boolean;
+  showMsIndicator: boolean;
+}
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
 interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
+  /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
+  lastProxyUrl?: string;
 }
 
 interface AIMessage {
@@ -55,7 +208,6 @@ interface Profile {
 }
 
 interface AppAuthContext {
-  isAdmin: boolean;
   isBanned: boolean;
   banReason: string | null;
 }
@@ -80,22 +232,6 @@ interface ParsedChatMessage {
   body: string;
 }
 
-interface AdminUserSummary {
-  id: string;
-  username: string;
-  isAdmin: boolean;
-  isBanned: boolean;
-  banReason: string | null;
-  bannedUntil: string | null;
-  deviceCount: number;
-}
-
-interface AdminOverview {
-  warnings?: string[];
-  users: AdminUserSummary[];
-  messages: ChatMessageRecord[];
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ACCOUNT_BOOT_TIMEOUT_MS = 4000;
@@ -103,6 +239,7 @@ const UV_PREFIX = "/service/";
 const SCRAMJET_PREFIX = "/ham/";
 const SHORTCUTS_KEY = "unstable_shortcuts";
 const SETTINGS_KEY = "unstable_settings";
+const PANIC_URL_KEY = "unstable_panic_url";
 const BARE_KEY = "unstable_bare";
 const DEVICE_ID_KEY = "unstable_device_id";
 
@@ -111,7 +248,56 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_SETTINGS: Settings = { cloak: "none", shortcuts: DEFAULT_KEY_SHORTCUTS, proxyEngine: "auto", transportMode: "wisp" };
+const DEFAULT_GAME_MODE_SITES = [
+  "smashkarts.io",
+  "krunker.io",
+  "1v1.lol",
+  "shellshock.io",
+  "agar.io",
+];
+
+const DEFAULT_PANIC_URL = "https://google.com";
+
+const SEARCH_ENGINES: Record<string, { name: string; url: string }> = {
+  duckduckgo: { name: "DuckDuckGo", url: "https://duckduckgo.com/?q=" },
+  google: { name: "Google", url: "https://www.google.com/search?q=" },
+  brave: { name: "Brave", url: "https://search.brave.com/search?q=" },
+  bing: { name: "Bing", url: "https://www.bing.com/search?q=" },
+  yahoo: { name: "Yahoo", url: "https://search.yahoo.com/search?p=" },
+  qwant: { name: "Qwant", url: "https://www.qwant.com/?q=" },
+  startpage: { name: "Startpage", url: "https://www.startpage.com/do/dsearch?query=" },
+  ecosia: { name: "Ecosia", url: "https://www.ecosia.org/search?q=" },
+};
+
+function searchUrl(query: string, engine: string) {
+  const e = SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo;
+  return e.url + encodeURIComponent(query);
+}
+const DEFAULT_SETTINGS: Settings = {
+  cloak: "none",
+  shortcuts: DEFAULT_KEY_SHORTCUTS,
+  proxyEngine: "auto",
+  transportMode: "wisp",
+  theme: "dark",
+  wallpaper: "",
+  gameModeEnabled: true,
+  gameModeSites: [...DEFAULT_GAME_MODE_SITES],
+  panicUrl: DEFAULT_PANIC_URL,
+  wispServer: "",
+  searchEngine: "duckduckgo",
+  adblockEnabled: true,
+  codec: "xor",
+  siteEngineOverrides: {},
+  wispRelayUrl: "",
+  transportEncryption: false,
+  fontObfuscation: true,
+  uiScale: 1,
+  confirmLeave: false,
+  magicCursorEnabled: false,
+  newtabMode: "legacy",
+  verticalTabs: false,
+  showMsIndicator: false,
+};
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
   none: { label: "None", title: "Unstable", favicon: "/favicon.svg" },
@@ -141,6 +327,10 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
 
 function faviconUrl(domain: string) {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+}
+
+function extractDomain(url: string) {
+  try { return new URL(url).hostname; } catch { return ""; }
 }
 
 function aiMessageId() {
@@ -248,13 +438,12 @@ async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
-  const data = await readJson<{ isAdmin?: boolean; isBanned?: boolean; banReason?: string | null; error?: string }>(res);
+  const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string }>(res);
   if (!res.ok) {
     throw new Error(data?.error || "Unable to load account access information.");
   }
 
   return {
-    isAdmin: Boolean(data?.isAdmin),
     isBanned: Boolean(data?.isBanned),
     banReason: data?.banReason ?? null,
   };
@@ -273,75 +462,6 @@ async function registerCurrentDevice(accessToken: string) {
   const data = await readJson<{ ok?: boolean; error?: string }>(res);
   if (!res.ok) {
     throw new Error(data?.error || "Unable to register this device.");
-  }
-}
-
-async function fetchAdminOverview(accessToken: string): Promise<AdminOverview> {
-  const res = await fetch("/api/admin/overview", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<AdminOverview & { error?: string }>(res);
-  if (!res.ok || !data) {
-    throw new Error(data?.error || "Unable to load admin overview.");
-  }
-
-  return {
-    warnings: data.warnings ?? [],
-    users: data.users ?? [],
-    messages: data.messages ?? [],
-  };
-}
-
-async function deleteAdminMessage(accessToken: string, messageId: string) {
-  const res = await fetch(`/api/admin/messages/${encodeURIComponent(messageId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to delete message.");
-  }
-}
-
-async function banAdminUser(accessToken: string, userId: string, reason: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ reason }),
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to ban user.");
-  }
-}
-
-async function unbanAdminUser(accessToken: string, userId: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/unban`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to unban user.");
-  }
-}
-
-async function deleteAdminUser(accessToken: string, userId: string) {
-  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const data = await readJson<{ ok?: boolean; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to delete user.");
   }
 }
 
@@ -368,28 +488,51 @@ async function createProfile(userId: string, username: string): Promise<Profile>
   return data;
 }
 
-function encodeProxyUrl(url: string, engine: ProxyEngine = "auto"): string {
-  const useScramjet = (engine === "auto" || engine === "scramjet") && scrController !== null;
-  if (useScramjet) {
-    try { return scrController!.encodeUrl(url); } catch { /* fall through */ }
-  }
-  if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(url);
-  return UV_PREFIX + encodeURIComponent(url);
+function stripTrackingParams(url: string): string {
+  try {
+    const u = new URL(url);
+    const params = ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid","fbclid","mc_cid","mc_eid","_hsenc","_hsmi","hsCtaTracking"];
+    let changed = false;
+    for (const p of params) { if (u.searchParams.has(p)) { u.searchParams.delete(p); changed = true; } }
+    return changed ? u.toString() : url;
+  } catch { return url; }
 }
 
-function normalizeUrl(input: string): string {
+function getEffectiveEngine(url: string, settings: Settings): ProxyEngine {
+  try {
+    const host = new URL(url).hostname;
+    if (settings.siteEngineOverrides[host]) return settings.siteEngineOverrides[host];
+  } catch {}
+  return settings.proxyEngine;
+}
+
+function encodeProxyUrl(url: string, engine: ProxyEngine = "auto", settings?: Settings): string {
+  const cleaned = stripTrackingParams(url);
+  const effEngine = settings ? getEffectiveEngine(cleaned, settings) : engine;
+  const useScramjet = (effEngine === "auto" || effEngine === "scramjet") && scrController !== null;
+  if (useScramjet) {
+    try { return scrController!.encodeUrl(cleaned); } catch { /* fall through */ }
+  }
+  if (effEngine === "scramjet" && !scrController) {
+    throw new Error("Scramjet controller not ready");
+  }
+  if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
+  return UV_PREFIX + encodeURIComponent(cleaned);
+}
+
+function normalizeUrl(input: string, searchEngine?: string): string {
   const t = input.trim();
   if (!t) return "";
   if (t.startsWith("unstable://")) return t;
   if (t.startsWith("http://") || t.startsWith("https://")) return t;
   if (t.includes(".") && !t.includes(" ")) return "https://" + t;
-  return "https://duckduckgo.com/?q=" + encodeURIComponent(t);
+  return searchUrl(t, searchEngine ?? "duckduckgo");
 }
 
 function decodeProxyUrl(url: string): string {
   try {
     if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      try { return scrController.decodeUrl(url); } catch { }
+      try { return scrController.decodeUrl(location.origin + url); } catch { }
       const encoded = url.slice(SCRAMJET_PREFIX.length);
       return decodeURIComponent(encoded);
     }
@@ -402,12 +545,34 @@ function decodeProxyUrl(url: string): string {
   return url;
 }
 
+function hostnameFromTabUrl(tabUrl: string): string | null {
+  if (!tabUrl || tabUrl.startsWith("unstable://")) return null;
+  try {
+    return new URL(decodeProxyUrl(tabUrl)).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isGameModeHost(hostname: string | null, settings: Settings): boolean {
+  if (!settings.gameModeEnabled || !hostname) return false;
+  return settings.gameModeSites.some((raw) => {
+    const site = raw.trim().toLowerCase().replace(/^www\./, "");
+    if (!site) return false;
+    return hostname === site || hostname.endsWith("." + site);
+  });
+}
+
+function isGameModeTabUrl(tabUrl: string, settings: Settings): boolean {
+  return isGameModeHost(hostnameFromTabUrl(tabUrl), settings);
+}
+
 function getDomainFromProxyUrl(url: string): string {
   try { return new URL(decodeProxyUrl(url)).hostname; } catch { return ""; }
 }
 
 function barePathForNum(n: number): string {
-  return n === 1 ? "/api/bare/" : `/api/bare${n}/`;
+  return n === 1 ? "/api/cdn/" : `/api/cdn${n}/`;
 }
 
 function buildCombo(e: KeyboardEvent): string {
@@ -433,10 +598,39 @@ function loadSettings(): Settings {
       cloak: parsed.cloak ?? "none",
       shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
       proxyEngine: (parsed.proxyEngine ?? "auto") as ProxyEngine,
+      transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
+      theme: (parsed.theme ?? "dark") as ThemeId,
+      wallpaper: (parsed.wallpaper ?? "") as string,
+      gameModeEnabled: parsed.gameModeEnabled ?? true,
+      gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
+        ? parsed.gameModeSites
+        : [...DEFAULT_GAME_MODE_SITES],
+      panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
+      wispServer: typeof parsed.wispServer === "string" ? parsed.wispServer : "",
+      searchEngine: parsed.searchEngine ?? "duckduckgo",
+      adblockEnabled: parsed.adblockEnabled ?? true,
+      codec: (parsed.codec ?? "xor") as CodecType,
+      siteEngineOverrides: parsed.siteEngineOverrides ?? {},
+      wispRelayUrl: typeof parsed.wispRelayUrl === "string" ? parsed.wispRelayUrl : "",
+      transportEncryption: parsed.transportEncryption ?? false,
+      fontObfuscation: parsed.fontObfuscation ?? true,
+      uiScale: typeof parsed.uiScale === "number" ? parsed.uiScale : 1,
+      confirmLeave: parsed.confirmLeave ?? false,
+      magicCursorEnabled: parsed.magicCursorEnabled ?? false,
+      newtabMode: parsed.newtabMode ?? "legacy",
+      verticalTabs: parsed.verticalTabs ?? false,
+      showMsIndicator: parsed.showMsIndicator ?? false,
     };
   } catch { return DEFAULT_SETTINGS; }
 }
 function saveSettings(s: Settings) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+function normalizePanicUrl(input: string): string {
+  const v = (input || "").trim();
+  if (!v) return DEFAULT_PANIC_URL;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return v;
+  return "https://" + v;
+}
 
 function loadCustomShortcuts(): Shortcut[] {
   try { const r = localStorage.getItem(SHORTCUTS_KEY); return r ? JSON.parse(r) : []; }
@@ -453,6 +647,44 @@ function applyCloak(id: CloakId) {
   const link = document.createElement("link");
   link.rel = "icon"; link.href = preset.favicon;
   document.head.appendChild(link);
+}
+
+function openCloakPopup(decoyUrl: string = "https://www.google.com") {
+  let win: Window | null = null;
+  try {
+    win = window.open("about:blank", "_blank", "width=1024,height=768,menubar=no,toolbar=no,location=no,status=no");
+  } catch { win = null; }
+  const safe = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const decoyTitle = "Google";
+  if (win) {
+    try {
+      win.document.open();
+      win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${safe(decoyTitle)}</title><link rel="icon" href="https://www.google.com/favicon.ico"></head><body style="margin:0;background:#fff;font-family:arial,sans-serif;color:#202124;"></body></html>`);
+      win.document.close();
+      try { win.history.replaceState(null, "", decoyUrl); } catch {}
+      try {
+        Object.defineProperty(win, "onbeforeunload", {
+          configurable: false,
+          set() {},
+          get() { return null; },
+        });
+      } catch {}
+      try {
+        Object.defineProperty(win.document, "onbeforeunload", {
+          configurable: false,
+          set() {},
+          get() { return null; },
+        });
+      } catch {}
+      win.addEventListener("beforeunload", (ev) => { ev.preventDefault(); ev.stopPropagation(); ev.returnValue = ""; return ""; });
+    } catch {}
+  }
+  try {
+    history.pushState(null, "", decoyUrl);
+    history.replaceState(null, "", decoyUrl);
+  } catch {}
+  try { window.focus(); } catch {}
+  return win;
 }
 
 // ─── Tab factory ─────────────────────────────────────────────────────────────
@@ -477,7 +709,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare";  // libcurl = wisp (primary), bare = fallback
+  transport: "none" | "libcurl" | "bare" | "epoxy";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative
   bare: number;
   switching: boolean;
 }
@@ -500,9 +732,10 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor", wispRelayUrl = "", useEncryption = false): Promise<void> {
   if (!("serviceWorker" in navigator)) {
-    emitStatus({ phase: "error", message: "Service workers not supported" }); return;
+    emitStatus({ phase: "error", message: "Service workers not supported" });
+    return;
   }
   emitStatus({ phase: "loading" });
 
@@ -515,7 +748,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
       swRegistered = true;
     }
     emitStatus({ uv: "ready" });
-  } catch {
+  } catch (err) {
     emitStatus({ uv: "error" });
   }
 
@@ -537,7 +770,8 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
           all: "/eggs/scramjet.all.js",
           sync: "/eggs/scramjet.sync.js",
         },
-        flags: { rewriterLogs: false, cleanErrors: true },
+        flags: { rewriterLogs: false, cleanErrors: false },
+        codec: makeCodec(codecType),
       });
       await scrController.init();
     }
@@ -591,7 +825,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
       });
     } catch { /* scope might already be claimed */ }
     emitStatus({ scramjet: "ready" });
-  } catch {
+  } catch (err) {
     emitStatus({ scramjet: "error" });
   }
 
@@ -600,36 +834,43 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
     const origin = location.origin;
-    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
 
     let transportSet = false;
     const mode = transportMode || "auto";
 
+    const trySetTransport = async (url: string, args: any[], label: string) => {
+      if (useEncryption) {
+        // Wrap with enigma-style encryption: add an encryption layer via SW messaging
+        await bareConn.setTransport(url, args);
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+        }
+      } else {
+        await bareConn.setTransport(url, args);
+      }
+      transportSet = true;
+      emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
+    };
+
+    const tryWisp = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: wispUrl }], "libcurl");
+    const tryRelay = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: relayUrl }], "libcurl");
+    const tryEpoxy = async () => trySetTransport("/epoxy/index.mjs", [{ wisp: wispUrl }], "epoxy");
+    const tryBare = async () => trySetTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)], "bare");
+
     if (mode === "bare") {
-      try {
-        await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
-      } catch { /* fall through */ }
+      try { await tryBare(); } catch { /* fall through */ }
+    } else if (mode === "epoxy") {
+      try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
-      try {
-        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-      } catch { /* fall through */ }
+      try { await tryWisp(); } catch { await tryBare(); }
     } else {
-      // auto: try wisp first, fallback to bare
-      try {
-        await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "libcurl", bare: bareNum });
-      } catch { /* fall through */ }
-      if (!transportSet) {
-        try {
-          await bareConn.setTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)]);
-          transportSet = true;
-          emitStatus({ phase: "ready", transport: "bare", bare: bareNum });
-        } catch { /* fall through */ }
+      // auto: wisp → relay → epoxy → bare
+      try { await tryWisp(); } catch {
+        if (!transportSet) try { await tryRelay(); } catch {}
+        if (!transportSet) try { await tryEpoxy(); } catch {}
+        if (!transportSet) try { await tryBare(); } catch {}
       }
     }
 
@@ -642,31 +883,50 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto"): P
   }
 }
 
-async function switchBare(n: number, transportMode: TransportMode = "auto"): Promise<void> {
+async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = "", wispRelayUrl = "", useEncryption = false): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    const wispUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
     const mode = transportMode || "auto";
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
       emitStatus({ switching: false, transport: "bare", bare: n });
     };
     const tryWisp = async () => {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
       emitStatus({ switching: false, transport: "libcurl", bare: n });
+    };
+    const tryRelay = async () => {
+      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: relayUrl }]);
+      emitStatus({ switching: false, transport: "libcurl", bare: n });
+    };
+    const tryEpoxy = async () => {
+      await bareConn.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      emitStatus({ switching: false, transport: "epoxy", bare: n });
     };
     if (mode === "bare") {
       await tryBare();
+    } else if (mode === "epoxy") {
+      try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
-      await tryWisp();
-    } else {
       try { await tryWisp(); } catch { await tryBare(); }
+    } else {
+      try { await tryWisp(); } catch {
+        try { await tryRelay(); } catch {}
+        try { await tryEpoxy(); } catch {}
+        await tryBare();
+      }
     }
     localStorage.setItem(BARE_KEY, String(n));
   } catch (err) {
-    emitStatus({ switching: false, phase: "error", message: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    emitStatus({ switching: false, phase: "error", message });
   }
 }
 
@@ -678,16 +938,73 @@ function useProxyStatus(): ProxyState {
 
 // ─── Magic Cursor ─────────────────────────────────────────────────────────────
 
-function MagicCursor() {
+function GameModeToast({ visible, host }: { visible: boolean; host?: string | null }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          transition={{ duration: 0.2 }}
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            zIndex: 1000000,
+            padding: "0.55rem 0.85rem",
+            background: "radial-gradient(circle 100px at 50% 50%, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 72%), linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
+            border: "1px solid rgba(255,255,255,0.18)",
+            borderRadius: "2px",
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: "0.68rem",
+            letterSpacing: "0.08em",
+            color: "#e8e8e8",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.10), 0 12px 32px rgba(0,0,0,0.5)",
+            backdropFilter: "blur(16px) saturate(1.1)",
+            WebkitBackdropFilter: "blur(16px) saturate(1.1)",
+            pointerEvents: "none",
+            maxWidth: 280,
+          }}
+        >
+          game mode on{host ? ` · ${host}` : ""}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function MagicCursor({ suppressed }: { suppressed?: boolean }) {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
-  const springConfig = { damping: 25, stiffness: 250 };
+  const springConfig = { damping: 40, stiffness: 1200 };
   const cursorX = useSpring(mouseX, springConfig);
   const cursorY = useSpring(mouseY, springConfig);
+  const cursorTipX = useTransform(cursorX, v => v - 5.5);
+  const cursorTipY = useTransform(cursorY, v => v - 20.5);
 
   const spinControls = useAnimation();
   const [isHovering, setIsHovering] = useState(false);
+
+  useEffect(() => {
+    function updateCursorStyle() {
+      let el = document.getElementById("unstable-cursor-global");
+      if (!el) {
+        el = document.createElement("style");
+        el.id = "unstable-cursor-global";
+        document.head.appendChild(el);
+      }
+      el.textContent = suppressed
+        ? "* { cursor: auto !important; }"
+        : "* { cursor: none !important; }";
+    }
+    updateCursorStyle();
+    return () => {
+      const el = document.getElementById("unstable-cursor-global");
+      if (el) el.remove();
+    };
+  }, [suppressed]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -723,7 +1040,6 @@ function MagicCursor() {
     };
   }, [mouseX, mouseY]);
 
-  // Only spin once when hovered over a button
   useEffect(() => {
     if (isHovering) {
       spinControls.start({
@@ -735,6 +1051,8 @@ function MagicCursor() {
     }
   }, [isHovering, spinControls]);
 
+  if (suppressed) return null;
+
   return (
     <>
       <motion.div
@@ -743,40 +1061,20 @@ function MagicCursor() {
           position: "fixed",
           left: 0,
           top: 0,
-          x: cursorX,
-          y: cursorY,
+          x: cursorTipX,
+          y: cursorTipY,
           pointerEvents: "none",
           zIndex: 999999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transform: "translate(-50%, -50%)",
         }}
       >
-        <motion.div
-          animate={{
-            scale: isHovering ? 1.2 : 1,
-            opacity: isHovering ? 0.8 : 0.4,
-          }}
-          transition={{ duration: 0.2 }}
-          style={{
-            position: "absolute",
-            width: "120px",
-            height: "120px",
-            background: "radial-gradient(circle, rgba(100,150,255,0.4) 0%, rgba(150,100,255,0.2) 40%, transparent 70%)",
-            borderRadius: "50%",
-            filter: "blur(10px)",
-          }}
-        />
-
         <svg
           width="24"
           height="24"
           viewBox="0 0 24 24"
           fill="none"
           style={{
-            transform: "translate(6px, 6px)",
             filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+            display: "block",
           }}
         >
           <path
@@ -794,6 +1092,42 @@ function MagicCursor() {
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
 
+function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, transportEncryption }: { transportMode: TransportMode; wispServer: string; wispRelayUrl: string; transportEncryption: boolean }) {
+  const s = useProxyStatus();
+  const green = "rgba(80,200,120,0.9)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)", gray = "rgba(255,255,255,0.3)";
+  const phaseLabel = s.phase === "idle" ? "Initializing…"
+    : s.phase === "loading" ? "Starting proxy…"
+      : s.switching ? `Switching ws${s.bare}…`
+        : s.phase === "ready" ? (s.transport === "libcurl" ? "Libcurl + Wisp" : `Bare ws${s.bare}`)
+          : s.phase === "error" ? `Error: ${s.message?.slice(0, 60)}`
+            : "…";
+  const phaseColor = s.phase === "ready" ? green : s.phase === "error" ? red : amber;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", fontSize: "0.68rem", color: "var(--t-text-muted)" }}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <EngineBadge label="UV" status={s.uv} />
+        <span style={{ color: gray }}>|</span>
+        <EngineBadge label="SCR" status={s.scramjet} />
+      </div>
+      <span style={{ color: phaseColor }}>{phaseLabel}</span>
+      {s.transport === "bare" && (
+        <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ color: gray, fontSize: "0.6rem" }}>Bare servers:</span>
+          {[1, 2, 3, 4, 5].map(n => (
+            <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
+              background: s.bare === n ? "rgba(80,200,120,0.15)" : "none",
+              border: `1px solid ${s.bare === n ? green : "#333"}`,
+              color: s.bare === n ? green : gray,
+              padding: "0.2rem 0.5rem", fontSize: "0.6rem", cursor: "pointer", borderRadius: "2px",
+              fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em",
+            }}>ws{n}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EngineBadge({ label, status }: { label: string; status: EngineStatus }) {
   const color = status === "ready" ? "rgba(80,200,120,0.9)" : status === "error" ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.2)";
   const dot = status === "ready" ? "●" : status === "error" ? "●" : "○";
@@ -804,9 +1138,8 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode }) {
+function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "", wispRelayUrl = "", transportEncryption = false }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string; wispRelayUrl?: string; transportEncryption?: boolean }) {
   const s = useProxyStatus();
-  if (!visible) return null;
 
   const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.15)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
   const isReady = s.phase === "ready";
@@ -821,7 +1154,10 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visib
   const phaseColor = isReady ? green : isError ? red : amber;
 
   return (
-    <div style={{ position: "fixed", bottom: 10, left: leftOffset, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
+    <AnimatePresence>
+      {visible && (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      style={{ position: "fixed", bottom: 10, left: leftOffset, zIndex: 9999, display: "flex", alignItems: "center", gap: "0.55rem", fontFamily: "'Space Grotesk', sans-serif", pointerEvents: "none" }}>
       <EngineBadge label="uv" status={s.uv} />
       <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
       <EngineBadge label="scr" status={s.scramjet} />
@@ -832,7 +1168,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visib
           <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
           <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
             {[1, 2, 3, 4, 5].map(n => (
-              <button key={n} onClick={() => switchBare(n, transportMode)} title={`Switch to bare server ${n}`} style={{
+              <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
                 background: "none", border: "none", padding: "0 2px", cursor: "pointer",
                 fontSize: "0.52rem", letterSpacing: "0.04em",
                 color: s.bare === n ? green : gray,
@@ -845,7 +1181,9 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto" }: { visib
           </span>
         </>
       )}
-    </div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -935,8 +1273,8 @@ function AccountAuthScreen({
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
-    background: "#111",
-    border: "1px solid #222",
+    background: "var(--t-bg-secondary)",
+    border: "1px solid var(--t-border-light)",
     color: "#e8e8e8",
     padding: "0.875rem 1rem",
     fontSize: "0.85rem",
@@ -945,6 +1283,7 @@ function AccountAuthScreen({
     outline: "none",
     borderRadius: "2px",
     boxSizing: "border-box",
+    transition: "border-color 0.18s ease",
   };
 
   return (
@@ -952,7 +1291,7 @@ function AccountAuthScreen({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
+      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
     >
       <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
       <motion.div
@@ -968,13 +1307,15 @@ function AccountAuthScreen({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.45rem", width: "100%" }}>
+        <motion.div layout style={{ display: "flex", gap: "0.45rem", width: "100%" }}>
           {(["signin", "signup"] as const).map((currentMode) => {
             const active = mode === currentMode;
             return (
-              <button
+              <motion.button
                 key={currentMode}
                 onClick={() => { setMode(currentMode); setError(""); setNotice(""); }}
+                whileHover={{ scale: 1.03, background: active ? "#e8e8e8" : "#1c1c1c" }}
+                whileTap={{ scale: 0.97 }}
                 style={{
                   flex: 1,
                   background: active ? "#e8e8e8" : "#111",
@@ -991,29 +1332,33 @@ function AccountAuthScreen({
                 }}
               >
                 {currentMode === "signin" ? "sign in" : "sign up"}
-              </button>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
 
         <form onSubmit={handleSubmit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <input
+          <motion.input
             value={username}
             autoFocus
             onChange={e => { setUsername(e.target.value); setError(""); setNotice(""); }}
             placeholder="username"
             style={inputStyle}
+            whileFocus={{ borderColor: "#666" }}
           />
-          <input
+          <motion.input
             type="password"
             value={password}
             onChange={e => { setPassword(e.target.value); setError(""); setNotice(""); }}
             placeholder="password"
             style={inputStyle}
+            whileFocus={{ borderColor: "#666" }}
           />
 
-          {error && <p style={{ color: "#b94a4a", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center" }}>{error}</p>}
-          {notice && <p style={{ color: "rgba(200,200,200,0.7)", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>{notice}</p>}
+          <AnimatePresence mode="wait">
+            {error && <motion.p key="error" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }} style={{ color: "#b94a4a", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center" }}>{error}</motion.p>}
+            {!error && notice && <motion.p key="notice" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }} style={{ color: "rgba(200,200,200,0.7)", fontSize: "0.68rem", letterSpacing: "0.04em", margin: 0, textAlign: "center", lineHeight: 1.5 }}>{notice}</motion.p>}
+          </AnimatePresence>
           <p style={{ margin: 0, color: "rgba(255,255,255,0.24)", fontSize: "0.62rem", lineHeight: 1.5, textAlign: "center" }}>
             Username is used as your sign-in identity here. Under the hood, Supabase still needs email-style auth.
           </p>
@@ -1033,125 +1378,6 @@ function AccountAuthScreen({
   );
 }
 
-// ─── Games page ──────────────────────────────────────────────────────────────
-
-const GAMES_LIST = gamesListData as Array<{ id: number; name: string; cover: string; url: string; author: string; authorLink: string }>;
-
-function GamesPage({ onNavigate }: { onNavigate: (url: string) => void }) {
-  const [search, setSearch] = useState("");
-  const filtered = search.trim()
-    ? GAMES_LIST.filter(g => g.name.toLowerCase().includes(search.toLowerCase()))
-    : GAMES_LIST;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
-    >
-      {/* Header */}
-      <div style={{ padding: "1.5rem 2rem 1rem", flexShrink: 0, borderBottom: "1px solid #161616" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 0 1rem" }}>unstable — games</p>
-        <input
-          autoFocus
-          placeholder="search games…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            width: "100%", maxWidth: 360, background: "#111", border: "1px solid #222",
-            color: "#e0e0e0", padding: "0.45rem 0.9rem", fontSize: "0.78rem",
-            fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "8px",
-            letterSpacing: "0.01em", transition: "border-color 0.15s", boxSizing: "border-box",
-          }}
-          onFocus={e => (e.target.style.borderColor = "#444")}
-          onBlur={e => (e.target.style.borderColor = "#222")}
-        />
-        <p style={{ margin: "0.5rem 0 0", fontSize: "0.58rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.04em" }}>
-          {filtered.length} game{filtered.length !== 1 ? "s" : ""}
-        </p>
-      </div>
-
-      {/* Grid */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem 1.5rem" }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-          gap: "0.85rem",
-        }}>
-          {filtered.map((game, i) => (
-            <GameCard key={game.id} game={game} index={i} onNavigate={onNavigate} />
-          ))}
-        </div>
-        {filtered.length === 0 && (
-          <div style={{ textAlign: "center", marginTop: "4rem", color: "rgba(255,255,255,0.2)", fontSize: "0.75rem", letterSpacing: "0.06em" }}>
-            no games found
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        .game-card:hover .game-card-overlay { opacity: 1 !important; }
-        .game-card:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-      `}</style>
-    </motion.div>
-  );
-}
-
-function GameCard({ game, index, onNavigate }: { game: typeof GAMES_LIST[0]; index: number; onNavigate: (url: string) => void }) {
-  const [imgErr, setImgErr] = useState(false);
-  return (
-    <motion.div
-      className="game-card"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(index * 0.015, 0.4) }}
-      onClick={() => onNavigate(game.url)}
-      style={{
-        position: "relative", borderRadius: "8px", overflow: "hidden",
-        background: "#111", border: "1px solid #1e1e1e", cursor: "pointer",
-        transition: "transform 0.2s ease, box-shadow 0.2s ease",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      }}
-    >
-      {/* Cover image */}
-      <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#0a0a0a", overflow: "hidden", position: "relative" }}>
-        {!imgErr ? (
-          <img
-            src={game.cover}
-            alt={game.name}
-            onError={() => setImgErr(true)}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-          />
-        ) : (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem" }}>🎮</div>
-        )}
-        {/* Hover overlay */}
-        <div className="game-card-overlay" style={{
-          position: "absolute", inset: 0,
-          background: "rgba(0,0,0,0.65)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          opacity: 0, transition: "opacity 0.2s ease",
-        }}>
-          <div style={{
-            background: "rgba(255,255,255,0.92)", color: "#0d0d0d",
-            borderRadius: "50%", width: 36, height: 36,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "1rem", fontWeight: 700,
-          }}>▶</div>
-        </div>
-      </div>
-      {/* Info */}
-      <div style={{ padding: "0.5rem 0.6rem 0.55rem" }}>
-        <p style={{ margin: 0, fontSize: "0.68rem", fontWeight: 600, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{game.name}</p>
-        {game.author && (
-          <p style={{ margin: "0.15rem 0 0", fontSize: "0.56rem", color: "rgba(255,255,255,0.28)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.02em" }}>{game.author}</p>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
 // ─── Credits page ─────────────────────────────────────────────────────────────
 
 function CreditsPage() {
@@ -1159,14 +1385,18 @@ function CreditsPage() {
     ["Ultraviolet", "web proxy engine"], ["Scramjet", "web proxy engine (primary)"],
     ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport (primary)"],
     ["bare-server-node", "bare proxy backend (fallback)"], ["bare-as-module3", "bare transport module"],
-    ["wisp-js", "wisp server"], ["React + Vite", "frontend"],
-    ["Space Grotesk", "typeface"],
+    ["wisp-js", "wisp server"], ["React", "frontend library"],
+    ["Vite", "build tool"], ["TypeScript", "language"],
+    ["framer-motion", "animations"], ["lucide-react", "icons"],
+    ["three.js", "3D engine"],
+    ["Supabase", "auth, database, realtime"], ["Radix UI", "UI primitives"],
+    ["Tailwind CSS", "utility CSS"], ["Space Grotesk", "typeface"],
   ];
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", gap: "2rem" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}>unstable — credits</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", width: "100%", maxWidth: "320px", padding: "0 2rem" }}>
@@ -1194,16 +1424,17 @@ function ToSPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
-        ["Use at your own risk", "Unstable is provided as-is, with no guarantees of uptime, security, reliability, or fitness for any particular purpose. You accept all responsibility for how you use this tool."],
-        ["Acceptable use", "You agree not to use Unstable to access, distribute, or transmit content that is illegal in your jurisdiction. Circumventing network restrictions may violate your school, employer, or ISP policies, and you are solely responsible for compliance."],
-        ["Public codebase", "Parts of this project may be published in a public repository. Public client code, build output, and documentation should be treated as inspectable by anyone. Do not assume any client-side value, request, or browser-stored setting is secret."],
-        ["Accounts and AI", "This app uses Supabase for account authentication, synced AI history, and chat. AI requests are proxied through a server-side route, and the server-side AI provider key must never be committed to a public repository."],
-        ["Third-party content", "Unstable acts as a transparent proxy and also depends on third-party services, including Supabase and external AI providers. The operators of this service are not responsible for the availability, content, or behavior of third-party systems."],
-        ["Changes", "These terms may be updated at any time without prior notice. Continued use of the service constitutes acceptance of the updated terms."],
+        ["Service Overview", "Unstable is a web proxy and browser tool that provides access to web content through various proxying engines (Scramjet, Ultraviolet, Bare). It also includes AI chat, group chat, games, and customization features. The service is provided as-is with no guarantees of uptime or availability."],
+        ["Acceptable Use", "You agree not to use Unstable to access, store, or distribute illegal content or to violate any applicable laws. Circumventing network restrictions may violate institutional policies, and you are solely responsible for your usage."],
+        ["Proxy and Transport", "Unstable supports multiple proxy engines and transport modes (Wisp, Bare, custom Wisp servers). These are provided as technical tools, and the operators are not responsible for how users route traffic through them."],
+        ["Accounts and Authentication", "Account creation is optional and handled via Supabase Auth. Account data includes usernames and authentication credentials managed by Supabase. Server-side secrets and API keys must never be committed to public repositories."],
+        ["AI and Chat Features", "AI conversations and chat messages are stored server-side via Supabase. AI requests are forwarded to third-party providers through a server-side proxy. Chat messages are delivered across devices in real time via Supabase Realtime."],
+        ["Third-Party Services", "Unstable depends on Supabase for auth, storage, and realtime functionality, and on third-party AI providers for AI responses. The operators are not responsible for the availability, content, or behavior of these services."],
+        ["Modifications", "These terms may be updated at any time. Continued use after changes constitutes acceptance of the new terms."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1228,17 +1459,20 @@ function PrivacyPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}
     >
+      <style>{`#pp-scroll::-webkit-scrollbar { width: 6px; }#pp-scroll::-webkit-scrollbar-track { background: #111; }#pp-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }#pp-scroll::-webkit-scrollbar-thumb:hover { background: #555; }`}</style>
+      <div id="pp-scroll" style={{ height: "100%", overflowY: "auto" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
-        ["What we collect", "This app stores account records, usernames, AI conversation history, and chat messages in Supabase. The browser also stores local UI preferences such as shortcuts, settings, lightweight reaction state, and temporary remembered access/account sessions."],
-        ["Access and account auth", "The access password should be verified server-side only. Account authentication is handled by Supabase Auth. Passwords are not stored directly in this repository or in client-side code and should never be committed to a public repository."],
-        ["AI data", "Messages you send to the AI page are stored in Supabase as conversation history and are also forwarded to the configured AI provider through a server-side route in order to generate responses."],
-        ["Chat data", "Messages sent in unstable://chat are stored in Supabase and delivered across devices using Supabase Realtime. Local emoji reactions may be stored in your browser even when they are not yet synced server-side."],
-        ["Public repo safety", "The Supabase anon key is designed to be public client configuration, but server secrets such as the AI provider key and server-side access password must remain outside the public repository. Client-side code, requests, and browser storage should be treated as inspectable."],
-        ["Third parties and retention", "Supabase and any configured AI provider process the data needed to provide accounts, sync, chat, and AI responses. Retention, backups, and operational logging may depend on those services and your deployment configuration."],
-        ["Changes", "This policy may be updated at any time. The current version is always available at unstable://privacy."],
+        ["Data We Collect", "Account records (username, auth identifiers), AI conversation history, and chat messages are stored in Supabase. Local preferences such as theme, shortcuts, settings, and wallpaper are stored in your browser's localStorage. Proxy and transport configuration, including custom Wisp server URLs, are saved locally."],
+        ["Authentication", "Account authentication is handled by Supabase Auth. No passwords are stored in this application's codebase. Server-side secrets and API keys must remain outside public repositories."],
+        ["AI Conversations", "Messages sent to the AI page are stored in Supabase as conversation history and forwarded to a third-party AI provider via a server-side route to generate responses. Conversation history can be viewed and deleted."],
+        ["Chat Messages", "Messages sent in unstable://chat are stored in Supabase and delivered in real time across devices via Supabase Realtime. Emoji reactions and message history are synced server-side."],
+        ["Local Storage", "The following are stored in your browser: UI settings (theme, wallpaper, background effect options), keyboard shortcuts, custom bookmark shortcuts, panic URL, cloak selection, proxy engine, transport mode, and custom Wisp server URL. This data does not leave your browser unless explicitly shared through app features."],
+        ["Third-Party Services", "Supabase stores and processes account data, chat messages, and AI history. AI providers process messages forwarded to them for response generation. These services have their own privacy policies governing data handling. Retention and backups depend on your deployment's Supabase configuration."],
+        ["Public Repository Safety", "The Supabase anon key is designed to be public client configuration. Server secrets, AI provider keys, and server-side access credentials must never be committed to a public repository. All client-side code, network requests, and browser storage should be treated as potentially inspectable."],
+        ["Updates", "This policy may be updated at any time. Check unstable://privacy for the current version."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1252,13 +1486,14 @@ function PrivacyPage() {
         </motion.div>
       ))}
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.12)", letterSpacing: "0.06em" }}>type unstable://privacy in the url bar</p>
+      </div>
     </motion.div>
   );
 }
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSettingsChange: (s: Settings) => void }) {
+function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void }) {
   const [recording, setRecording] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1278,16 +1513,475 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
   const inputBase: React.CSSProperties = {
     background: "none", border: "1px solid #222", borderRadius: "2px",
     color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
-    padding: "0.3rem 0.65rem", letterSpacing: "0.04em",
+    padding: "0.3rem 0.65rem", letterSpacing: "0.04em", outline: "none",
+    transition: "border-color 0.18s ease",
   };
+  const kbdStyle: React.CSSProperties = {
+    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+    background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: "3px",
+    padding: "0.05rem 0.35rem", color: "rgba(255,255,255,0.55)",
+  };
+  const codeStyle: React.CSSProperties = {
+    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+    background: "rgba(255,255,255,0.04)", borderRadius: "3px",
+    padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
+  };
+
+  const catIds = ["appearance", "privacy", "gaming", "controls", "advanced"] as const;
+  const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", gaming: "Gaming", controls: "Controls", advanced: "Advanced" };
+  function scrollToCat(id: string) {
+    const el = document.getElementById(`settings-${id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto" }}
+      id="settings-scroll"
+      style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2.5rem" }}>unstable — settings</p>
+      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: "var(--t-bg)" }}>
+      <div style={{
+        width: 160, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.06)", padding: "2.5rem 0",
+        display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "stretch", overflowY: "auto",
+      }}>
+        <p style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 1.25rem 1rem 1.25rem" }}>unstable</p>
+        {catIds.map(id => (
+          <motion.button key={id} whileHover={{ color: "rgba(255,255,255,0.7)", background: "rgba(255,255,255,0.03)", x: 2 }} whileTap={{ scale: 0.98 }} onClick={() => scrollToCat(id)} style={{
+            background: "none", border: "none", color: "rgba(255,255,255,0.3)", textAlign: "left",
+            padding: "0.45rem 1.25rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer",
+          }}>{catLabels[id]}</motion.button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "2.5rem 2rem", maxWidth: 560 }}>
+        <style>{`
+          #settings-scroll > div > div:last-child::-webkit-scrollbar { width: 6px; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-track { background: transparent; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        `}</style>
+
+      <div id="settings-appearance">
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>appearance</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>background</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Set a wallpaper URL, upload an image, or pick a random one from Unsplash.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <input
+            value={settings.wallpaper}
+            onChange={e => onSettingsChange({ ...settings, wallpaper: e.target.value })}
+            placeholder="image url (https://...)"
+            style={{ ...inputBase, flex: 1 }}
+          />
+          <label style={{ ...inputBase, cursor: "pointer", whiteSpace: "nowrap" }}>
+            upload
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => onSettingsChange({ ...settings, wallpaper: reader.result as string });
+                reader.readAsDataURL(file);
+              }}
+            />
+          </label>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onSettingsChange({ ...settings, wallpaper: `https://source.unsplash.com/random/1920x1080?sig=${Date.now()}` })}
+            style={{
+              background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
+              padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >random</motion.button>
+          {settings.wallpaper && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onSettingsChange({ ...settings, wallpaper: "" })}
+              style={{
+                background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
+                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              }}
+            >clear</motion.button>
+          )}
+        </div>
+        {settings.wallpaper && (
+          <div style={{ marginTop: "0.75rem", width: "100%", height: 120, borderRadius: "4px", overflow: "hidden", border: "1px solid var(--t-border-light)" }}>
+            <div style={{ width: "100%", height: "100%", backgroundImage: `url("${settings.wallpaper}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
+          </div>
+        )}
+
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>new tab page</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose between the classic Unstable new tab page or the Mue-powered new tab.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["mue", "legacy"] as const).map(mode => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={mode}
+              onClick={() => onSettingsChange({ ...settings, newtabMode: mode })}
+              style={{
+                flex: 1,
+                background: settings.newtabMode === mode ? "var(--t-bg-card)" : "none",
+                border: "1px solid", borderColor: settings.newtabMode === mode ? "var(--t-border-light)" : "var(--t-border)",
+                color: settings.newtabMode === mode ? "var(--t-text)" : "var(--t-text-muted)",
+                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", textTransform: "uppercase",
+                transition: "background 0.15s, border-color 0.15s, color 0.15s",
+              }}
+            >{mode === "mue" ? "Mue" : "Legacy"}</motion.button>
+          ))}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>tab layout</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose between horizontal tabs at the top or vertical tabs on the side.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {[{ id: false, label: "Horizontal" }, { id: true, label: "Vertical (beta)" }].map(opt => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={String(opt.id)}
+              onClick={() => onSettingsChange({ ...settings, verticalTabs: opt.id })}
+              style={{
+                flex: 1,
+                background: settings.verticalTabs === opt.id ? "var(--t-bg-card)" : "none",
+                border: "1px solid", borderColor: settings.verticalTabs === opt.id ? "var(--t-border-light)" : "var(--t-border)",
+                color: settings.verticalTabs === opt.id ? "var(--t-text)" : "var(--t-text-muted)",
+                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", textTransform: "uppercase",
+                transition: "background 0.15s, border-color 0.15s, color 0.15s",
+              }}
+            >{opt.label}</motion.button>
+          ))}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>search engine</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose your default search engine. You can also switch per-query from the URL bar.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          {Object.entries(SEARCH_ENGINES).map(([id, engine]) => {
+            const active = settings.searchEngine === id;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, searchEngine: id })}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.45rem",
+                  background: active ? "var(--t-accent)" : "var(--t-bg-secondary)",
+                  color: active ? "var(--t-accent-text)" : "var(--t-text-secondary)",
+                  border: `1px solid ${active ? "var(--t-accent)" : "var(--t-border-light)"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >
+                <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                {engine.name}
+              </motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+      </div>
+
+      <div id="settings-privacy">
+      {/* ─── PRIVACY ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>privacy</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Makes the browser tab containing Unstable look like another site.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          {(Object.keys(CLOAK_PRESETS) as CloakId[]).map(id => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={id}
+              onClick={() => onSettingsChange({ ...settings, cloak: id })}
+              style={{
+                background: settings.cloak === id ? "#e8e8e8" : "#111",
+                color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
+                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                transition: "all 0.15s",
+              }}
+            >{CLOAK_PRESETS[id].label}</motion.button>
+          ))}
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => openCloakPopup("https://www.google.com")}
+          style={{
+            marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+            padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >open in about:blank</motion.button>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>panic button</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Press <kbd style={kbdStyle}>Esc</kbd> to instantly load a decoy page. <kbd style={kbdStyle}>Shift</kbd>+<kbd style={kbdStyle}>Esc</kbd> works inside text fields. You can also share a link as <code style={codeStyle}>/embed.html#https://example.com</code> to open a site in the top frame.
+        </p>
+        <label style={{ display: "block", fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.4rem" }}>Panic URL</label>
+        <motion.input
+          type="text"
+          value={settings.panicUrl}
+          onChange={(e) => onSettingsChange({ ...settings, panicUrl: e.target.value })}
+          onBlur={(e) => onSettingsChange({ ...settings, panicUrl: normalizePanicUrl(e.target.value) })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onSettingsChange({ ...settings, panicUrl: normalizePanicUrl(e.currentTarget.value) });
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder="https://google.com"
+          style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
+        />
+        <p style={{ fontSize: "0.58rem", color: "var(--t-text-muted)", margin: "0.5rem 0 0", opacity: 0.7 }}>
+          Default: <code style={codeStyle}>{DEFAULT_PANIC_URL}</code>. <code style={codeStyle}>http://</code> or <code style={codeStyle}>https://</code> is added automatically if missing.
+        </p>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onSettingsChange({ ...settings, panicUrl: DEFAULT_PANIC_URL })}
+          style={{
+            marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "var(--t-text-muted)",
+            padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >reset panic url</motion.button>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.26 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>confirm leave</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, confirmLeave: !settings.confirmLeave })} style={{ position: "relative", width: "36px", height: "20px", background: settings.confirmLeave ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.confirmLeave ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.confirmLeave ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <motion.span animate={{ color: settings.confirmLeave ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.45)" }} style={{ fontSize: "0.7rem" }}>{settings.confirmLeave ? "On" : "Off"}</motion.span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Show a confirmation dialog when attempting to leave or close the site.
+        </p>
+      </motion.section>
+      </div>
+
+      <div id="settings-gaming">
+      {/* ─── GAMING ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>gaming</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>game mode</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
+        </p>
+        <motion.label whileHover={{ color: "rgba(255,255,255,0.8)" }} style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
+          <motion.input
+            type="checkbox"
+            checked={settings.gameModeEnabled}
+            onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
+            whileTap={{ scale: 1.2 }}
+          />
+          enable game mode
+        </motion.label>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
+        <motion.textarea
+          value={settings.gameModeSites.join("\n")}
+          onChange={e => {
+            const sites = e.target.value
+              .split(/\r?\n/)
+              .map(s => s.trim().toLowerCase().replace(/^www\./, ""))
+              .filter(Boolean);
+            onSettingsChange({ ...settings, gameModeSites: sites });
+          }}
+          rows={6}
+          placeholder={"smashkarts.io\nkrunker.io"}
+          whileFocus={{ borderColor: "#555" }}
+          style={{
+            ...inputBase,
+            width: "100%",
+            resize: "vertical",
+            minHeight: 100,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.72rem",
+          }}
+        />
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          type="button"
+          onClick={() => onSettingsChange({ ...settings, gameModeSites: [...DEFAULT_GAME_MODE_SITES] })}
+          style={{
+            marginTop: "0.65rem",
+            background: "none",
+            border: "1px solid #222",
+            color: "rgba(255,255,255,0.35)",
+            padding: "0.35rem 0.75rem",
+            fontSize: "0.6rem",
+            fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            borderRadius: "2px",
+          }}
+        >
+          reset site list
+        </motion.button>
+      </motion.section>
+      </div>
+
+      <div id="settings-controls">
+      {/* ─── CONTROLS ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>controls</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>keyboard shortcuts</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          {Object.keys(SHORTCUT_LABELS).map(key => {
+            const isRec = recording === key;
+            const val = settings.shortcuts[key as keyof KeyShortcuts] ?? "";
+            return (
+              <motion.div key={key} whileHover={{ x: 2 }} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid #111" }}>
+                <span style={{ flex: 1, fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>{SHORTCUT_LABELS[key]}</span>
+                <span style={{ ...inputBase, minWidth: "80px", textAlign: "center", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.5)", borderColor: isRec ? "#555" : "#222", background: isRec ? "#161616" : "none" }}>
+                  {isRec ? "press keys…" : val}
+                </span>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setRecording(isRec ? null : key)}
+                  style={{
+                    background: isRec ? "rgba(220,80,80,0.15)" : "none",
+                    border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
+                    color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
+                    padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  }}
+                >{isRec ? "cancel" : "record"}</motion.button>
+              </motion.div>
+            );
+          })}
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })}
+          style={{
+            marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
+            padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+          }}
+        >reset to defaults</motion.button>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.31 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ui scale</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Adjust the overall size of the interface.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          {[0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3].map(scale => {
+            const active = settings.uiScale === scale;
+            return (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                key={scale}
+                onClick={() => onSettingsChange({ ...settings, uiScale: scale })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.7rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.04em", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{Math.round(scale * 100)}%</motion.button>
+            );
+          })}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>magic cursor</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, magicCursorEnabled: !settings.magicCursorEnabled })} style={{ position: "relative", width: "36px", height: "20px", background: settings.magicCursorEnabled ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.magicCursorEnabled ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.magicCursorEnabled ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.magicCursorEnabled ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Replace the regular system cursor with Unstable's animated cursor.
+        </p>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.34 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>clock</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, showMsIndicator: !settings.showMsIndicator })} style={{ position: "relative", width: "36px", height: "20px", background: settings.showMsIndicator ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.showMsIndicator ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.showMsIndicator ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.showMsIndicator ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Show milliseconds on the clock.
+        </p>
+      </motion.section>
+      </div>
+
+      <div id="settings-advanced">
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
+        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>advanced</span>
+        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+      </div>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy engine</p>
@@ -1324,8 +2018,8 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
           Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
         </p>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "wisp", "bare"] as TransportMode[]).map(id => {
-            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", bare: "Bare" };
+          {(["auto", "wisp", "epoxy", "bare"] as TransportMode[]).map(id => {
+            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", epoxy: "Epoxy", bare: "Bare" };
             const active = settings.transportMode === id;
             return (
               <motion.button
@@ -1347,72 +2041,211 @@ function SettingsPage({ settings, onSettingsChange }: { settings: Settings; onSe
         </div>
       </motion.section>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>tab cloak</p>
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp server</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Makes the browser tab containing Unstable look like another site.
+          Override the default Wisp WebSocket server. Leave empty to use the built-in server at <code style={codeStyle}>/api/wisp/</code>.
         </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(Object.keys(CLOAK_PRESETS) as CloakId[]).map(id => (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              key={id}
-              onClick={() => onSettingsChange({ ...settings, cloak: id })}
-              style={{
-                background: settings.cloak === id ? "#e8e8e8" : "#111",
-                color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
-                border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
-                padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                transition: "all 0.15s",
-              }}
-            >{CLOAK_PRESETS[id].label}</motion.button>
-          ))}
+        <motion.input
+          type="text"
+          value={settings.wispServer}
+          onChange={e => onSettingsChange({ ...settings, wispServer: e.target.value })}
+          placeholder="ws://your-server.com/api/wisp/"
+          style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
+        />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp relay (fallback)</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Fallback relay server used when primary Wisp fails. Leave empty for default.
+        </p>
+        <motion.input
+          type="text"
+          value={settings.wispRelayUrl}
+          onChange={e => onSettingsChange({ ...settings, wispRelayUrl: e.target.value })}
+          placeholder="ws://your-relay.com/api/wisp/"
+          style={inputBase}
+          whileFocus={{ borderColor: "#555" }}
+        />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport encryption</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, transportEncryption: !settings.transportEncryption })} style={{ position: "relative", width: "36px", height: "20px", background: settings.transportEncryption ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.transportEncryption ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.transportEncryption ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.transportEncryption ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          XOR-encrypts transport layer data between client and proxy.
+        </p>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>font obfuscation</p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
+          <div onClick={() => onSettingsChange({ ...settings, fontObfuscation: !settings.fontObfuscation })} style={{ position: "relative", width: "36px", height: "20px", background: settings.fontObfuscation ? "#e8e8e8" : "#222", borderRadius: "10px", cursor: "pointer", transition: "all 0.2s", flexShrink: 0 }}>
+            <motion.div animate={{ left: settings.fontObfuscation ? "18px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{ position: "absolute", top: "2px", width: "16px", height: "16px", background: settings.fontObfuscation ? "#0d0d0d" : "#555", borderRadius: "50%" }} />
+          </div>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.45)" }}>{settings.fontObfuscation ? "On" : "Off"}</span>
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.2rem 0 0", lineHeight: 1.5 }}>
+          Replaces displayed text with obfuscated CJK characters to bypass classroom monitoring.
+        </p>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.20 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>ad blocking</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Blocks known ad networks, trackers, and analytics scripts in the service worker.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)" }}>{settings.adblockEnabled ? "On" : "Off"}</span>
+          <button
+            onClick={() => onSettingsChange({ ...settings, adblockEnabled: !settings.adblockEnabled })}
+            style={{
+              width: "36px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer", position: "relative",
+              background: settings.adblockEnabled ? "#e8e8e8" : "#222", transition: "background 0.2s", padding: 0,
+            }}
+          >
+            <motion.span animate={{ left: settings.adblockEnabled ? "20px" : "2px" }} transition={{ type: "spring", stiffness: 500, damping: 30 }} style={{
+              position: "absolute", top: "2px", width: "14px", height: "14px", borderRadius: "50%", background: settings.adblockEnabled ? "#0d0d0d" : "#666",
+            }} />
+          </button>
         </div>
       </motion.section>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>keyboard shortcuts</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-          {Object.keys(SHORTCUT_LABELS).map(key => {
-            const isRec = recording === key;
-            const val = settings.shortcuts[key as keyof KeyShortcuts] ?? "";
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>url encoding</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          How proxied URLs are encoded. XOR is date+host rotating key (most secure). Base64 and plain are simpler.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {(["xor", "base64", "plain"] as CodecType[]).map(id => {
+            const labels: Record<string, string> = { xor: "XOR", base64: "Base64", plain: "Plain" };
+            const active = settings.codec === id;
             return (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid #111" }}>
-                <span style={{ flex: 1, fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>{SHORTCUT_LABELS[key]}</span>
-                <span style={{ ...inputBase, minWidth: "80px", textAlign: "center", color: isRec ? "#e8e8e8" : "rgba(255,255,255,0.5)", borderColor: isRec ? "#555" : "#222", background: isRec ? "#161616" : "none" }}>
-                  {isRec ? "press keys…" : val}
-                </span>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setRecording(isRec ? null : key)}
-                  style={{
-                    background: isRec ? "rgba(220,80,80,0.15)" : "none",
-                    border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
-                    color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
-                    padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-                  }}
-                >{isRec ? "cancel" : "record"}</motion.button>
-              </div>
+              <motion.button
+                whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                key={id}
+                onClick={() => onSettingsChange({ ...settings, codec: id })}
+                style={{
+                  background: active ? "#e8e8e8" : "#111",
+                  color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
+                  border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
+                  padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  transition: "all 0.15s",
+                }}
+              >{labels[id]}</motion.button>
             );
           })}
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })}
-          style={{
-            marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
-            padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
-          }}
-        >reset to defaults</motion.button>
       </motion.section>
 
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>site engine overrides</p>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Force a specific proxy engine for certain domains. One per line: <code style={codeStyle}>domain.com=scramjet</code> or <code style={codeStyle}>domain.com=uv</code>
+        </p>
+        <motion.textarea
+          value={Object.entries(settings.siteEngineOverrides).map(([k, v]) => `${k}=${v}`).join("\n")}
+          onChange={e => {
+            const overrides: Record<string, "uv" | "scramjet"> = {};
+            for (const line of e.target.value.split("\n")) {
+              const m = line.trim().match(/^(.+?)=(uv|scramjet)$/i);
+              if (m) overrides[m[1].toLowerCase()] = m[2].toLowerCase() as "uv" | "scramjet";
+            }
+            onSettingsChange({ ...settings, siteEngineOverrides: overrides });
+          }}
+          placeholder={"example.com=scramjet\nads.example.com=uv"}
+          style={{ ...inputBase, minHeight: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "0.65rem" }}
+          whileFocus={{ borderColor: "#555" }}
+        />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.23 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy status</p>
+        <ConnectionStatusSummary transportMode={settings.transportMode} wispServer={settings.wispServer} wispRelayUrl={settings.wispRelayUrl ?? ""} transportEncryption={settings.transportEncryption} />
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>settings management</p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <motion.button
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(settings, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = "unstable-settings.json";
+              a.click(); URL.revokeObjectURL(url);
+            }}
+            style={{
+              background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+              padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >export settings</motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file"; input.accept = ".json";
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  try {
+                    const imported = JSON.parse(reader.result as string);
+                    onSettingsChange({ ...settings, ...imported });
+                  } catch { alert("Invalid settings file."); }
+                };
+                reader.readAsText(file);
+              };
+              input.click();
+            }}
+            style={{
+              background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
+              padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            }}
+          >import settings</motion.button>
+          {onLogout && (
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={onLogout}
+              style={{
+                background: "none", border: "1px solid #333", color: "rgba(200,70,70,0.7)",
+                padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              }}
+            >sign out</motion.button>
+          )}
+        </div>
+        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0.5rem 0 0", lineHeight: 1.5 }}>
+          Export or import your settings as a JSON file.
+        </p>
+      </motion.section>
+      </div>
+
       <p style={{ marginTop: "2rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em" }}>type unstable://settings in the url bar</p>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} style={{ display: "flex", gap: "1.5rem", marginTop: "1.5rem" }}>
+        {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
+          <motion.button
+            whileHover={{ color: "var(--t-text-secondary)" }}
+            key={label}
+            onClick={() => onNavigate?.(url)}
+            style={{ background: "none", border: "none", color: "var(--t-text-muted)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
+          >{label}</motion.button>
+        ))}
+      </motion.div>
+      </div>
+      </div>
     </motion.div>
   );
 }
@@ -1436,7 +2269,7 @@ function InlineAuthScreen({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: "#0d0d0d",
+        background: "var(--t-bg)",
         fontFamily: "'Space Grotesk', sans-serif",
         position: "relative",
         overflow: "hidden",
@@ -1471,29 +2304,40 @@ function AIPage({ user, profile, onAuthenticated }: { user: User | null; profile
 
 function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   const starterMessages = useMemo<AIMessage[]>(() => [
-    {
-      id: aiMessageId(),
-      role: "assistant",
-      content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help.",
-    },
+    { id: aiMessageId(), role: "assistant", content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help." },
   ], []);
 
-  const suggestions = useMemo(() => [
-    "Write a clean apology email for a late assignment.",
-    "Summarize the differences between UV and Scramjet here.",
-    "Brainstorm a stealthy tab-cloak landing page concept.",
-    "Explain a TypeScript error in plain English.",
-  ], []);
-
+  const [conversations, setConversations] = useState<AIConversationRecord[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>(starterMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [booting, setBooting] = useState(true);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<AIMode>("fast");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [booting, setBooting] = useState(true);
+  const [editMessageId, setEditMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [feedback, setFeedback] = useState<Record<string, "like" | "dislike" | null>>({});
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
+    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
+    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
+  };
+
+  useEffect(() => {
+    if (!modeDropdownOpen) return;
+    const handler = () => setModeDropdownOpen(false);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [modeDropdownOpen]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -1509,115 +2353,170 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   }, [input]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (editTextareaRef.current) {
+      const el = editTextareaRef.current;
+      el.style.height = "0px";
+      el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    }
+  }, [editingContent]);
 
-    async function loadConversation() {
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
       setBooting(true);
-      setError("");
       try {
-        const { data: conversations, error: convoError } = await supabase
+        const { data, error: err } = await supabase
           .from("ai_conversations")
           .select("id, title, created_at")
           .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (convoError) throw convoError;
-        const latest = (conversations?.[0] ?? null) as AIConversationRecord | null;
-
-        if (!latest) {
-          if (!cancelled) {
-            setConversationId(null);
-            setMessages(starterMessages);
-          }
-          return;
-        }
-
-        const { data: storedMessages, error: messageError } = await supabase
-          .from("ai_messages")
-          .select("id, role, content")
-          .eq("conversation_id", latest.id)
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: true });
-
-        if (messageError) throw messageError;
+          .order("created_at", { ascending: false });
+        if (err) throw err;
         if (cancelled) return;
-
-        setConversationId(latest.id);
-        if (storedMessages && storedMessages.length > 0) {
-          setMessages(
-            storedMessages.map((message) => ({
-              id: message.id,
-              role: message.role as "user" | "assistant",
-              content: message.content,
-            })),
-          );
-        } else {
-          setMessages(starterMessages);
+        const convs = (data ?? []) as AIConversationRecord[];
+        setConversations(convs);
+        if (convs.length > 0) {
+          setActiveId(convs[0].id);
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to load AI history.");
-          setMessages(starterMessages);
-        }
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load conversations.");
       } finally {
         if (!cancelled) setBooting(false);
       }
     }
+    load();
+    return () => { cancelled = true; };
+  }, [user.id]);
 
-    loadConversation();
-    return () => {
-      cancelled = true;
-    };
-  }, [starterMessages, user.id]);
+  useEffect(() => {
+    if (!activeId) {
+      setMessages(starterMessages);
+      return;
+    }
+    let cancelled = false;
+    async function loadMessages() {
+      setBooting(true);
+      try {
+        const { data, error: err } = await supabase
+          .from("ai_messages")
+          .select("id, role, content")
+          .eq("conversation_id", activeId)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true });
+        if (err) throw err;
+        if (cancelled) return;
+        if (data && data.length > 0) {
+          setMessages(data.map((m) => ({ id: m.id, role: m.role as "user" | "assistant", content: m.content })));
+        } else {
+          setMessages(starterMessages);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load messages.");
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    }
+    loadMessages();
+    return () => { cancelled = true; };
+  }, [activeId, user.id, starterMessages]);
 
-  async function submitPrompt(rawPrompt?: string) {
+  async function newChat() {
+    const { data, error: err } = await supabase
+      .from("ai_conversations")
+      .insert({ user_id: user.id, title: "New chat" })
+      .select("id, title, created_at")
+      .single();
+    if (err) { setError(err.message); return; }
+    const conv = data as AIConversationRecord;
+    setConversations(prev => [conv, ...prev]);
+    setActiveId(conv.id);
+    setMessages(starterMessages);
+    setError("");
+  }
+
+  async function deleteChat(id: string) {
+    await supabase.from("ai_messages").delete().eq("conversation_id", id).eq("user_id", user.id);
+    await supabase.from("ai_conversations").delete().eq("id", id).eq("user_id", user.id);
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (activeId === id) {
+      const next = conversations.find(c => c.id !== id);
+      setActiveId(next ? next.id : null);
+      if (!next) setMessages(starterMessages);
+    }
+  }
+
+  async function updateConversationTitle(id: string, title: string) {
+    setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
+    await supabase.from("ai_conversations").update({ title }).eq("id", id).eq("user_id", user.id);
+  }
+
+  async function generateTitle(convId: string, userPrompt: string, aiResponse: string) {
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "fast",
+          messages: [
+            { role: "system", content: "Generate a concise title under 6 words for this conversation based on the first user message and AI response. Reply with only the title, no quotes or extra text." },
+            { role: "user", content: userPrompt },
+            { role: "assistant", content: aiResponse },
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => null) as { content?: string } | null;
+      if (data?.content) {
+        const title = data.content.trim().replace(/^["'\s]+|["'\s]+$/g, "").slice(0, 60);
+        if (title) updateConversationTitle(convId, title);
+      }
+    } catch {}
+  }
+
+  async function sendMessage(rawPrompt?: string) {
     const prompt = (rawPrompt ?? input).trim();
     if (!prompt || loading || booting) return;
 
+    let convId = activeId;
+    if (!convId) {
+      const { data, error: err } = await supabase
+        .from("ai_conversations")
+        .insert({ user_id: user.id, title: buildConversationTitle(prompt) })
+        .select("id, title, created_at")
+        .single();
+      if (err) { setError(err.message); return; }
+      const conv = data as AIConversationRecord;
+      setConversations(prev => [conv, ...prev]);
+      convId = conv.id;
+      setActiveId(conv.id);
+    }
+
     const userMessage: AIMessage = { id: aiMessageId(), role: "user", content: prompt };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInput("");
     setError("");
     setLoading(true);
 
     try {
-      let activeConversationId = conversationId;
-      if (!activeConversationId) {
-        const { data: conversation, error: conversationError } = await supabase
-          .from("ai_conversations")
-          .insert({
-            user_id: user.id,
-            title: buildConversationTitle(prompt),
-          })
-          .select("id")
-          .single();
-
-        if (conversationError) throw conversationError;
-        activeConversationId = conversation.id;
-        setConversationId(activeConversationId);
-      }
-
-      const { error: userInsertError } = await supabase.from("ai_messages").insert({
-        conversation_id: activeConversationId,
-        user_id: user.id,
-        role: "user",
-        content: prompt,
+      const { error: insertErr } = await supabase.from("ai_messages").insert({
+        conversation_id: convId, user_id: user.id, role: "user", content: prompt,
       });
-      if (userInsertError) throw userInsertError;
+      if (insertErr) throw insertErr;
 
-      const content = await sendAiChat(nextMessages, mode);
-      const assistantMessage = { id: aiMessageId(), role: "assistant" as const, content };
+      const allMessages = [...messages, userMessage];
+      const content = await sendAiChat(allMessages, mode);
+      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
       setMessages(prev => [...prev, assistantMessage]);
 
-      const { error: assistantInsertError } = await supabase.from("ai_messages").insert({
-        conversation_id: activeConversationId,
-        user_id: user.id,
-        role: "assistant",
-        content,
+      const { error: aiInsertErr } = await supabase.from("ai_messages").insert({
+        conversation_id: convId, user_id: user.id, role: "assistant", content,
       });
-      if (assistantInsertError) throw assistantInsertError;
+      if (aiInsertErr) throw aiInsertErr;
+
+      const conv = conversations.find(c => c.id === convId);
+      if (conv && conv.title === "New chat") {
+        const tempTitle = buildConversationTitle(prompt);
+        updateConversationTitle(convId, tempTitle);
+        generateTitle(convId, prompt, content);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to get a response right now.");
     } finally {
@@ -1625,301 +2524,393 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     }
   }
 
-  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
-    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
-    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
-  };
+  async function saveEdit(messageId: string) {
+    const newContent = editingContent.trim();
+    if (!newContent) return;
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: newContent } : m));
+    setEditMessageId(null);
+    setEditingContent("");
+    await supabase.from("ai_messages").update({ content: newContent }).eq("id", messageId).eq("user_id", user.id);
+  }
+
+  function startEdit(msg: AIMessage) {
+    setEditMessageId(msg.id);
+    setEditingContent(msg.content);
+    setTimeout(() => editTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEdit() {
+    setEditMessageId(null);
+    setEditingContent("");
+  }
+
+  function copyMessage(content: string) {
+    navigator.clipboard.writeText(content).catch(() => {});
+  }
+
+  function speakMessage(id: string, content: string) {
+    if (speakingMessageId === id) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+    setSpeakingMessageId(id);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  async function regenerateMessage() {
+    const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUserMsg || regenerating) return;
+    setRegenerating(true);
+    const lastAiIndex = messages.map(m => m.role).lastIndexOf("assistant");
+    if (lastAiIndex !== -1) {
+      const removed = messages[lastAiIndex];
+      setMessages(prev => prev.filter(m => m.id !== removed.id));
+      if (activeId) {
+        try { await supabase.from("ai_messages").delete().eq("id", removed.id).eq("user_id", user.id); } catch {}
+      }
+    }
+    setLoading(true);
+    try {
+      const history = messages.slice(0, lastAiIndex > 0 ? lastAiIndex - 1 : 0);
+      const content = await sendAiChat([...history, lastUserMsg], mode);
+      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
+      setMessages(prev => [...prev, assistantMessage]);
+      if (activeId) {
+        try { await supabase.from("ai_messages").insert({ conversation_id: activeId, user_id: user.id, role: "assistant", content }); } catch {}
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to regenerate.");
+    } finally {
+      setLoading(false);
+      setRegenerating(false);
+    }
+  }
+
+  const sidebarWidth = 260;
+
+  function ActionButton({ icon, label, active, activeColor, onClick }: { icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void }) {
+    return (
+      <button onClick={onClick} style={{ background: active ? "rgba(120,170,255,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(120,170,255,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "6px", color: active ? activeColor || "rgba(120,170,255,0.8)" : "rgba(255,255,255,0.4)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.45rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+        {icon}{label}
+      </button>
+    );
+  }
+
+  function IconButton({ icon, active, activeColor, onClick }: { icon: React.ReactNode; active?: boolean; activeColor?: string; onClick: () => void }) {
+    return (
+      <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: active ? activeColor || "rgba(120,200,120,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
+        {icon}
+      </button>
+    );
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      style={{
-        height: "100%",
-        overflow: "hidden",
-        background:
-          "radial-gradient(circle at top left, rgba(120,170,255,0.14), transparent 28%), radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 22%), #0d0d0d",
-        fontFamily: "'Space Grotesk', sans-serif",
-      }}
+       style={{ height: "100%", overflow: "hidden", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <div style={{ height: "100%", maxWidth: 1120, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
+      <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", gap: "0.75rem" }}>
+        {/* ── Sidebar ── */}
         <motion.aside
           initial={{ opacity: 0, x: -12 }}
           animate={{ opacity: 1, x: 0 }}
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))",
-            borderRadius: "18px",
-            padding: "1rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
-          }}
+          style={{ width: sidebarWidth, flexShrink: 0, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}
         >
-          <div>
-            <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — ai</p>
+          {/* New chat button */}
+          <div style={{ padding: "0.85rem" }}>
+            <motion.button
+              whileHover={{ scale: 1.02, background: "rgba(255,255,255,0.06)" }}
+              whileTap={{ scale: 0.98 }}
+              onClick={newChat}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.45rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.65rem 0", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.08em" }}
+            >
+              + New chat
+            </motion.button>
           </div>
 
-          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Mode</p>
-            <div style={{ display: "flex", gap: "0.45rem" }}>
-              {(["fast", "think"] as AIMode[]).map((currentMode) => {
-                const active = mode === currentMode;
+          {/* Conversation list */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 0.4rem" }}>
+            {conversations.length === 0 && !booting && (
+              <p style={{ textAlign: "center", fontSize: "0.65rem", color: "rgba(255,255,255,0.25)", padding: "1.5rem 0", margin: 0 }}>No conversations yet</p>
+            )}
+            <AnimatePresence>
+              {conversations.map((conv) => {
+                const active = conv.id === activeId;
                 return (
-                  <button
-                    key={currentMode}
-                    onClick={() => setMode(currentMode)}
+                  <motion.div
+                    key={conv.id}
+                    layout
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
+                    onClick={() => setActiveId(conv.id)}
                     style={{
-                      flex: 1,
-                      background: active ? "#e8e8e8" : "#111",
-                      color: active ? "#0d0d0d" : "rgba(255,255,255,0.52)",
-                      border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
-                      padding: "0.65rem 0.8rem",
-                      fontSize: "0.64rem",
-                      fontFamily: "'Space Grotesk', sans-serif",
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      cursor: "pointer",
-                      borderRadius: "10px",
+                      cursor: "pointer", borderRadius: "10px", padding: "0.6rem 0.7rem",
+                      marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem",
+                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                      border: active ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
                     }}
+                    onMouseEnter={() => setHoveredMsgId(conv.id)}
+                    onMouseLeave={() => setHoveredMsgId(null)}
                   >
-                    {currentMode}
-                  </button>
+                    <p style={{ margin: 0, fontSize: "0.72rem", color: "#e0e0e0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
+                      {conv.title || "Untitled"}
+                    </p>
+                    {hoveredMsgId === conv.id && (
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={(e) => { e.stopPropagation(); deleteChat(conv.id); }}
+                        style={{ flexShrink: 0, background: "rgba(220,80,80,0.15)", border: "1px solid rgba(220,80,80,0.3)", borderRadius: "6px", color: "rgba(220,80,80,0.8)", fontSize: "0.55rem", cursor: "pointer", padding: "0.15rem 0.4rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                      >delete</motion.button>
+                    )}
+                  </motion.div>
                 );
               })}
-            </div>
-            <p style={{ margin: "0.65rem 0 0", fontSize: "0.67rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.55 }}>
-              {modeMeta[mode].label} · {modeMeta[mode].hint}
+            </AnimatePresence>
+          </div>
+
+          {/* User info */}
+          <div style={{ padding: "0.75rem 0.85rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin: 0, fontSize: "0.6rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
+              {profile.username}
             </p>
-          </div>
-
-          <div style={{ border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)", borderRadius: "14px", padding: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.55rem", fontSize: "0.58rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>Quick starts</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => submitPrompt(suggestion)}
-                  style={{
-                    textAlign: "left",
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    color: "rgba(255,255,255,0.74)",
-                    borderRadius: "12px",
-                    padding: "0.7rem 0.75rem",
-                    fontSize: "0.7rem",
-                    lineHeight: 1.45,
-                    cursor: "pointer",
-                    transition: "border-color 0.15s, transform 0.15s, background 0.15s",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                  }}
-                  onMouseEnter={e => {
-                    const target = e.currentTarget;
-                    target.style.borderColor = "rgba(120,170,255,0.32)";
-                    target.style.background = "rgba(120,170,255,0.08)";
-                    target.style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={e => {
-                    const target = e.currentTarget;
-                    target.style.borderColor = "rgba(255,255,255,0.07)";
-                    target.style.background = "rgba(255,255,255,0.02)";
-                    target.style.transform = "translateY(0)";
-                  }}
-                >{suggestion}</button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
-            <p style={{ margin: "0 0 0.75rem", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{profile.username}</p>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Active model</p>
-            <p style={{ margin: 0, fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>{modeMeta[mode].label}</p>
           </div>
         </motion.aside>
 
+        {/* ── Main chat area ── */}
         <motion.section
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          style={{
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))",
-            borderRadius: "22px",
-            overflow: "hidden",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.4)",
-          }}
+          style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div>
-              <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>AI console</p>
-              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://ai in the url bar</p>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.9rem 1.2rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div>
+                <p style={{ margin: 0, fontSize: "0.88rem", color: "#eceff4", fontWeight: 500 }}>
+                  {activeId ? (conversations.find(c => c.id === activeId)?.title || "Chat") : "AI"}
+                </p>
+              </div>
+              {/* Mode selector moved to header */}
+              <div style={{ position: "relative" }}>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={(e) => { e.stopPropagation(); setModeDropdownOpen(!modeDropdownOpen); }}
+                  style={{ background: mode === "think" ? "rgba(120,80,200,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${mode === "think" ? "rgba(120,80,200,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: "999px", padding: "0.3rem 0.6rem", cursor: "pointer", color: mode === "think" ? "rgba(180,140,255,0.8)" : "rgba(255,255,255,0.45)", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}
+                >
+                  {mode === "fast" ? <><Zap size={11} />fast</> : <><Brain size={11} />think</>}
+                </motion.button>
+                <AnimatePresence>
+                  {modeDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                      transition={{ duration: 0.12 }}
+                      style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#181818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.3rem", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", minWidth: 140, zIndex: 10 }}
+                    >
+                      {(["fast", "think"] as AIMode[]).map((opt) => (
+                        <motion.button
+                          key={opt}
+                          whileHover={{ background: "rgba(255,255,255,0.06)" }}
+                          onClick={() => { setMode(opt); setModeDropdownOpen(false); }}
+                          style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "100%", textAlign: "left", background: mode === opt ? "rgba(255,255,255,0.08)" : "transparent", border: "none", borderRadius: "8px", padding: "0.45rem 0.7rem", cursor: "pointer", color: mode === opt ? "#e8e8e8" : "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
+                        >
+                          <span style={{ display: "inline-flex" }}>{opt === "fast" ? <Zap size={13} /> : <Brain size={13} />}</span>
+                          <span style={{ flex: 1 }}>{opt === "fast" ? "Fast" : "Think"}</span>
+                          {mode === opt && <span style={{ fontSize: "0.5rem", color: "rgba(120,200,120,0.6)" }}>active</span>}
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
-            <button
-              onClick={() => { setMessages(starterMessages); setConversationId(null); setError(""); }}
-              style={{
-                background: "none",
-                border: "1px solid rgba(255,255,255,0.09)",
-                color: "rgba(255,255,255,0.45)",
-                borderRadius: "999px",
-                padding: "0.45rem 0.8rem",
-                fontSize: "0.62rem",
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                fontFamily: "'Space Grotesk', sans-serif",
-              }}
-            >reset</button>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              {activeId && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => deleteChat(activeId)}
+                  style={{ background: "none", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(200,80,80,0.6)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
+                >delete</motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={newChat}
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(255,255,255,0.55)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
+              >+ new</motion.button>
+            </div>
           </div>
 
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem 1.2rem 1rem", display: "flex", flexDirection: "column", gap: "0.95rem", background: "linear-gradient(180deg, rgba(255,255,255,0.01), transparent 12%)" }}>
+          {/* Messages */}
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.4rem 1.4rem 1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {booting ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem", padding: "0.4rem 0.2rem" }}>loading synced history…</div>
-            ) : messages.map((message, index) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.03 }}
-                style={{
-                  display: "flex",
-                  justifyContent: message.role === "user" ? "flex-end" : "flex-start",
-                }}
-              >
-                <div style={{ display: "flex", flexDirection: message.role === "user" ? "row-reverse" : "row", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
-                  <div
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.56rem",
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {message.role === "user" ? "you" : "ai"}
-                  </div>
-                  <div
-                    style={{
-                      maxWidth: "min(100%, 680px)",
-                      borderRadius: message.role === "user" ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
-                      background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      padding: "0.9rem 1rem",
-                      boxShadow: "0 10px 26px rgba(0,0,0,0.18)",
-                    }}
-                  >
-                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: message.role === "user" ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
-                      {message.role === "user" ? "you" : "unstable ai"}
-                    </p>
-                    <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>
-                      {message.content}
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>Loading…</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.8rem" }}>
+                <p style={{ margin: 0, color: "rgba(255,255,255,0.2)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>Send a message to start chatting</p>
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+                {messages.map((message, index) => {
+                  const isUser = message.role === "user";
+                  const isEditing = editMessageId === message.id;
+                  const isHovered = hoveredMsgId === message.id;
+                  return (
+                    <motion.div
+                      key={message.id}
+                      layout
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.015 }}
+                      style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}
+                    >
+                      <div
+                        style={{ maxWidth: "min(100%, 780px)", width: "100%" }}
+                        onMouseEnter={() => setHoveredMsgId(message.id)}
+                        onMouseLeave={() => setHoveredMsgId(null)}
+                      >
+                        {isEditing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "flex-end" }}>
+                            <textarea
+                              ref={editTextareaRef}
+                              value={editingContent}
+                              onChange={e => setEditingContent(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(message.id); }
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              style={{ width: "100%", resize: "none", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "14px", color: "#e0e0e0", padding: "0.75rem 0.9rem", fontSize: "0.79rem", lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", outline: "none", minHeight: 80 }}
+                            />
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => saveEdit(message.id)} style={{ background: "#e8ecf8", border: "none", borderRadius: "8px", color: "#0d0d0d", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", fontWeight: 600 }}>Save</motion.button>
+                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={cancelEdit} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer" }}>Cancel</motion.button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              borderRadius: isUser ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
+                              background: isUser ? "rgba(232,236,248,0.1)" : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${isUser ? "rgba(232,236,248,0.15)" : "rgba(255,255,255,0.06)"}`,
+                              padding: "0.85rem 1rem",
+                              position: "relative",
+                            }}
+                          >
+                            <p style={{ margin: 0, color: isUser ? "rgba(232,236,248,0.75)" : "rgba(255,255,255,0.4)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "0.35rem" }}>
+                              {isUser ? "You" : "AI"}
+                            </p>
+                            <p style={{ margin: 0, color: "#e0e0e0", fontSize: "0.8rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                              {message.content}
+                            </p>
+                            {isHovered && !isEditing && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{ display: "flex", gap: "0.2rem", marginTop: "0.55rem", justifyContent: isUser ? "flex-end" : "space-between", alignItems: "center" }}
+                              >
+                                <div style={{ display: "flex", gap: "0.2rem", alignItems: "center" }}>
+                                  {!isUser && (
+                                    <>
+                                      <ActionButton icon={<Volume2 size={11} />} label={speakingMessageId === message.id ? "stop" : "read"} active={speakingMessageId === message.id} activeColor="rgba(120,170,255,0.8)" onClick={() => speakMessage(message.id, message.content)} />
+                                      <ActionButton icon={<RefreshCw size={11} />} label="redo" onClick={regenerateMessage} />
+                                    </>
+                                  )}
+                                  <ActionButton icon={<Copy size={11} />} label="copy" onClick={() => copyMessage(message.content)} />
+                                  {isUser && <ActionButton icon={<Pencil size={11} />} label="edit" onClick={() => startEdit(message)} />}
+                                </div>
+                                {!isUser && (
+                                  <div style={{ display: "flex", gap: "0.1rem", alignItems: "center" }}>
+                                    <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.2rem" }} />
+                                    <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} />
+                                    <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} />
+                                  </div>
+                                )}
+                              </motion.div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            )}
 
             {loading && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "0.7rem", width: "min(100%, 820px)" }}>
-                  <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>ai</div>
-                  <div style={{ borderRadius: "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
-                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" }}>unstable ai</p>
-                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", minHeight: 20 }}>
-                      {[0, 1, 2].map((dot) => (
-                        <motion.span
-                          key={dot}
-                          animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }}
-                          style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(255,255,255,0.6)", display: "block" }}
-                        />
-                      ))}
-                    </div>
+                <div style={{ borderRadius: "20px 20px 20px 6px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", padding: "0.85rem 1rem", maxWidth: "min(100%, 780px)" }}>
+                  <p style={{ margin: "0 0 0.35rem", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>AI</p>
+                  <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", minHeight: 20 }}>
+                    {[0, 1, 2].map((dot) => (
+                      <motion.span key={dot} animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }} transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.5)", display: "block" }} />
+                    ))}
                   </div>
                 </div>
               </motion.div>
             )}
           </div>
 
+          {/* Input area */}
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem", background: "linear-gradient(180deg, rgba(11,11,11,0.96), rgba(8,8,8,0.98))" }}>
-            {error && (
-              <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>
-                {error}
-              </p>
-            )}
-            <form
-              onSubmit={(e) => { e.preventDefault(); submitPrompt(); }}
-              style={{
-                display: "flex",
-                gap: "0.8rem",
-                alignItems: "flex-end",
-                background: "rgba(255,255,255,0.02)",
-                border: "1px solid rgba(255,255,255,0.07)",
-                borderRadius: "18px",
-                padding: "0.8rem",
-              }}
-            >
+            {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>{error}</p>}
+            <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.5rem 0.5rem 0.5rem 0.8rem" }}>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitPrompt();
-                  }
-                }}
-                placeholder="Ask anything..."
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder={activeId ? "Ask anything..." : "Start a new chat..."}
                 rows={1}
-                style={{
-                  flex: 1,
-                  resize: "none",
-                  background: "transparent",
-                  border: "none",
-                  color: "#eef2f7",
-                  fontSize: "0.78rem",
-                  lineHeight: 1.6,
-                  outline: "none",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  minHeight: 24,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                }}
+                style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 220, overflowY: "auto" }}
               />
+              {/* Voice input */}
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  if (listening) return;
+                  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                  if (!SpeechRecognition) return;
+                  const recognition = new SpeechRecognition();
+                  recognition.interimResults = false;
+                  recognition.lang = "en-US";
+                  setListening(true);
+                  recognition.onresult = (event: any) => {
+                    const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join("");
+                    setInput(transcript);
+                  };
+                  recognition.onend = () => setListening(false);
+                  recognition.onerror = () => setListening(false);
+                  try { recognition.start(); } catch { setListening(false); }
+                }}
+                style={{ flexShrink: 0, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: listening ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(220,80,80,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "50%", cursor: "pointer", color: listening ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.4)", padding: 0, position: "relative" }}
+              >
+                {listening ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc4444", display: "block", position: "absolute" }} /><Mic size={14} /></> : <Mic size={14} />}
+              </motion.button>
+              {/* Send button */}
               <motion.button
                 whileHover={{ scale: loading ? 1 : 1.03 }}
                 whileTap={{ scale: loading ? 1 : 0.98 }}
                 type="submit"
                 disabled={loading || !input.trim()}
-                style={{
-                  alignSelf: "stretch",
-                  minWidth: 104,
-                  background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8",
-                  color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d",
-                  border: "none",
-                  borderRadius: "999px",
-                  cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontSize: "0.68rem",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  fontWeight: 700,
-                  padding: "0 1rem",
-                }}
+                style={{ flexShrink: 0, height: 34, minWidth: 72, background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 0.9rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" }}
               >
-                {loading ? "sending" : "send"}
+                {loading ? "sending" : <><Send size={12} />send</>}
               </motion.button>
             </form>
           </div>
@@ -1929,238 +2920,15 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   );
 }
 
-function AdminPage({
-  session,
-  currentUser,
-  isAdmin,
-}: {
-  session: Session;
-  currentUser: User;
-  isAdmin: boolean;
-}) {
-  const [overview, setOverview] = useState<AdminOverview>({ users: [], messages: [] });
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  const accessToken = session.access_token;
-
-  const loadOverview = useCallback(async () => {
-    if (!isAdmin) return;
-    setLoading(true);
-    setError("");
-    try {
-      const next = await fetchAdminOverview(accessToken);
-      setOverview(next);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load admin data.");
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, isAdmin]);
-
-  useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
-
-  async function handleDeleteMessage(messageId: string) {
-    if (!window.confirm("Delete this message for everyone?")) return;
-    setWorking(`message:${messageId}`);
-    setError("");
-    try {
-      await deleteAdminMessage(accessToken, messageId);
-      setOverview((prev) => ({
-        ...prev,
-        messages: prev.messages.filter((message) => message.id !== messageId),
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete message.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  async function handleBanToggle(user: AdminUserSummary) {
-    const actionKey = `user:${user.id}:${user.isBanned ? "unban" : "ban"}`;
-    setWorking(actionKey);
-    setError("");
-    try {
-      if (user.isBanned) {
-        await unbanAdminUser(accessToken, user.id);
-      } else {
-        const reason = window.prompt(`Ban ${user.username}. Optional reason:`) ?? "";
-        await banAdminUser(accessToken, user.id, reason);
-      }
-      await loadOverview();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update that user.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  async function handleDeleteUser(user: AdminUserSummary) {
-    if (user.id === currentUser.id) {
-      setError("You cannot delete the account you are currently using.");
-      return;
-    }
-    if (!window.confirm(`Delete ${user.username} permanently?`)) return;
-    setWorking(`delete-user:${user.id}`);
-    setError("");
-    try {
-      await deleteAdminUser(accessToken, user.id);
-      await loadOverview();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete that user.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
-  if (!isAdmin) {
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "#e8e8e8", fontFamily: "'Space Grotesk', sans-serif" }}>
-        <div style={{ maxWidth: 480, padding: "2rem", textAlign: "center" }}>
-          <p style={{ margin: 0, fontSize: "0.64rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
-          <p style={{ margin: "0.9rem 0 0", fontSize: "1.2rem" }}>Admin role required.</p>
-        </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        height: "100%",
-        overflow: "auto",
-        background:
-          "radial-gradient(circle at top left, rgba(255,120,120,0.1), transparent 24%), radial-gradient(circle at bottom right, rgba(255,255,255,0.05), transparent 22%), #0d0d0d",
-        fontFamily: "'Space Grotesk', sans-serif",
-      }}
-    >
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(320px, 420px) minmax(0, 1fr)", gap: "1rem" }}>
-        <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(18,12,12,0.96), rgba(10,8,8,0.98))", borderRadius: "22px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.8rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-          <div>
-            <p style={{ margin: 0, fontSize: "0.62rem", letterSpacing: "0.24em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>unstable admin</p>
-            <p style={{ margin: "0.6rem 0 0.35rem", color: "#f5f5f5", fontSize: "1.4rem", lineHeight: 1.05 }}>Moderation controls for real admin accounts.</p>
-            <p style={{ margin: 0, color: "rgba(255,255,255,0.45)", fontSize: "0.72rem", lineHeight: 1.6 }}>
-              Bans are stored in Supabase. Device bans are best-effort and follow the browser installation id saved on the device.
-            </p>
-          </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.8rem", display: "grid", gap: "0.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Users</span>
-              <span>{overview.users.length}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Banned</span>
-              <span>{overview.users.filter((user) => user.isBanned).length}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#eef2f7", fontSize: "0.78rem" }}>
-              <span>Recent messages</span>
-              <span>{overview.messages.length}</span>
-            </div>
-          </div>
-          <button
-            onClick={() => void loadOverview()}
-            disabled={loading}
-            style={{ marginTop: "auto", background: loading ? "#231919" : "#f0e7e7", color: loading ? "rgba(255,255,255,0.35)" : "#140e0e", border: "none", borderRadius: "999px", padding: "0.8rem 1rem", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}
-          >
-            {loading ? "loading…" : "refresh admin data"}
-          </button>
-          {error && <p style={{ margin: 0, color: "rgba(235,120,120,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{error}</p>}
-          {!error && (overview.warnings?.length ?? 0) > 0 && (
-            <div style={{ display: "grid", gap: "0.45rem" }}>
-              {overview.warnings!.map((warning) => (
-                <p key={warning} style={{ margin: 0, color: "rgba(255,210,140,0.92)", fontSize: "0.7rem", lineHeight: 1.5 }}>{warning}</p>
-              ))}
-            </div>
-          )}
-        </aside>
-
-        <section style={{ minWidth: 0, display: "grid", gap: "1rem" }}>
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(8,8,8,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Users</p>
-              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://admin in the url bar</p>
-            </div>
-            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
-              {overview.users.map((user) => (
-                <div key={user.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "center", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.84rem" }}>{user.username}</p>
-                      {user.isAdmin && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>admin</span>}
-                      {user.isBanned && <span style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(200,70,70,0.16)", color: "#ffb3b3", fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>banned</span>}
-                    </div>
-                    <p style={{ margin: "0.28rem 0 0", color: "rgba(255,255,255,0.42)", fontSize: "0.67rem", lineHeight: 1.6 }}>
-                      {user.id === currentUser.id ? "Current account" : `Devices seen: ${user.deviceCount}`}
-                      {user.banReason ? ` • ${user.banReason}` : ""}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button
-                      onClick={() => void handleBanToggle(user)}
-                      disabled={working === `user:${user.id}:${user.isBanned ? "unban" : "ban"}` || user.id === currentUser.id}
-                      style={{ background: user.isBanned ? "rgba(255,255,255,0.08)" : "rgba(200,70,70,0.14)", color: user.isBanned ? "#f2f2f2" : "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      {user.isBanned ? "unban" : "ban"}
-                    </button>
-                    <button
-                      onClick={() => void handleDeleteUser(user)}
-                      disabled={working === `delete-user:${user.id}` || user.id === currentUser.id}
-                      style={{ background: "transparent", color: "rgba(255,255,255,0.72)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: user.id === currentUser.id ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-            <div style={{ padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin: 0, color: "#eceff4", fontSize: "0.92rem", fontWeight: 500 }}>Recent chat messages</p>
-            </div>
-            <div style={{ display: "grid", gap: "0.7rem", padding: "1rem" }}>
-              {overview.messages.map((message) => {
-                const parsed = parseChatMessageContent(message.content);
-                return (
-                  <div key={message.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.8rem", alignItems: "start", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "0.85rem 0.95rem", background: "rgba(255,255,255,0.02)" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, color: "#f4f6fb", fontSize: "0.8rem" }}>{message.username}</p>
-                      <p style={{ margin: "0.3rem 0 0", color: "rgba(255,255,255,0.72)", fontSize: "0.72rem", lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parsed.body}</p>
-                    </div>
-                    <button
-                      onClick={() => void handleDeleteMessage(message.id)}
-                      disabled={working === `message:${message.id}`}
-                      style={{ background: "rgba(200,70,70,0.14)", color: "#ffb4b4", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", padding: "0.5rem 0.8rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase" }}
-                    >
-                      delete
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      </div>
-    </motion.div>
-  );
-}
-
-function ChatPage({ user, profile, session, isAdmin, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; isAdmin: boolean; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
+function ChatPage({ user, profile, session, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
   if (!user || !profile || !session) {
     return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Chat" />;
   }
 
-  return <ChatPageInner user={user} profile={profile} session={session} isAdmin={isAdmin} />;
+  return <ChatPageInner user={user} profile={profile} session={session} />;
 }
 
-function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profile: Profile; session: Session; isAdmin: boolean }) {
+function ChatPageInner({ user, profile, session }: { user: User; profile: Profile; session: Session }) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2263,6 +3031,13 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
     }
   }
 
+  const reactionIconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+    like: ThumbsUp,
+    fire: Flame,
+    laugh: Laugh,
+    heart: Heart,
+  };
+
   async function undoLastMessage() {
     if (!recentOwnMessageId) return;
     setError("");
@@ -2273,21 +3048,6 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
       setRecentOwnMessageId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to undo that message.");
-    }
-  }
-
-  async function adminDeleteMessage(messageId: string) {
-    if (!isAdmin) return;
-    if (!window.confirm("Delete this message for everyone?")) return;
-    setError("");
-    try {
-      await deleteAdminMessage(session.access_token, messageId);
-      setMessages((prev) => prev.filter((message) => message.id !== messageId));
-      if (recentOwnMessageId === messageId) {
-        setRecentOwnMessageId(null);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete that message.");
     }
   }
 
@@ -2344,12 +3104,12 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
             ) : messages.length === 0 ? (
               <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
             ) : (
-              messages.map((message) => {
+              messages.map((message, idx) => {
                 const isOwn = message.user_id === user.id;
                 const parsed = parseChatMessageContent(message.content);
                 const messageReactions = reactions[message.id] ?? [];
                 return (
-                  <div key={message.id} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                  <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: Math.min(idx * 0.03, 0.4) }} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
                     <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
                       <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
                         {message.username.slice(0, 2)}
@@ -2381,27 +3141,34 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
                           {recentOwnMessageId === message.id && isOwn && (
                             <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
                           )}
-                          {isAdmin && (
-                            <button onClick={() => void adminDeleteMessage(message.id)} style={{ background: "none", border: "none", color: "rgba(255,160,160,0.72)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>delete</button>
-                          )}
                         </div>
                         {reactionPickerId === message.id && (
                           <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
-                            {["👍", "🔥", "😂", "😮", "🖤"].map((emoji) => (
-                              <button key={emoji} onClick={() => toggleReaction(message.id, emoji)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: 0 }}>{emoji}</button>
+                            {[
+                              { icon: ThumbsUp, label: "like" },
+                              { icon: Flame, label: "fire" },
+                              { icon: Laugh, label: "laugh" },
+                              { icon: Heart, label: "heart" },
+                            ].map(({ icon: Icon, label }) => (
+                              <button key={label} onClick={() => toggleReaction(message.id, label)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: "0.2rem", color: "rgba(255,255,255,0.5)", display: "inline-flex", alignItems: "center" }}><Icon size={16} /></button>
                             ))}
                           </div>
                         )}
                         {messageReactions.length > 0 && (
                           <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                            {messageReactions.map((emoji, index) => (
-                              <span key={`${message.id}-${emoji}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", fontSize: "0.8rem" }}>{emoji}</span>
-                            ))}
+                            {messageReactions.map((reaction, index) => {
+                              const Icon = reactionIconMap[reaction] || null;
+                              return Icon ? (
+                                <span key={`${message.id}-${reaction}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", color: "rgba(255,255,255,0.5)" }}>
+                                  <Icon size={14} />
+                                </span>
+                              ) : null;
+                            })}
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })
             )}
@@ -2453,20 +3220,71 @@ function ChatPageInner({ user, profile, session, isAdmin }: { user: User; profil
 
 // ─── New tab page ─────────────────────────────────────────────────────────────
 
-function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
+function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper, searchEngine, showMs }: {
   onNavigate: (url: string) => void;
   customShortcuts: Shortcut[];
   setCustomShortcuts: (s: Shortcut[]) => void;
+  wallpaper?: string;
+  searchEngine?: string;
+  showMs?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState(""); const [newUrl, setNewUrl] = useState(""); const [newImg, setNewImg] = useState("");
+  const [ntSuggestions, setNtSuggestions] = useState<string[]>([]);
+  const [showNtSuggestions, setShowNtSuggestions] = useState(false);
+  const [ntSuggestIndex, setNtSuggestIndex] = useState(-1);
+  const ntSuggestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const ntSuggestListRef = useRef<HTMLDivElement>(null);
+  const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const HIDDEN_DEFAULTS_KEY = "unstable-hidden-defaults";
+  const [hiddenDefaultIds, setHiddenDefaultIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(HIDDEN_DEFAULTS_KEY) || "[]"); } catch { return []; }
+  });
+  const [widgetConfig, setWidgetConfig] = useState<WidgetConfig>(() => loadWidgetConfig());
+  const [showWidgetSettings, setShowWidgetSettings] = useState(false);
 
-  const all = [...DEFAULT_SHORTCUTS, ...customShortcuts];
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(ntSuggestTimer.current);
+    const q = input.trim();
+    if (q.length < 2 || q.includes(".") || q.includes("/") || q.includes(" ")) {
+      setShowNtSuggestions(false);
+      return;
+    }
+    ntSuggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/return?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const phrases = (data as { phrase: string }[]).map(d => d.phrase).filter(p => p.toLowerCase().startsWith(q.toLowerCase()));
+        setNtSuggestions(phrases);
+        setShowNtSuggestions(phrases.length > 0);
+        setNtSuggestIndex(-1);
+      } catch {}
+    }, 180);
+  }, [input]);
+
+  useEffect(() => {
+    if (ntSuggestIndex < 0 || !ntSuggestListRef.current) return;
+    const el = ntSuggestListRef.current.children[ntSuggestIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [ntSuggestIndex]);
+
+  const all = [...DEFAULT_SHORTCUTS.filter(d => !hiddenDefaultIds.includes(d.id)), ...customShortcuts];
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    const url = normalizeUrl(input); if (url) onNavigate(url);
+    const url = normalizeUrl(input, searchEngine); if (url) onNavigate(url);
   }
 
   function handleAdd(e: React.FormEvent) {
@@ -2474,29 +3292,85 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
     const name = newName.trim(), rawUrl = newUrl.trim(); if (!name || !rawUrl) return;
     const url = normalizeUrl(rawUrl);
     let domain = ""; try { domain = new URL(url).hostname; } catch { }
-    const sc: Shortcut = { id: Math.random().toString(36).slice(2), name, url, favicon: newImg.trim() || faviconUrl(domain) };
-    const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    const favicon = newImg.trim() || faviconUrl(domain);
+    if (editingShortcut) {
+      if (DEFAULT_SHORTCUTS.find(d => d.id === editingShortcut.id)) {
+        const updatedHidden = [...hiddenDefaultIds, editingShortcut.id];
+        setHiddenDefaultIds(updatedHidden); localStorage.setItem(HIDDEN_DEFAULTS_KEY, JSON.stringify(updatedHidden));
+      }
+      let updated = customShortcuts.filter(s => s.id !== editingShortcut.id);
+      updated = [...updated, { id: editingShortcut.id, name, url, favicon }];
+      setCustomShortcuts(updated); saveCustomShortcuts(updated);
+      setEditingShortcut(null);
+    } else {
+      const sc: Shortcut = { id: Math.random().toString(36).slice(2), name, url, favicon };
+      const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    }
     setAdding(false); setNewName(""); setNewUrl(""); setNewImg("");
   }
 
-  function removeCustom(id: string) {
-    const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
+  function removeShortcut(id: string) {
+    if (DEFAULT_SHORTCUTS.find(d => d.id === id)) {
+      const updated = [...hiddenDefaultIds, id];
+      setHiddenDefaultIds(updated); localStorage.setItem(HIDDEN_DEFAULTS_KEY, JSON.stringify(updated));
+    } else {
+      const updated = customShortcuts.filter(s => s.id !== id); setCustomShortcuts(updated); saveCustomShortcuts(updated);
+    }
   }
 
-  const inputSt: React.CSSProperties = { background: "#0d0d0d", border: "1px solid #222", color: "#e8e8e8", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
+  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0d0d0d", gap: "1.75rem", fontFamily: "'Space Grotesk', sans-serif" }}
+      style={{ 
+        height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: wallpaper ? `var(--t-bg) url(${wallpaper}) center/cover no-repeat` : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" 
+      }}
     >
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: "1.75rem", padding: "2.5rem 3rem",
+        background: wallpaper ? "color-mix(in srgb, var(--t-bg) 45%, transparent)" : "transparent",
+        backdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
+        WebkitBackdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
+        borderRadius: "12px", border: wallpaper ? "1px solid var(--t-border-light)" : "none",
+        boxShadow: wallpaper ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
+      }}>
+      <div style={{ position: "relative", width: "100%" }}>
+        <button onClick={() => setShowWidgetSettings(!showWidgetSettings)}
+          className="widget-btn"
+          style={{ position: "absolute", top: -8, right: -8, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)", cursor: "pointer", padding: "5px", borderRadius: "6px", opacity: 0.5, transition: "opacity 0.15s", zIndex: 10, lineHeight: 1 }}
+        ><Settings2 size={13} /></button>
+      </div>
+      <WidgetBar config={widgetConfig} showMs={showMs} />
+      {showWidgetSettings && (
+        <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "8px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
+        >
+          <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>Widgets</p>
+          {(["clock", "date", "greeting", "quote", "branding"] as WidgetType[]).map(t => (
+            <label key={t} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.68rem", color: "var(--t-text)", cursor: "pointer", padding: "0.25rem 0" }}>
+              <input type="checkbox" checked={widgetConfig.enabled.includes(t)}
+                onChange={() => {
+                  const next = toggleWidget(widgetConfig, t);
+                  setWidgetConfig(next);
+                  saveWidgetConfig(next);
+                }}
+                style={{ accentColor: "var(--t-accent)" }}
+              />
+              {t === "clock" ? "Clock" : t === "date" ? "Date" : t === "greeting" ? "Greeting" : t === "quote" ? "Quote" : "Branding"}
+            </label>
+          ))}
+        </motion.div>
+      )}
+      {widgetConfig.enabled.includes("branding") && (
       <motion.p
         initial={{ y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: 0 }}
+        style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", margin: 0 }}
       >unstable</motion.p>
+      )}
 
       <motion.form
         initial={{ scale: 0.95, opacity: 0 }}
@@ -2505,15 +3379,42 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
         onSubmit={handleSearch}
         style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
       >
-        <input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder="search or enter a url"
-          style={{ flex: 1, background: "#111", border: "1px solid #222", borderRight: "none", color: "#e8e8e8", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px 0 0 2px" }}
-          onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"}
-        />
+        <div style={{ position: "relative", flex: 1 }}>
+          <input autoFocus value={input} onChange={e => { setInput(e.target.value); setNtSuggestIndex(-1); }} placeholder="search or enter a url"
+            style={{ width: "100%", background: "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(22px) saturate(1.18)", WebkitBackdropFilter: "blur(22px) saturate(1.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.2)", transition: "border-color 0.18s ease, box-shadow 0.18s ease" } as React.CSSProperties}
+            onFocus={e => { if (ntSuggestions.length) setShowNtSuggestions(true); }}
+            onBlur={e => { setTimeout(() => setShowNtSuggestions(false), 200); }}
+            onKeyDown={e => {
+              if (!showNtSuggestions || !ntSuggestions.length) return;
+              if (e.key === "ArrowDown") { e.preventDefault(); setNtSuggestIndex(i => Math.min(i + 1, ntSuggestions.length - 1)); }
+              if (e.key === "ArrowUp") { e.preventDefault(); setNtSuggestIndex(i => Math.max(i - 1, -1)); }
+              if (e.key === "Enter" && ntSuggestIndex >= 0) {
+                e.preventDefault();
+                const s = ntSuggestions[ntSuggestIndex];
+                setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1);
+                onNavigate(searchUrl(s, searchEngine ?? "duckduckgo"));
+              }
+            }}
+          />
+          {showNtSuggestions && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+              <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
+                {ntSuggestions.map((s, i) => (
+                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
+                    style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
+                    onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
+                  >{s}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <motion.button
-          whileHover={{ background: "#fff" }}
+          whileHover={{ background: "var(--t-accent-hover)" }}
           whileTap={{ scale: 0.98 }}
           type="submit"
-          style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
+          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
         >go</motion.button>
       </motion.form>
 
@@ -2533,22 +3434,30 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
             className="sc-wrap"
           >
             <motion.button
-              whileHover={{ y: -4, background: "#161616" }}
+              whileHover={{ y: -4, background: "var(--t-bg-tertiary)" }}
               whileTap={{ scale: 0.9 }}
               onClick={() => onNavigate(sc.url)}
               title={sc.name}
               style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
             >
               <div style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <img src={sc.favicon} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
+                <img src={sc.favicon && /^(https?:)?\/\//i.test(sc.favicon) ? sc.favicon : ""} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
                   onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }}
                 />
-                <span style={{ display: "none", width: 24, height: 24, background: "#1e1e1e", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
+                <span style={{ display: "none", width: 24, height: 24, background: "var(--t-bg-tertiary)", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "var(--t-text-secondary)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
               </div>
-              <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.32)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
+              <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
             </motion.button>
-            {!DEFAULT_SHORTCUTS.find(d => d.id === sc.id) && (
-              <button onClick={() => removeCustom(sc.id)} className="sc-remove" style={{ position: "absolute", top: 2, right: 2, background: "#1a1a1a", border: "none", color: "rgba(255,255,255,0.4)", borderRadius: "50%", width: 14, height: 14, fontSize: 9, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center" }}>×</button>
+            <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "4px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
+            {menuOpenId === sc.id && (
+              <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "4px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
+                <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Edit</button>
+                <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Delete</button>
+              </div>
             )}
           </motion.div>
         ))}
@@ -2557,14 +3466,14 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.3 + all.length * 0.05 }}
-            whileHover={{ scale: 1.1, background: "#161616" }}
+            whileHover={{ scale: 1.1, background: "var(--t-bg-tertiary)" }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setAdding(true)}
             title="Add shortcut"
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
           >
-            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "rgba(255,255,255,0.2)" }}>+</div>
-            <span style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.18)", letterSpacing: "0.03em" }}>add</span>
+            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed var(--t-border-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "var(--t-text-muted)" }}>+</div>
+            <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em" }}>add</span>
           </motion.button>
         )}
       </motion.div>
@@ -2576,58 +3485,336 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts }: {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
             onSubmit={handleAdd}
-            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "#111", border: "1px solid #222", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
+            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
           >
-            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>new shortcut</p>
-            <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
-            <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
-            <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "#444"} onBlur={e => e.target.style.borderColor = "#222"} />
+            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>{editingShortcut ? "edit shortcut" : "new shortcut"}</p>
+            <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
+            <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
+            <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>add</motion.button>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "rgba(255,255,255,0.3)", border: "1px solid #222", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>{editingShortcut ? "save" : "add"}</motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setEditingShortcut(null); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "var(--t-text-muted)", border: "1px solid var(--t-border-light)", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
             </div>
           </motion.form>
         )}
       </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} style={{ display: "flex", gap: "1.5rem" }}>
-        {[["credits", "unstable://credits"], ["tos", "unstable://tos"], ["privacy", "unstable://privacy"]].map(([label, url]) => (
-          <motion.button
-            whileHover={{ color: "rgba(255,255,255,0.7)" }}
-            key={label}
-            onClick={() => onNavigate(url)}
-            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: 0, transition: "color 0.15s" }}
-          >{label}</motion.button>
-        ))}
-      </motion.div>
+      <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)} .widget-btn:hover{opacity:1!important}`}</style>
+      </div>
+    </motion.div>
+  );
+}
 
-      <style>{`.sc-wrap:hover .sc-remove{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)}`}</style>
+function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean }) {
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [greeting, setGreeting] = useState("");
+  useEffect(() => {
+    setGreeting(getGreeting());
+    setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  }, []);
+  if (!config.enabled.length) return null;
+  return (
+    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", marginBottom: "0.5rem" }}>
+      {config.enabled.includes("clock") && (
+        <ClockWidget showMs={showMs} />
+      )}
+      {config.enabled.includes("date") && (
+        <p style={{ margin: 0, fontSize: "0.7rem", color: "var(--t-text-muted)", letterSpacing: "0.02em" }}>
+          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+        </p>
+      )}
+      {config.enabled.includes("greeting") && (
+        <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--t-text-secondary)", letterSpacing: "0.02em" }}>{greeting}</p>
+      )}
+      {config.enabled.includes("quote") && quote && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
+          <p style={{ margin: "0.1rem 0 0", fontSize: "0.6rem", color: "var(--t-text-muted)", fontStyle: "italic", maxWidth: 400, textAlign: "center", letterSpacing: "0.01em", lineHeight: 1.4 }}>"{quote.text}"</p>
+          <p style={{ margin: 0, fontSize: "0.55rem", color: "var(--t-text-muted)", opacity: 0.7, textAlign: "center", letterSpacing: "0.02em" }}>— {quote.author}</p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function ClockWidget({ showMs }: { showMs?: boolean }) {
+  const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  const [ms, setMs] = useState(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function tick() {
+      const now = new Date();
+      setTime(now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      setMs(now.getMilliseconds());
+      timer = setTimeout(tick, 1000 - now.getMilliseconds());
+    }
+    const delay = 1000 - Date.now() % 1000;
+    timer = setTimeout(tick, delay);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <motion.p initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+      style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1, display: "flex", alignItems: "baseline", gap: "0.05rem" }}
+    >{time}{showMs && <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums" }}>{String(ms).padStart(3, "0")}</span>}</motion.p>
+  );
+}
+
+const ENTRY_BTN: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: "0.65rem", cursor: "pointer",
+  padding: "0.55rem 0.75rem", borderRadius: "8px", border: "none",
+  background: "transparent", color: "var(--t-text)", fontFamily: "'Space Grotesk', sans-serif",
+  textAlign: "left", width: "100%", transition: "background 0.12s",
+};
+
+function HistoryPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<Awaited<ReturnType<typeof getHistory>>>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = search.trim() ? await searchHistory(search) : await getHistory(200);
+    setEntries(data);
+    setLoading(false);
+  }, [search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, typeof entries> = {};
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+    for (const e of entries) {
+      const d = new Date(e.visitedAt);
+      const key = d >= today ? "Today" : d >= yesterday ? "Yesterday" : d >= weekAgo ? "This Week" : "Older";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(e);
+    }
+    return groups;
+  }, [entries]);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <HistoryIcon size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>History</h2>
+        <input placeholder="search history..." value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.35rem 0.65rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "6px", width: 200 }}
+        />
+        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+          onClick={async () => { await clearHistory(); load(); }}
+          style={{ background: "none", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,120,120,0.8)", padding: "0.35rem 0.7rem", borderRadius: "6px", fontSize: "0.6rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.3rem" }}
+        ><Trash2 size={12} /> Clear</motion.button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {loading ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>Loading…</p>
+        ) : entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>{search ? "No results" : "No history yet"}</p>
+        ) : (
+          Object.entries(grouped).map(([label, items]) => (
+            <div key={label} style={{ marginBottom: "1rem" }}>
+              <p style={{ margin: "0 0 0.35rem 0.2rem", fontSize: "0.58rem", color: "var(--t-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                {items.map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+                    onMouseEnter={e2 => { const t = e2.currentTarget.querySelector(".hist-del") as HTMLElement; if (t) t.style.opacity = "1"; }}
+                    onMouseLeave={e2 => { const t = e2.currentTarget.querySelector(".hist-del") as HTMLElement; if (t) t.style.opacity = "0"; }}
+                  >
+                    <button onClick={() => onNavigate(e.url)} style={ENTRY_BTN}
+                      onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-secondary)"}
+                      onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                    >
+                      {e.favicon ? <img src={e.favicon} alt="" width={16} height={16} style={{ borderRadius: 3, flexShrink: 0 }} onError={e2 => { (e2.target as HTMLImageElement).style.display = "none"; }} /> : <Globe size={14} style={{ flexShrink: 0, color: "var(--t-text-muted)" }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</p>
+                        <p style={{ margin: "0.05rem 0 0", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.url}</p>
+                      </div>
+                      <span style={{ fontSize: "0.52rem", color: "var(--t-text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{new Date(e.visitedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>
+                    </button>
+                    <button onClick={async () => { await deleteHistoryEntry(e.id); load(); }}
+                      className="hist-del"
+                      style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                      onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-secondary)"}
+                      onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                    ><X size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function BookmarksPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<Awaited<ReturnType<typeof getBookmarks>>>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = search.trim() ? await searchBookmarks(search) : await getBookmarks();
+    setEntries(data);
+    setLoading(false);
+  }, [search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <Bookmark size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>Bookmarks</h2>
+        <input placeholder="search bookmarks..." value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.35rem 0.65rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "6px", width: 200 }}
+        />
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {loading ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>Loading…</p>
+        ) : entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>{search ? "No results" : "No bookmarks yet"}</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem" }}>
+            {entries.map(e => (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.75rem", borderRadius: "8px", border: "1px solid var(--t-border-light)", background: "var(--t-bg-secondary)", position: "relative" }}
+                onMouseEnter={e2 => { const t = e2.currentTarget.querySelector(".bm-del") as HTMLElement; if (t) t.style.opacity = "1"; }}
+                onMouseLeave={e2 => { const t = e2.currentTarget.querySelector(".bm-del") as HTMLElement; if (t) t.style.opacity = "0"; }}
+              >
+                <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => onNavigate(e.url)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                    {e.favicon ? <img src={e.favicon} alt="" width={18} height={18} style={{ borderRadius: 4, flexShrink: 0 }} onError={e2 => { (e2.target as HTMLImageElement).style.display = "none"; }} /> : <Bookmark size={14} style={{ flexShrink: 0, color: "var(--t-accent)" }} />}
+                    <p style={{ margin: 0, fontSize: "0.72rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</p>
+                  </div>
+                  <p style={{ margin: "0.1rem 0 0 1.55rem", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.url}</p>
+                </div>
+                <button onClick={async () => { await removeBookmark(e.id); load(); }}
+                  className="bm-del"
+                  style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                  onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-hover)"}
+                  onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
+                ><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [entries, setEntries] = useState<DownloadEntry[]>(() => getDownloads());
+
+  const refresh = useCallback(() => setEntries(getDownloads()), []);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
+        <Download size={16} />
+        <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>Downloads</h2>
+        {entries.length > 0 && (
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={() => { clearDownloads(); refresh(); }}
+            style={{ background: "none", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,120,120,0.8)", padding: "0.35rem 0.7rem", borderRadius: "6px", fontSize: "0.6rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.3rem" }}
+          ><Trash2 size={12} /> Clear</motion.button>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
+        {entries.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>No downloads yet</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            {entries.map(d => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.75rem", borderRadius: "8px", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--t-bg-tertiary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Download size={14} style={{ color: d.state === "complete" ? "var(--t-accent)" : "var(--t-text-muted)" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</p>
+                  <p style={{ margin: "0.05rem 0 0", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {d.state === "complete" ? `${(d.totalBytes / 1024 / 1024).toFixed(1)} MB` : d.state === "error" ? "Failed" : "Downloading…"}
+                    {" · "}{new Date(d.startedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "0.25rem" }}>
+                  {d.state === "complete" && (
+                    <button onClick={() => onNavigate(d.url)}
+                      style={{ background: "var(--t-bg-tertiary)", border: "none", color: "var(--t-text-secondary)", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                    ><ExternalLink size={12} /></button>
+                  )}
+                  <button onClick={() => { removeDownload(d.id); refresh(); }}
+                    style={{ background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "5px", borderRadius: "6px" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  ><X size={12} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }
 
 // ─── Browser tab ──────────────────────────────────────────────────────────────
 
-function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void }) {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit }: {
+  tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void;
+}) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
+  const ctxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
-    <div onClick={onActivate} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s" }}
+    <motion.div layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12, width: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {tab.loading ? <div style={{ width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.3)", animation: "pulse 1s ease-in-out infinite" }} />
+        {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
           : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
-            : <div style={{ width: 10, height: 10, borderRadius: "2px", background: "#2a2a2a" }} />
+            : <Globe size={14} strokeWidth={1.5} style={{ opacity: 0.35 }} />
         }
       </div>
-      <span style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>
-      <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+      <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
+      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
-      >×</button>
-    </div>
+      >×</motion.button>
+      <AnimatePresence>
+        {ctxOpen && (
+          <motion.div ref={ctxRef} initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            style={{ position: "fixed", top: ctxPos.y, left: ctxPos.x, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tab</motion.button>
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Refresh tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Duplicate tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onSplit?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Split view</motion.button>}
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tabs to right</motion.button>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close other tabs</motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
@@ -2635,25 +3822,44 @@ function BrowserTab({ tab, isActive, onActivate, onClose }: { tab: Tab; isActive
 
 function CollapsedSidebar({
   activeUrl,
-  isAdmin,
   onNavigate,
+  canReturnToBrowse,
+  tabs,
+  activeTabId,
+  onTabActivate,
+  onTabClose,
+  onNewTab,
+  verticalTabs,
 }: {
   activeUrl: string;
-  isAdmin: boolean;
   onNavigate: (url: string) => void;
+  canReturnToBrowse?: boolean;
+  tabs?: Tab[];
+  activeTabId?: string;
+  onTabActivate?: (id: string) => void;
+  onTabClose?: (id: string) => void;
+  onNewTab?: () => void;
+  verticalTabs?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const sidebarW = 56;
+
+  useEffect(() => { setExpanded(false); }, [verticalTabs]);
+
   const items: Array<{
     label: string;
     url: string;
     icon: ComponentType<{ size?: number; className?: string }>;
     hidden?: boolean;
   }> = [
-    { label: "Home", url: "unstable://newtab", icon: House },
+    { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
     { label: "Games", url: "unstable://games", icon: Gamepad },
+    { label: "History", url: "unstable://history", icon: HistoryIcon },
+    { label: "Bookmarks", url: "unstable://bookmarks", icon: Bookmark },
+    { label: "Downloads", url: "unstable://downloads", icon: Download },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
     { label: "Settings", url: "unstable://settings", icon: Settings },
-    { label: "Admin", url: "unstable://admin", icon: Shield, hidden: !isAdmin },
   ];
 
   const currentPage = activeUrl.startsWith("unstable://") ? activeUrl : "";
@@ -2667,140 +3873,265 @@ function CollapsedSidebar({
   const settings = items.find(i => i.url === "unstable://settings");
   const middle = items.filter(i => i.url !== "unstable://games" && i.url !== "unstable://settings");
 
-  const buttonBase: React.CSSProperties = {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+  const iconBtn: React.CSSProperties = {
+    width: 38, height: 38, borderRadius: 12,
+    display: "flex", alignItems: "center", justifyContent: "center",
     border: "1px solid transparent",
-    background: "none",
-    color: "rgba(255,255,255,0.28)",
-    cursor: "pointer",
-    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+    background: "none", color: "rgba(255,255,255,0.28)",
+    cursor: "pointer", transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  };
+
+  const linkBtn: React.CSSProperties = {
+    ...iconBtn,
+    width: "auto", height: "auto", padding: "0.5rem 0.7rem", gap: "0.55rem", borderRadius: 10,
+    justifyContent: "flex-start", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+    color: "rgba(255,255,255,0.5)", letterSpacing: "0.01em",
+  };
+
+  const tabLinkBtn: React.CSSProperties = {
+    ...iconBtn,
+    width: "auto", height: "auto", padding: "0.4rem 0.5rem", gap: "0.4rem", borderRadius: 8,
+    justifyContent: "flex-start", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
+    color: "rgba(255,255,255,0.45)", letterSpacing: "0.01em",
   };
 
   return (
-    <div
+    <motion.div
+      animate={{ width: sidebarW }}
+      transition={{ type: "spring", stiffness: 300, damping: 28 }}
       style={{
-        width: 56,
         flexShrink: 0,
         background: "#080808",
         borderRight: "1px solid #1a1a1a",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
         padding: "0.65rem 0",
-        gap: "0.55rem",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
-        {games && !games.hidden && (() => {
+      {/* TOP: Games (only when horizontal) */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
+        {!verticalTabs && games && !games.hidden && (() => {
           const active = isActive(games.url);
           const Icon = games.icon;
+          const s = expanded ? linkBtn : iconBtn;
           return (
             <motion.button
               key={games.url}
               whileTap={{ scale: 0.96 }}
               onClick={() => onNavigate(games.url)}
-              title={games.label}
+              data-tooltip={games.label} aria-label={games.label}
               style={{
-                ...buttonBase,
+                ...s,
                 background: active ? "#101010" : "none",
                 borderColor: active ? "#1f1f1f" : "transparent",
                 color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
             >
               <Icon size={18} />
+              {expanded && games.label}
             </motion.button>
           );
         })()}
       </div>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
-        {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
-          const active = isActive(url);
+      {/* MIDDLE: tabs (if verticalTabs) + Home, AI, Chat */}
+      {verticalTabs && tabs && onTabActivate && onTabClose && onNewTab ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", gap: "0.15rem", alignItems: expanded ? "stretch" : "center" }}>
+          {/* Tab list */}
+          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", width: "100%", display: "flex", flexDirection: "column", alignItems: expanded ? "stretch" : "center", padding: expanded ? "0 0.4rem" : 0 }}>
+            {tabs.map(tab => {
+              const active = tab.id === activeTabId;
+              const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
+              const label = rawLabel.length > 14 ? rawLabel.slice(0, 14) + "…" : rawLabel;
+              const s = expanded ? tabLinkBtn : iconBtn;
+              return (
+                <motion.div
+                  key={tab.id}
+                  layout
+                  onClick={() => onTabActivate(tab.id)}
+                  onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onTabClose(tab.id); } }}
+                  style={{
+                    ...s,
+                    marginBottom: "0.15rem",
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { const el = e.currentTarget; if (!active) { el.style.background = "#0f0f0f"; el.style.color = "rgba(255,255,255,0.55)"; el.style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { const el = e.currentTarget; el.style.background = active ? "#101010" : "none"; el.style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; el.style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <div style={{ width: 18, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {tab.loading
+                      ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
+                      : tab.favicon ? <img src={tab.favicon} alt="" width={18} height={18} style={{ borderRadius: "4px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+                    }
+                  </div>
+                  {expanded && (
+                    <>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onTabClose(tab.id); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 12, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+                        onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
+                        onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
+                      >×</motion.button>
+                    </>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+          {/* + New Tab */}
+          <div style={{ display: "flex", padding: expanded ? "0 0.4rem" : 0 }}>
+            <motion.button whileTap={{ scale: 0.96 }} onClick={onNewTab} style={{
+              ...(expanded ? { ...linkBtn, justifyContent: "center", padding: "0.35rem 0.5rem", fontSize: "0.6rem" } : iconBtn),
+              border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.25)" as const,
+              width: expanded ? "100%" : 38, height: 38, flex: expanded ? 1 : undefined,
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.5)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#2a2a2a"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.25)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)"; }}
+            >
+              {expanded ? "+ New Tab" : "+"}
+            </motion.button>
+          </div>
+          {/* Middle nav items (Home, AI, Chat) */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: expanded ? "stretch" : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0 }}>
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+              const active = isActive(url);
+              const s = expanded ? linkBtn : iconBtn;
+              return (
+                <motion.button
+                  key={url}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => onNavigate(url)}
+                  data-tooltip={label} aria-label={label}
+                  style={{
+                    ...s,
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <Icon size={18} />
+                  {expanded && label}
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+              const active = isActive(url);
+              return (
+                <motion.button
+                  key={url}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => onNavigate(url)}
+                  data-tooltip={label} aria-label={label}
+                  style={{
+                    ...iconBtn,
+                    background: active ? "#101010" : "none",
+                    borderColor: active ? "#1f1f1f" : "transparent",
+                    color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                  }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                >
+                  <Icon size={18} />
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* BOTTOM: Games (if vertical), GitHub, Discord, Settings */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {verticalTabs && games && !games.hidden && (() => {
+          const active = isActive(games.url);
+          const Icon = games.icon;
+          const s = iconBtn;
           return (
             <motion.button
-              key={url}
+              key={games.url}
               whileTap={{ scale: 0.96 }}
-              onClick={() => onNavigate(url)}
-              title={label}
+              onClick={() => onNavigate(games.url)}
+              data-tooltip={games.label} aria-label={games.label}
               style={{
-                ...buttonBase,
+                ...s,
                 background: active ? "#101010" : "none",
                 borderColor: active ? "#1f1f1f" : "transparent",
                 color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
             >
               <Icon size={18} />
             </motion.button>
           );
-        })}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        })()}
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
+          data-tooltip="GitHub" aria-label="GitHub"
+          style={{
+            ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "#fff" as const; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+          </svg>
+          {expanded && "GitHub"}
+        </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={() => window.open("https://discord.gg/yD9NkcsKcw", "_blank")}
+          data-tooltip="Discord" aria-label="Discord"
+          style={{
+            ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "#5865F2" as const; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "transparent"; }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0741.0741 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z"/>
+          </svg>
+          {expanded && "Discord"}
+        </motion.button>
         {settings && !settings.hidden && (() => {
           const active = isActive(settings.url);
           const Icon = settings.icon;
+          const s = expanded ? linkBtn : iconBtn;
           return (
             <motion.button
               key={settings.url}
               whileTap={{ scale: 0.96 }}
               onClick={() => onNavigate(settings.url)}
-              title={settings.label}
+              data-tooltip={settings.label} aria-label={settings.label}
               style={{
-                ...buttonBase,
+                ...s,
                 background: active ? "#101010" : "none",
                 borderColor: active ? "#1f1f1f" : "transparent",
                 color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f";
-                  (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b";
-                }
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none";
-                (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)";
-                (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent";
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
             >
               <Icon size={18} />
+              {expanded && settings.label}
             </motion.button>
           );
         })()}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2819,25 +4150,293 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
+  const pathname = window.location.pathname;
+  const isProxyPath = pathname.startsWith("/ham/") || pathname.startsWith("/service/") || pathname.startsWith("/baremux/") || pathname.startsWith("/api/") || pathname.startsWith("/return");
+  if (pathname !== "/" && !isProxyPath) {
+    return <NotFound />;
+  }
   const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
+  const [bookmarked, setBookmarked] = useState(false);
+  const [adblockCount, setAdblockCount] = useState(0);
+  const [splitTabId, setSplitTabId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
+  const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
+  const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
+  const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
+  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {} });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestIndex, setSuggestIndex] = useState(-1);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const suggestListRef = useRef<HTMLDivElement>(null);
+  const [urlEngineOpen, setUrlEngineOpen] = useState(false);
+  const urlEngineRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const tooltipTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (urlEngineRef.current && !urlEngineRef.current.contains(e.target as Node)) setUrlEngineOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
   const isNewtab = !activeTab?.url;
 
+  // Loading progress bar state
+  const loadProgress = useMotionValue(0);
+  const loadProgressSpring = useSpring(loadProgress, { stiffness: 60, damping: 20, mass: 0.6 });
+  const loadBarScaleX = useTransform(loadProgressSpring, [0, 100], [0, 1]);
+  const [loadBarVisible, setLoadBarVisible] = useState(false);
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    if (activeTab?.loading) {
+      setLoadBarVisible(true);
+      loadProgress.set(0);
+      // Animate to 80% quickly then slow down, simulating real progress
+      loadProgress.set(80);
+    } else {
+      // Complete to 100% then hide
+      loadProgress.set(100);
+      loadTimerRef.current = setTimeout(() => {
+        setLoadBarVisible(false);
+        loadProgress.set(0);
+      }, 400);
+    }
+    return () => { if (loadTimerRef.current) clearTimeout(loadTimerRef.current); };
+  }, [activeTab?.loading, activeTabId]);
+  const proxyStatus = useProxyStatus();
+  const { setError } = useErrorHandler();
+  const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
+  const [gameModeToast, setGameModeToast] = useState(false);
+  const lastGameToastHost = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!gameModeActive) {
+      lastGameToastHost.current = null;
+      return;
+    }
+    const host = hostnameFromTabUrl(activeTab!.url);
+    if (!host || lastGameToastHost.current === host) return;
+    lastGameToastHost.current = host;
+    setGameModeToast(true);
+    const timer = window.setTimeout(() => setGameModeToast(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [gameModeActive, activeTab?.url]);
+
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (e.data?.type === "unstable-permission-request") {
+        pendingPermResolve.current = (allowed: boolean) => {
+          const iframe = iframeRefs.current[activeTabId];
+          if (iframe?.contentWindow) {
+            iframe.contentWindow.postMessage({ type: "unstable-permission-response", id: e.data.id, allowed }, "*");
+          }
+        };
+        setPendingPerm({ id: e.data.id, permission: e.data.permission, origin: e.data.origin });
+        return;
+      }
+      if (e.data?.type === "unstable-navigate") {
+        if (e.data?.action === "newtab") {
+          navRefs.current.handleNewTab();
+        } else if (e.data?.action === "navigate" && e.data?.page) {
+          const page = e.data.page;
+          if (page.startsWith("http://") || page.startsWith("https://")) {
+            try { if (new URL(page).origin === location.origin) return; } catch {}
+            navRefs.current.handleNavigate(page);
+          } else {
+            navRefs.current.handleNavigate("unstable://" + page);
+          }
+        }
+        return;
+      }
+      if (e.data?.type === "unstable-download" && e.data?.url) {
+        const url = e.data.url;
+        const filename = e.data.filename || "download";
+        fetch(url).then(r => r.blob()).then(blob => {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+          addDownload(filename, url, blob.size, blob.type);
+        }).catch(() => {});
+        return;
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [activeTabId]);
+
+  useEffect(() => {
+    if (!gameModeActive || proxyStatus.phase !== "ready") return;
+    const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
+    if (proxyStatus.transport !== "bare") {
+      void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
+    }
+  }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
+
+
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
+  }, [settings.panicUrl]);
+  useEffect(() => {
+    const t = THEMES[settings.theme]?.colors ?? THEMES.dark.colors;
+    const wpUrl = THEMES[settings.theme]?.wallpaper ?? settings.wallpaper;
+    const props = Object.entries(t).map(([k, v]) => `--t-${k.replace(/([A-Z])/g, "-$1").toLowerCase()}: ${v}`).join(";");
+    const wp = wpUrl ? `--t-wallpaper: url("${wpUrl.replace(/[\\"()\x00-\x1f]/g, "")}")` : "--t-wallpaper: none";
+    let el = document.getElementById("unstable-theme");
+    if (!el) { el = document.createElement("style"); el.id = "unstable-theme"; document.head.appendChild(el); }
+    el.textContent = `:root{${props};${wp}}`;
+  }, [settings.theme, settings.wallpaper]);
+
+  // Global dark scrollbar style
+  useEffect(() => {
+    let el = document.getElementById("unstable-scrollbar-style");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "unstable-scrollbar-style";
+      document.head.appendChild(el);
+    }
+    el.textContent = `::-webkit-scrollbar { width: 6px; height: 6px; }::-webkit-scrollbar-track { background: #111; }::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }::-webkit-scrollbar-thumb:hover { background: #555; }* { scrollbar-width: thin; scrollbar-color: #333 #111; }`;
+  }, []);
+
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode);
-  }, [settings.transportMode]);
+    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption).catch(err => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Proxy setup error:', message);
+    });
+  }, [settings.transportMode, settings.wispServer, settings.codec, settings.proxyEngine]);
+
+  // Watch proxy phase for errors -> show our error screen
+  useEffect(() => {
+    if (proxyStatus.phase === "error") {
+      void setError(new Error(proxyStatus.message || "Proxy connection failed"), "/proxy");
+    }
+  }, [proxyStatus.phase, proxyStatus.message, setError]);
+
+  // Font obfuscation toggle
+  useEffect(() => {
+    document.documentElement.classList.toggle("unstable-font-obfuscated", settings.fontObfuscation);
+  }, [settings.fontObfuscation]);
+
+  // Sync search engine to Mue iframes
+  useEffect(() => {
+    const searchUrl = SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=";
+    for (const iframe of Object.values(iframeRefs.current)) {
+      try {
+        iframe.contentWindow?.postMessage({ type: "set-search-engine", searchUrl }, "*");
+      } catch {}
+    }
+  }, [settings.searchEngine]);
+
+  useEffect(() => {
+    if (settings.magicCursorEnabled) return;
+    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+    for (const iframe of Object.values(iframeRefs.current)) {
+      try {
+        iframe.contentDocument?.getElementById("unstable-cursor-style")?.remove();
+      } catch {}
+    }
+  }, [settings.magicCursorEnabled]);
+
+  useEffect(() => {
+    function onOver(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest("[data-tooltip]") as HTMLElement | null;
+      if (target) {
+        const rect = target.getBoundingClientRect();
+        setTooltip({ text: target.getAttribute("data-tooltip") || "", x: rect.left + rect.width / 2, y: rect.top - 8 });
+        if (tooltipTimer.current !== null) { clearTimeout(tooltipTimer.current); tooltipTimer.current = null; }
+      } else {
+        tooltipTimer.current = window.setTimeout(() => setTooltip(null), 80);
+      }
+    }
+    document.addEventListener("mouseover", onOver);
+    return () => { document.removeEventListener("mouseover", onOver); if (tooltipTimer.current !== null) clearTimeout(tooltipTimer.current); };
+  }, []);
+
+  // Transport encryption toggle (sync to SWs)
+  useEffect(() => {
+    const msg = (type: string, data: any) => {
+      if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type, data });
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) {
+          if (reg.active && reg.active.scriptURL !== navigator.serviceWorker.controller?.scriptURL) {
+            reg.active.postMessage({ type, data });
+          }
+        }
+      });
+    };
+    msg("ENIGMA", { enabled: settings.transportEncryption, key: "Unstabl" });
+  }, [settings.transportEncryption]);
+
+  // Sync adblock + codec state to service workers
+  useEffect(() => {
+    const msg = (type: string, data: any) => {
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type, data });
+      }
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) {
+          if (reg.active && reg.active.scriptURL !== navigator.serviceWorker.controller?.scriptURL) {
+            reg.active.postMessage({ type, data });
+          }
+        }
+      });
+    };
+    msg("ADBLOCK", { enabled: settings.adblockEnabled });
+    msg("CODEC", { type: settings.codec });
+  }, [settings.adblockEnabled, settings.codec]);
+
+  // Poll adblock count from service worker
+  useEffect(() => {
+    if (!settings.adblockEnabled) { setAdblockCount(0); return; }
+    let cancelled = false;
+    async function poll() {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) {
+          if (reg.active) {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (e) => {
+              if (!cancelled && typeof e.data?.count === "number") setAdblockCount(e.data.count);
+            };
+            reg.active.postMessage({ type: "GET_ADBLOCK_COUNT" }, [channel.port2]);
+          }
+        }
+      } catch {}
+    }
+    const id = setInterval(poll, 3000);
+    poll();
+    return () => { cancelled = true; clearInterval(id); };
+  }, [settings.adblockEnabled]);
+
+  // Confirm leave toggle
+  useEffect(() => {
+    if (settings.confirmLeave) {
+      const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }
+    return;
+  }, [settings.confirmLeave]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -2845,13 +4444,50 @@ function BrowserApp({
     setUrlInput(display);
   }, [activeTabId, activeTab?.url]);
 
+  useEffect(() => {
+    if (!activeTab?.url || activeTab.url.startsWith("unstable://")) {
+      setBookmarked(false);
+      return;
+    }
+    const url = decodeProxyUrl(activeTab.url);
+    isBookmarked(url).then(setBookmarked);
+  }, [activeTabId, activeTab?.url]);
+
+  useEffect(() => {
+    clearTimeout(suggestTimer.current);
+    const q = urlInput.trim();
+    if (q.length < 2 || q.includes(".") || q.includes("/") || q.includes(" ")) {
+      setShowSuggestions(false);
+      return;
+    }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/return?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const phrases = (data as { phrase: string }[]).map(d => d.phrase).filter(p => p.toLowerCase().startsWith(q.toLowerCase()));
+        setSearchSuggestions(phrases);
+        setShowSuggestions(phrases.length > 0);
+        setSuggestIndex(-1);
+      } catch {}
+    }, 180);
+  }, [urlInput]);
+
+  useEffect(() => {
+    if (suggestIndex < 0 || !suggestListRef.current) return;
+    const el = suggestListRef.current.children[suggestIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [suggestIndex]);
+
   const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts });
   useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts }; });
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      if (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "range", "color"].includes(el.type)) return;
+      if (el instanceof HTMLTextAreaElement) return;
+      if ((el as HTMLElement)?.isContentEditable) return;
       const combo = buildCombo(e);
       if (!combo) return;
       const { tabs, activeTabId, settings, customShortcuts } = stateRef.current;
@@ -2892,26 +4528,83 @@ function BrowserApp({
     const t = url.trim();
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
-      if (page === "newtab") { updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false }); return; }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "admin", "games"].includes(page)) {
-        if (page === "admin" && !authContext.isAdmin) {
-          updateTab(tabId, { url: "unstable://settings", title: "Settings", favicon: "", loading: false });
+      if (page === "newtab") {
+        const tab = tabs.find(tb => tb.id === tabId);
+        if (tab?.url.startsWith("unstable://") && tab.lastProxyUrl) {
+          const restored = tab.lastProxyUrl;
+          let title = "Loading…";
+          let favicon = "";
+          try {
+            const d = new URL(decodeProxyUrl(restored)).hostname;
+            title = d;
+            favicon = faviconUrl(d);
+          } catch { /* ignore */ }
+          setTabs(prev => prev.map(tb => {
+            if (tb.id !== tabId) return tb;
+            const hist = [...tb.history.slice(0, tb.historyIndex + 1), restored];
+            return {
+              ...tb,
+              url: restored,
+              title,
+              favicon,
+              history: hist,
+              historyIndex: hist.length - 1,
+              loading: true,
+            };
+          }));
           return;
         }
+        updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
+        return;
+      }
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads"].includes(page)) {
         const title = page.charAt(0).toUpperCase() + page.slice(1);
-        updateTab(tabId, { url: t, title, favicon: "", loading: false });
-        setTabs(prev => prev.map(tab => { if (tab.id !== tabId) return tab; const hist = [...tab.history.slice(0, tab.historyIndex + 1), t]; return { ...tab, url: t, title, favicon: "", loading: false, history: hist, historyIndex: hist.length - 1 }; }));
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== tabId) return tab;
+          const lastProxyUrl =
+            tab.url && !tab.url.startsWith("unstable://") ? tab.url : tab.lastProxyUrl;
+          const hist = [...tab.history.slice(0, tab.historyIndex + 1), t];
+          return {
+            ...tab,
+            url: t,
+            title,
+            favicon: "",
+            loading: false,
+            lastProxyUrl,
+            history: hist,
+            historyIndex: hist.length - 1,
+          };
+        }));
         return;
       }
     }
-    const normalized = normalizeUrl(t);
+    const normalized = normalizeUrl(t, settings.searchEngine);
     if (!normalized) return;
-    const proxyUrl = encodeProxyUrl(normalized, settings.proxyEngine);
-    let domain = ""; try { domain = new URL(normalized).hostname; } catch { }
+    let domain = "";
+    try {
+      domain = new URL(normalized).hostname.replace(/^www\./i, "").toLowerCase();
+    } catch { /* ignore */ }
+    const engine = isGameModeHost(domain, settings) ? "scramjet" : settings.proxyEngine;
+    let proxyUrl: string;
+    try {
+      proxyUrl = encodeProxyUrl(normalized, engine, settings);
+    } catch {
+      updateTab(tabId, { loading: false });
+      return;
+    }
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
-      return { ...tab, url: proxyUrl, title: domain || "Loading…", favicon: domain ? faviconUrl(domain) : "", history: hist, historyIndex: hist.length - 1, loading: true };
+      return {
+        ...tab,
+        url: proxyUrl,
+        title: domain || "Loading…",
+        favicon: domain ? faviconUrl(domain) : "",
+        history: hist,
+        historyIndex: hist.length - 1,
+        loading: true,
+        lastProxyUrl: proxyUrl,
+      };
     }));
   }
 
@@ -2933,17 +4626,120 @@ function BrowserApp({
     setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
   function handleNewTab() { const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
+  navRefs.current = { handleNavigate, handleNewTab };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
     const idx = tabs.findIndex(t => t.id === id);
     const next = tabs.filter(t => t.id !== id); setTabs(next);
     if (activeTabId === id) setActiveTabId(next[Math.min(idx, next.length - 1)].id);
   }
+  function handleRefreshTab(id: string) {
+    const iframe = iframeRefs.current[id];
+    if (!iframe) return;
+    const src = iframe.src; iframe.src = "";
+    setTimeout(() => { iframe.src = src; setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: true } : t)); }, 50);
+  }
+  function handleDuplicateTab(id: string) {
+    const tab = tabs.find(t => t.id === id);
+    if (!tab) return;
+    const newTab = makeTab(tab.url);
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }
+  function handleCloseTabsToRight(id: string) {
+    const idx = tabs.findIndex(t => t.id === id);
+    const keep = tabs.slice(0, idx + 1);
+    setTabs(keep);
+    if (!keep.find(t => t.id === activeTabId)) setActiveTabId(keep[keep.length - 1].id);
+  }
+  function handleCloseOtherTabs(id: string) {
+    setTabs(tabs.filter(t => t.id === id));
+  }
   function handleOpenInNewTab() {
     if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
     const win = window.open("about:blank", "_blank"); if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Unstable</title><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#0d0d0d}iframe{width:100%;height:100%;border:none;display:block}</style></head><body><iframe src="${activeTab.url}" allowfullscreen allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *"></iframe></body></html>`);
-    win.document.close();
+    const doc = win.document;
+    doc.title = "Unstable";
+
+    const html = doc.documentElement;
+    const body = doc.body || doc.createElement("body");
+    html.style.margin = "0";
+    html.style.padding = "0";
+    html.style.width = "100%";
+    html.style.height = "100%";
+    html.style.background = "#0d0d0d";
+    body.style.margin = "0";
+    body.style.padding = "0";
+    body.style.width = "100%";
+    body.style.height = "100%";
+    body.style.background = "#0d0d0d";
+
+    const iframe = doc.createElement("iframe");
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.style.display = "block";
+    iframe.src = activeTab.url;
+    iframe.setAttribute("allowfullscreen", "");
+    iframe.setAttribute("allow", "fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *");
+
+    body.replaceChildren(iframe);
+    if (!doc.body) html.appendChild(body);
+  }
+
+  function toggleDevTools() {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    const win = iframe.contentWindow;
+    if (!win) return;
+    const id = activeTabId;
+    const isOpen = !!devToolsOpen[id];
+
+    if (isOpen) {
+      try { (win as any).eruda.hide(); } catch {}
+      (win as any).__UNSTABLE_DEVTOOLS__ = false;
+      setDevToolsOpen(prev => ({ ...prev, [id]: false }));
+      return;
+    }
+
+    if ((win as any).eruda) {
+      try { (win as any).eruda.show(); } catch {}
+      (win as any).__UNSTABLE_DEVTOOLS__ = true;
+      setDevToolsOpen(prev => ({ ...prev, [id]: true }));
+      return;
+    }
+
+    fetch("https://cdn.jsdelivr.net/npm/eruda")
+      .then(r => r.text())
+      .then(code => {
+        const s = doc.createElement("script");
+        s.textContent = code;
+        doc.head.appendChild(s);
+        try {
+          (win as any).eruda.init({ useShadowDom: false });
+          (win as any).eruda.show();
+          (win as any).__UNSTABLE_DEVTOOLS__ = true;
+          const nukeLauncher = () => {
+            try {
+              doc.querySelectorAll("*").forEach((el: Element) => {
+                const cn = (el.className || "").toString();
+                if (cn.includes("launcher") || cn.includes("Launcher")) {
+                  (el as HTMLElement).style.cssText = "display:none!important";
+                }
+              });
+            } catch {}
+          };
+          nukeLauncher();
+          for (let i = 1; i <= 50; i++) setTimeout(nukeLauncher, i * 50);
+          const obs = new MutationObserver(() => nukeLauncher());
+          obs.observe(doc.body, { childList: true, subtree: true, attributes: true });
+          setTimeout(() => obs.disconnect(), 10000);
+        } catch (e) { console.error("eruda init failed", e); }
+      })
+      .catch(e => console.error("eruda fetch failed", e));
+    setDevToolsOpen(prev => ({ ...prev, [id]: true }));
   }
 
   function handleUrlSubmit(e: React.FormEvent) { e.preventDefault(); handleNavigate(urlInput); urlInputRef.current?.blur(); }
@@ -2958,44 +4754,268 @@ function BrowserApp({
     onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLButtonElement).style.color = on ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.14)"; (e.target as HTMLButtonElement).style.background = "none"; },
   });
 
+  const renderTabContent = useCallback((tab: Tab) => {
+    if (!tab.url) {
+      return settings.newtabMode === "legacy" ? (
+        <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} showMs={settings.showMsIndicator} />
+      ) : (
+        <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+      );
+    }
+    if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://games") return <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>Coming soon</div>;
+    if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://bookmarks") return <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://downloads") return <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://credits") return <CreditsPage />;
+    if (tab.url === "unstable://tos") return <ToSPage />;
+    if (tab.url === "unstable://privacy") return <PrivacyPage />;
+    if (tab.url === "unstable://blank") return <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />;
+    return (
+      <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
+        src={tab.url}
+        style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+        allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
+        onLoad={() => {
+          updateTab(tab.id, { loading: false });
+          try {
+            const iframe = iframeRefs.current[tab.id];
+            if (iframe) {
+              const doc = iframe.contentDocument;
+              const title = doc?.title || tab.title;
+              const favicon = tab.favicon || undefined;
+              if (title && tab.url && !tab.url.startsWith("unstable://")) {
+                const originalUrl = decodeProxyUrl(tab.url);
+                addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
+              }
+            }
+          } catch {}
+          const gameMode = isGameModeTabUrl(tab.url, settings);
+          try {
+            const iframe = iframeRefs.current[tab.id];
+            if (!iframe) return;
+            const win = iframe.contentWindow as any;
+            const doc = iframe.contentDocument;
+            if (win && doc) {
+              doc.getElementById("unstable-cursor-style")?.remove();
+              const useMagicCursor = settings.magicCursorEnabled && !gameMode;
+              if (useMagicCursor) {
+                const cursorStyle = doc.createElement("style");
+                cursorStyle.id = "unstable-cursor-style";
+                cursorStyle.textContent = "html, body, * { cursor: none !important; }";
+                doc.head.appendChild(cursorStyle);
+                win.addEventListener("mousemove", (e: MouseEvent) => {
+                  const rect = iframe.getBoundingClientRect();
+                  window.dispatchEvent(new CustomEvent("iframe-mousemove", { detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect } }));
+                });
+                doc.addEventListener("mousemove", (e: MouseEvent) => {
+                  const rect = iframe.getBoundingClientRect();
+                  window.dispatchEvent(new CustomEvent("iframe-mousemove", { detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect } }));
+                });
+                const handleIframeHover = (e: MouseEvent) => {
+                  const target = e.target as HTMLElement;
+                  if (target && (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || win.getComputedStyle(target).cursor === "pointer")) {
+                    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
+                  } else {
+                    window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
+                  }
+                };
+                win.addEventListener("mouseover", handleIframeHover);
+                win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
+              }
+              doc.addEventListener("keydown", (e: KeyboardEvent) => {
+                const ae = doc.activeElement;
+                if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || (ae as HTMLElement).isContentEditable)) return;
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, code: e.code, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, metaKey: e.metaKey, bubbles: true, cancelable: true }));
+              });
+            }
+          } catch {}
+          const current = tab.url;
+          if (!current) return;
+          try {
+            if (current.startsWith(SCRAMJET_PREFIX)) {
+              if (settings.proxyEngine === "scramjet") { updateTab(tab.id, { loading: false }); return; }
+              const original = decodeProxyUrl(current);
+              const uvUrl = encodeProxyUrl(original, "uv", settings);
+              if (uvUrl !== current) { updateTab(tab.id, { url: uvUrl, loading: true }); return; }
+            } else if (current.startsWith(UV_PREFIX)) {
+              if (settings.proxyEngine === "uv") { updateTab(tab.id, { loading: false }); return; }
+              const original = decodeProxyUrl(current);
+              if (original && original.startsWith("http")) {
+                if (scrController && settings.proxyEngine !== "uv") {
+                  const scramjetUrl = encodeProxyUrl(original, "scramjet", settings);
+                  if (scramjetUrl !== current) { updateTab(tab.id, { url: scramjetUrl, loading: true }); return; }
+                }
+                const retryUrl = encodeProxyUrl(original, "uv", settings);
+                if (retryUrl !== current) { updateTab(tab.id, { url: retryUrl, loading: true }); return; }
+              }
+            }
+          } catch {}
+          updateTab(tab.id, { loading: false });
+        }}
+      />
+    );
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController]);
+
   return (
+    <>
+      {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
+      <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden" }}
+      style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", overflow: "hidden", position: "relative", zIndex: 1, transform: `scale(${settings.uiScale})`, transformOrigin: "top left", width: `${100 / settings.uiScale}vw`, minHeight: `${100 / settings.uiScale}vh` }}
     >
       {!fullscreen && (
         <motion.div initial={{ y: -40 }} animate={{ y: 0 }} transition={{ type: "spring", damping: 20 }}>
+          {!settings.verticalTabs && (
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
-            <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-              {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} />)}
+            <div className="tab-scroll" style={{ display: "flex", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <AnimatePresence>
+                {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => setSplitTabId(splitTabId === tab.id ? null : tab.id)} />)}
+              </AnimatePresence>
+              <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
+                onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} data-tooltip="New tab" aria-label="New tab">+</motion.button>
             </div>
-            <button onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} title="New tab">+</button>
-            <button onClick={onLogout} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.16)", cursor: "pointer", padding: "0 0.8rem", fontSize: "0.57rem", letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", flexShrink: 0, transition: "color 0.1s" }}
-              onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "rgba(200,70,70,0.8)"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.16)"} title="Lock">lock</button>
           </div>
+          )}
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <button onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} title="Back">←</button>
-            <button onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} title="Forward">→</button>
-            <button onClick={handleReload} style={btn} {...hov(true)} title="Reload">↺</button>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward">→</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} data-tooltip="Reload" aria-label="Reload">↺</motion.button>
+            {settings.adblockEnabled && adblockCount > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", padding: "0 0.2rem", color: "rgba(255,255,255,0.3)", fontSize: "0.55rem", flexShrink: 0 }}>
+                <Shield size={10} />
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{adblockCount}</span>
+              </div>
+            )}
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
-            <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex" }}>
-              <input ref={urlInputRef} value={urlInput} onChange={e => setUrlInput(e.target.value)}
-                onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }} onBlur={e => e.target.style.borderColor = "#1e1e1e"}
-                placeholder="search, url, or unstable://…"
-                style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
-              />
-            </form>
+            <div style={{ position: "relative", flex: 1, display: "flex" }}>
+              <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
+              <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center" }}>
+                <button type="button" onClick={() => { setUrlEngineOpen(!urlEngineOpen); setShowSuggestions(false); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", height: 26, width: 26, padding: 0, borderRadius: "2px", transition: "background 0.1s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}
+                  data-tooltip={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`} aria-label={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
+                  <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={16} height={16} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
+                </button>
+                <AnimatePresence>
+                  {urlEngineOpen && (
+                    <motion.div initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                      style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+                      {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
+                        <motion.button key={id} type="button" whileHover={{ background: "#1a1a1a" }} onClick={() => { setSettings({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
+                          style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>
+                          <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                          {engine.name}
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div style={{ position: "relative", flex: 1 }}>
+                <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
+                    onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
+                    onBlur={e => { e.target.style.borderColor = "#1e1e1e"; setTimeout(() => setShowSuggestions(false), 200); }}
+                    onKeyDown={e => {
+                      if (!showSuggestions || !searchSuggestions.length) return;
+                      if (e.key === "ArrowDown") { e.preventDefault(); setSuggestIndex(i => Math.min(i + 1, searchSuggestions.length - 1)); }
+                      if (e.key === "ArrowUp") { e.preventDefault(); setSuggestIndex(i => Math.max(i - 1, -1)); }
+                      if (e.key === "Enter" && suggestIndex >= 0) {
+                        e.preventDefault();
+                        const s = searchSuggestions[suggestIndex];
+                        setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1);
+                        handleNavigate(searchUrl(s, settings.searchEngine));
+                      }
+                    }}
+                    placeholder="search, url, or unstable://…"
+                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 1.5rem 0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
+                  />
+                <button type="button" onClick={async () => {
+                  if (!activeTab?.url || activeTab.url.startsWith("unstable://")) return;
+                  const url = decodeProxyUrl(activeTab.url);
+                  if (bookmarked) {
+                    await removeBookmark(url);
+                    setBookmarked(false);
+                  } else {
+                    let domain = "";
+                    try { domain = new URL(url).hostname; } catch {}
+                    await addBookmark(url, activeTab.title || domain, activeTab.favicon || faviconUrl(domain));
+                    setBookmarked(true);
+                  }
+                }} style={{
+                  position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer", display: "flex",
+                  alignItems: "center", justifyContent: "center", padding: "2px",
+                  color: bookmarked ? "#f0c040" : "rgba(255,255,255,0.25)", transition: "color 0.15s",
+                }} data-tooltip={bookmarked ? "Remove bookmark" : "Bookmark"} aria-label={bookmarked ? "Remove bookmark" : "Bookmark"}>
+                  <Star size={12} fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth={bookmarked ? 1.5 : 2.5} />
+                </button>
+              </div>
+              </form>
+              <AnimatePresence>
+                {showSuggestions && (
+                  <motion.div ref={suggestListRef} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "8px", marginTop: 4, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+                    {searchSuggestions.map((s, i) => (
+                      <motion.div key={s} whileHover={{ background: "#1e1e1e" }} onClick={() => { setUrlInput(s); setShowSuggestions(false); setSuggestIndex(-1); handleNavigate(searchUrl(s, settings.searchEngine)); }}
+                        style={{ padding: "0.45rem 0.7rem", fontSize: "0.75rem", color: "#ccc", cursor: "pointer", borderBottom: "1px solid #1a1a1a", background: i === suggestIndex ? "#1e1e1e" : "transparent" }}
+                        onMouseEnter={e => { setSuggestIndex(i); }}
+                      >{s}</motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
-            <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} title="Open in new window">
+            <button onClick={toggleDevTools} style={btn} {...hov(true)} data-tooltip="DevTools" aria-label="DevTools">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></svg>
+            </button>
+            <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} data-tooltip="Open in new window" aria-label="Open in new window">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
-            <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} title="Fullscreen">
+            <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} data-tooltip="Fullscreen" aria-label="Fullscreen">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
             </button>
+          </div>
+
+          {/* Loading progress bar */}
+          <div style={{ height: 2, background: "#0d0d0d", overflow: "hidden", flexShrink: 0 }}>
+            <AnimatePresence>
+              {loadBarVisible && (
+                <motion.div
+                  key="loading-bar"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  style={{ height: "100%", width: "100%", position: "relative" }}
+                >
+                  <motion.div
+                    style={{
+                      height: "100%",
+                      scaleX: loadBarScaleX,
+                      transformOrigin: "left",
+                      background: "linear-gradient(90deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.28) 100%)",
+                      boxShadow: "0 0 6px rgba(255,255,255,0.12)",
+                      position: "relative",
+                    }}
+                  >
+                    <motion.div style={{
+                      position: "absolute", right: 0, top: 0, height: "100%", width: 40,
+                      background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.22))",
+                    }} />
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </motion.div>
       )}
@@ -3004,8 +5024,14 @@ function BrowserApp({
         {!fullscreen && (
           <CollapsedSidebar
             activeUrl={activeTab?.url || ""}
-            isAdmin={authContext.isAdmin}
+            canReturnToBrowse={Boolean(activeTab?.url.startsWith("unstable://") && activeTab.lastProxyUrl)}
             onNavigate={(url) => handleNavigate(url, activeTabId)}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabActivate={(id) => setActiveTabId(id)}
+            onTabClose={(id) => handleCloseTab(id)}
+            onNewTab={handleNewTab}
+            verticalTabs={settings.verticalTabs}
           />
         )}
 
@@ -3013,125 +5039,66 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          <div style={{ position: "relative", width: "100%", height: "100%" }}>
-            {tabs.map(tab => (
-              <div
-                key={tab.id}
-                style={{
-                  position: "absolute", inset: 0,
-                  visibility: tab.id === activeTabId ? "visible" : "hidden",
-                  zIndex: tab.id === activeTabId ? 1 : 0,
-                  pointerEvents: tab.id === activeTabId ? "auto" : "none",
-                }}
-              >
-              {!tab.url ? (
-                <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} />
-              ) : tab.url === "unstable://ai" ? (
-                <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />
-              ) : tab.url === "unstable://chat" ? (
-                <ChatPage user={user} profile={profile} session={session} isAdmin={authContext.isAdmin} onAuthenticated={onAuthenticated} />
-              ) : tab.url === "unstable://settings" ? (
-                <SettingsPage settings={settings} onSettingsChange={setSettings} />
-              ) : tab.url === "unstable://admin" ? (
-                session && user ? (
-                  <AdminPage session={session} currentUser={user} isAdmin={authContext.isAdmin} />
-                ) : (
-                  <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Admin" />
-                )
-              ) : tab.url === "unstable://games" ? (
-                <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
-              ) : tab.url === "unstable://credits" ? (
-                <CreditsPage />
-              ) : tab.url === "unstable://tos" ? (
-                <ToSPage />
-              ) : tab.url === "unstable://privacy" ? (
-                <PrivacyPage />
-              ) : tab.url === "unstable://blank" ? (
-                <div style={{ width: "100%", height: "100%", background: "#0d0d0d" }} />
-              ) : (
-                <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
-                  src={tab.url}
-                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-                  allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
-                  onLoad={() => {
-                    updateTab(tab.id, { loading: false });
-                    try {
-                      const iframe = iframeRefs.current[tab.id];
-                      if (!iframe) return;
-                      const win = iframe.contentWindow as any;
-                      const doc = iframe.contentDocument;
-                      if (win && doc) {
-                        win.addEventListener("mousemove", (e: MouseEvent) => {
-                          const rect = iframe.getBoundingClientRect();
-                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                          }));
-                        });
-                        doc.addEventListener("mousemove", (e: MouseEvent) => {
-                          const rect = iframe.getBoundingClientRect();
-                          window.dispatchEvent(new CustomEvent("iframe-mousemove", {
-                            detail: { clientX: e.clientX, clientY: e.clientY, iframeRect: rect }
-                          }));
-                        });
-                        const handleIframeHover = (e: MouseEvent) => {
-                          const target = e.target as HTMLElement;
-                          if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || win.getComputedStyle(target).cursor === 'pointer')) {
-                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: true } }));
-                          } else {
-                            window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } }));
-                          }
-                        };
-                        win.addEventListener("mouseover", handleIframeHover);
-                        win.addEventListener("mouseout", () => window.dispatchEvent(new CustomEvent("iframe-hover", { detail: { hovering: false } })));
-
-                        const style = doc.createElement("style");
-                        style.textContent = "html, body, * { cursor: none !important; }";
-                        doc.head.appendChild(style);
-                      }
-                    } catch (e) {
-                      // ignore cross-origin errors if any
-                    }
-                  }}
-                  onError={() => {
-                    const current = tab.url;
-                    if (current.startsWith(SCRAMJET_PREFIX)) {
-                      const original = decodeProxyUrl(current);
-                      const uvUrl = encodeProxyUrl(original, "uv");
-                      if (uvUrl !== current) {
-                        updateTab(tab.id, { url: uvUrl, loading: true });
-                        return;
-                      }
-                    } else if (current.startsWith(UV_PREFIX)) {
-                      const original = decodeProxyUrl(current);
-                      if (original && original.startsWith("http")) {
-                        const retryUrl = encodeProxyUrl(original, "uv");
-                        if (retryUrl !== current) {
-                          updateTab(tab.id, { url: retryUrl, loading: true });
-                          return;
-                        }
-                      }
-                      if (scrController) {
-                        const scramjetUrl = encodeProxyUrl(original || current, "scramjet");
-                        if (scramjetUrl !== current) {
-                          updateTab(tab.id, { url: scramjetUrl, loading: true });
-                          return;
-                        }
-                      }
-                    }
-                    updateTab(tab.id, { loading: false });
-                  }}
-                />
-              )}
-              </div>
-            ))}
+          <div style={{ position: "relative", width: "100%", height: "100%", display: "flex" }}>
+            {splitTabId && splitTabId !== activeTabId && (() => {
+              const splitTab = tabs.find(t => t.id === splitTabId);
+              if (!splitTab) return null;
+              return (
+                <div style={{ width: "50%", height: "100%", position: "relative", borderRight: "1px solid #1a1a1a" }}>
+                  <button onClick={() => setSplitTabId(null)} style={{ position: "absolute", top: 4, right: 4, zIndex: 10, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "2px 6px", borderRadius: "4px", fontSize: "0.5rem", fontFamily: "'Space Grotesk', sans-serif" }}>×</button>
+                  {renderTabContent(splitTab)}
+                </div>
+              );
+            })()}
+            <div style={{ flex: 1, position: "relative", height: "100%" }}>
+            <AnimatePresence mode="wait">
+              {tabs.filter(t => t.id === activeTabId).map(tab => (
+                <motion.div
+                  key={tab.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                  style={{ position: "absolute", inset: 0 }}
+                >
+              {renderTabContent(tab)}
+            </motion.div>
+          ))}
+          </AnimatePresence>
+            </div>
           </div>
         </div>
       </div>
 
-      <StatusBar visible={isNewtab} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} />
+      <StatusBar visible={false} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
 
-      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} input::placeholder{color:rgba(255,255,255,0.18)}`}</style>
+      <AnimatePresence>
+        {pendingPerm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+            style={{ position: "fixed", inset: 0, zIndex: 999999, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <motion.div initial={{ opacity: 0, scale: 0.92, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: 10 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              style={{ background: "#111", border: "1px solid #333", borderRadius: "8px", padding: "1.5rem", maxWidth: 400, width: "90%" }}>
+              <p style={{ color: "#e8e8e8", margin: 0, fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.5 }}>
+                <strong style={{ color: "#e8e8e8" }}>{(() => { try { return new URL(pendingPerm.origin).hostname; } catch { return pendingPerm.origin; } })()}</strong> wants to access your <strong style={{ color: "#e8e8e8" }}>{pendingPerm.permission}</strong>
+              </p>
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1.2rem" }}>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(false); setPendingPerm(null); }}
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>deny</motion.button>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(true); setPendingPerm(null); }}
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>allow</motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <ErrorScreen />
+
+      <div id="unstable-tooltip" className={tooltip ? "visible" : ""} style={{ left: tooltip ? tooltip.x : 0, top: tooltip ? tooltip.y : 0, transform: "translateX(-50%) translateY(-100%)" }}>{tooltip?.text ?? ""}</div>
+
+      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} @keyframes tooltipFade{0%{opacity:0;transform:translateY(-4px)}100%{opacity:1;transform:translateY(0)}} #unstable-tooltip{position:fixed;background:#000000b3;backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:#fff;border-radius:12px;padding:5px 10px;font-size:0.6rem;font-family:'Space Grotesk',sans-serif;white-space:nowrap;box-shadow:0 0 0 1px #484848;pointer-events:none;z-index:99999;opacity:0;transition:opacity .15s ease} #unstable-tooltip.visible{opacity:1} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
     </motion.div>
+    </>
   );
 }
 
@@ -3142,26 +5109,30 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [authContext, setAuthContext] = useState<AppAuthContext>({ isAdmin: false, isBanned: false, banReason: null });
+  const [authContext, setAuthContext] = useState<AppAuthContext>({ isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
+
+  console.log('App render state:', { accountLoading, session: !!session, user: !!user, profile: !!profile, accountError });
 
   useEffect(() => {
     let mounted = true;
 
-    async function syncSession(nextSession: Session | null) {
+    async function syncSession(nextSession: Session | null, showLoading = true) {
+      console.log('syncSession called:', { nextSession: !!nextSession, showLoading });
       if (!mounted) return;
       setSession(nextSession);
       const nextUser = nextSession?.user ?? null;
       setUser(nextUser);
 
       if (!nextUser) {
+        console.log('No user, setting accountLoading to false');
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountLoading(false);
         return;
       }
 
-      setAccountLoading(true);
+      if (showLoading) setAccountLoading(true);
       try {
         const [nextProfile, nextAuthContext] = await withTimeout(
           Promise.all([
@@ -3171,6 +5142,7 @@ export default function App() {
           ACCOUNT_BOOT_TIMEOUT_MS,
           "Account sync",
         );
+        console.log('Account sync completed:', { nextProfile: !!nextProfile, nextAuthContext });
         if (!mounted) return;
 
         if (nextAuthContext.isBanned) {
@@ -3182,7 +5154,7 @@ export default function App() {
         }
 
         try {
-          await registerCurrentDevice(nextSession!.access_token);
+          await withTimeout(registerCurrentDevice(nextSession!.access_token), ACCOUNT_BOOT_TIMEOUT_MS, "Device registration");
         } catch (err) {
           if (mounted) {
             setAccountError(err instanceof Error ? err.message : "Unable to register this device.");
@@ -3193,25 +5165,30 @@ export default function App() {
         setAuthContext(nextAuthContext);
         setAccountError(nextProfile ? "" : "Account signed in, but no profile was found.");
       } catch (err) {
+        console.error('Account sync error:', err);
         if (!mounted) return;
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
       } finally {
+        console.log('syncSession finally, setting accountLoading to false');
         if (mounted) setAccountLoading(false);
       }
     }
 
     async function loadInitialSession() {
+      console.log('loadInitialSession called');
       try {
         const { data } = await withTimeout(supabase.auth.getSession(), ACCOUNT_BOOT_TIMEOUT_MS, "Session restore");
+        console.log('Session loaded:', { session: !!data.session });
         await syncSession(data.session);
       } catch (err) {
+        console.error('Session load error:', err);
         if (!mounted) return;
         setSession(null);
         setUser(null);
         setProfile(null);
-        setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+        setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? `${err.message} Continuing locally.` : "Account sync unavailable. Continuing locally.");
         setAccountLoading(false);
       }
@@ -3220,7 +5197,8 @@ export default function App() {
     void loadInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void syncSession(nextSession);
+      console.log('Auth state changed:', { event: _event, session: !!nextSession });
+      void syncSession(nextSession, false);
     });
 
     return () => {
@@ -3238,13 +5216,12 @@ export default function App() {
     setSession(null);
     setUser(null);
     setProfile(null);
-    setAuthContext({ isAdmin: false, isBanned: false, banReason: null });
+    setAuthContext({ isBanned: false, banReason: null });
     applyCloak("none");
   }
 
   return (
     <>
-      <MagicCursor />
       <AnimatePresence mode="wait">
         {accountLoading ? (
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
@@ -3253,6 +5230,7 @@ export default function App() {
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
             onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
+              console.log('BrowserApp onAuthenticated called');
               setSession(nextSession);
               setUser(nextUser);
               setProfile(nextProfile);

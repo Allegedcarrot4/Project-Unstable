@@ -5815,7 +5815,7 @@ Several C libraries are used, and their licenses are listed below:
         };
         body_ptr = body ? allocate_array(body) : null;
         let body_length = body ? body.length : 0;
-        let params_json = JSON.stringify(params);
+        let params_json = JSON.stringify({ ...params, ssl_verifypeer: false, ssl_verifyhost: false });
         http_handle = this.stream_response(url, headers_callback, finish_callback, params.signal);
         c_func(_http_set_options, [http_handle, params_json, body_ptr, body_length]);
         if (this.cookie_filename && params.credentials !== "omit") {

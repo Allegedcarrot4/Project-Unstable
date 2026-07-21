@@ -1,11 +1,9 @@
-import { Router, type IRouter } from "express";
-import { HealthCheckResponse } from "@workspace/api-zod";
+import type { FastifyPluginAsync } from "fastify";
 
-const router: IRouter = Router();
+const healthRoute: FastifyPluginAsync = async (app) => {
+  app.get("/healthz", async (_req, reply) => {
+    return reply.send({ status: "ok" });
+  });
+};
 
-router.get("/healthz", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
-  res.json(data);
-});
-
-export default router;
+export default healthRoute;

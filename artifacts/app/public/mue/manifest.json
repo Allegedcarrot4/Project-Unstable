@@ -1,0 +1,26 @@
+{
+   "action": {
+      "default_icon": "icons/128x128.png"
+   },
+   "background": {
+      "service_worker": "background.js"
+   },
+   "chrome_url_overrides": {
+      "newtab": "index.html"
+   },
+   "default_locale": "en",
+   "description": "__MSG_description__",
+   "homepage_url": "https://muetab.com",
+   "icons": {
+      "128": "icons/128x128.png",
+      "16": "icons/16x16.png",
+      "48": "icons/48x48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAizUWTYc1I5GDmKW6jWNgFOopxH2ZTMLG+zxmIutV092ks0f53H1k9WSiRJN2a0chOzmpEfEPBfn6Y+hj2VH5zFpuwPMs1hB0Wwv1ZchmxCexp2G5VOsu3IMxUn+pujgoeQRHgAVUK41+LzmrKdr0kEasF1Kk9o+z8oll55XtE/5+LPcfoQXt3nc95fpPOjESI7CKdwunaF5HXa3Xi5Xv4XNBzoBJLVHr/oa2/Sp/2oD967fFkISjF0gSctSOFwx+zCObOKJUNVeP/4nefZgxWEI2N3dTMKbUV12vavvf2gSMjwABU7/T1wOPoKYg0xOgDUi9KOtbTSsy8U4oAp6NDwIDAQAB",
+   "manifest_version": 3,
+   "name": "__MSG_name__",
+   "offline_enabled": true,
+   "permissions": [ "search" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "7.6.0"
+}

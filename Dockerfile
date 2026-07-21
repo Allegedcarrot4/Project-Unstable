@@ -1,5 +1,5 @@
 # ─── Base ─────────────────────────────────────────────────────────────────────
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@latest-10 --activate
@@ -11,8 +11,8 @@ WORKDIR /app
 # Copy the full monorepo source (node_modules are excluded via .dockerignore)
 COPY . .
 
-# Install all workspace dependencies
-RUN pnpm install --frozen-lockfile
+# Install all workspace dependencies (delete broken lockfile first — bare-mux tarball integrity missing)
+RUN rm -f pnpm-lock.yaml && pnpm install
 
 # Extract runtime packages from the pnpm store so they can be copied into the runner
 RUN mkdir -p /app/runtime_node_modules/@mercuryworkshop && \
@@ -31,10 +31,11 @@ RUN pnpm --filter @workspace/api-server run build
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
 FROM base AS runner
+RUN apt-get update -qq && apt-get install -y -qq tini && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# API server compiled bundle
-COPY --from=builder /app/artifacts/api-server/dist          ./dist
+# API server compiled bundle (matches pnpm start's CWD expectations)
+COPY --from=builder /app/artifacts/api-server/dist          ./artifacts/api-server/dist
 
 # Runtime workspace package metadata for pnpm
 COPY --from=builder /app/package.json ./package.json
@@ -48,21 +49,19 @@ COPY --from=builder /app/lib/api-zod ./lib/api-zod
 COPY --from=builder /app/artifacts/api-server ./artifacts/api-server
 
 # Install runtime dependencies inside the final image
-RUN pnpm install --frozen-lockfile --prod --filter @workspace/api-server
+RUN rm -f pnpm-lock.yaml && pnpm install --prod --filter @workspace/api-server
 
 # Ensure bare-as-module3 is available at runtime even if pnpm install misses it
 COPY --from=builder /app/runtime_node_modules ./node_modules
 
 # Vite-built frontend + UV/service-worker public files
 # Vite copies artifacts/app/public/** into the output during build
-COPY --from=builder /app/artifacts/app/dist/public          ./app/dist/public
+COPY --from=builder /app/artifacts/app/dist/public          ./artifacts/app/dist/public
 
-EXPOSE 7860
-
-ENV PORT=7860
 ENV NODE_ENV=production
 
 # PASSWORD must be set as a Space secret — the app will refuse auth without it
 # SESSION_SECRET is optional but recommended for production hardening
 
-CMD ["node", "--enable-source-maps", "./dist/index.mjs"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]

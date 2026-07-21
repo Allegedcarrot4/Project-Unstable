@@ -1,0 +1,114 @@
+process {
+    step "Build Docker Image" {
+        condition = "success"
+        target_roles = ["container-host"]
+
+        action {
+            action_type = "Octopus.Script"
+            name = "Build Docker Image"
+            properties {
+                "Octopus.Action.Script.ScriptBody" = join("", [
+                    "cd #{Octopus.Action.Package.PackageDirectoryPath}\n",
+                    "\n",
+                    "# Build the Docker image using the monorepo Dockerfile\n",
+                    "docker build \\\n",
+                    "  --build-arg BUILDKIT_INLINE_CACHE=1 \\\n",
+                    "  -t #{Project.DockerRegistry}/project-unstable:#{Octopus.Deployment.Id} \\\n",
+                    "  -t #{Project.DockerRegistry}/project-unstable:latest \\\n",
+                    "  .\n"
+                ])
+                "Octopus.Action.Script.Syntax" = "Bash"
+            }
+        }
+    }
+
+    step "Push Docker Image" {
+        condition = "success"
+        target_roles = ["container-host"]
+        requires = ["Build Docker Image"]
+
+        action {
+            action_type = "Octopus.Script"
+            name = "Push Docker Image"
+            properties {
+                "Octopus.Action.Script.ScriptBody" = join("", [
+                    "# Authenticate with container registry\n",
+                    "echo #{Project.DockerRegistryPassword} | docker login #{Project.DockerRegistry} -u #{Project.DockerRegistryUsername} --password-stdin\n",
+                    "\n",
+                    "# Push the image tags\n",
+                    "docker push #{Project.DockerRegistry}/project-unstable:#{Octopus.Deployment.Id}\n",
+                    "docker push #{Project.DockerRegistry}/project-unstable:latest\n"
+                ])
+                "Octopus.Action.Script.Syntax" = "Bash"
+            }
+        }
+    }
+
+    step "Deploy to Kubernetes" {
+        condition = "success"
+        requires = ["Push Docker Image"]
+
+        action {
+            action_type = "Octopus.KubernetesDeployRawYaml"
+            name = "Deploy to Kubernetes"
+            properties {
+                "Octopus.Action.KubernetesDeployRawYaml.CustomResourceYaml" = join("", [
+                    "apiVersion: apps/v1\n",
+                    "kind: Deployment\n",
+                    "metadata:\n",
+                    "  name: project-unstable\n",
+                    "  namespace: #{Project.KubernetesNamespace}\n",
+                    "spec:\n",
+                    "  replicas: #{Project.ReplicaCount | Fallback 2}\n",
+                    "  selector:\n",
+                    "    matchLabels:\n",
+                    "      app: project-unstable\n",
+                    "  template:\n",
+                    "    metadata:\n",
+                    "      labels:\n",
+                    "        app: project-unstable\n",
+                    "    spec:\n",
+                    "      containers:\n",
+                    "        - name: project-unstable\n",
+                    "          image: #{Project.DockerRegistry}/project-unstable:#{Octopus.Deployment.Id}\n",
+                    "          ports:\n",
+                    "            - containerPort: 7860\n",
+                    "          env:\n",
+                    "            - name: NODE_ENV\n",
+                    "              value: \"production\"\n",
+                    "            - name: PASSWORD\n",
+                    "              valueFrom:\n",
+                    "                secretKeyRef:\n",
+                    "                  name: project-unstable-secrets\n",
+                    "                  key: password\n",
+                    "            - name: SESSION_SECRET\n",
+                    "              valueFrom:\n",
+                    "                secretKeyRef:\n",
+                    "                  name: project-unstable-secrets\n",
+                    "                  key: session-secret\n",
+                    "          resources:\n",
+                    "            requests:\n",
+                    "              memory: \"256Mi\"\n",
+                    "              cpu: \"250m\"\n",
+                    "            limits:\n",
+                    "              memory: \"512Mi\"\n",
+                    "              cpu: \"500m\"\n",
+                    "---\n",
+                    "apiVersion: v1\n",
+                    "kind: Service\n",
+                    "metadata:\n",
+                    "  name: project-unstable\n",
+                    "  namespace: #{Project.KubernetesNamespace}\n",
+                    "spec:\n",
+                    "  selector:\n",
+                    "    app: project-unstable\n",
+                    "  ports:\n",
+                    "    - port: 7860\n",
+                    "      targetPort: 7860\n",
+                    "  type: ClusterIP\n"
+                ])
+                "Octopus.Action.KubernetesDeployRawYaml.Namespace" = "#{Project.KubernetesNamespace}"
+            }
+        }
+    }
+}

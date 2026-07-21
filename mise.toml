@@ -1,0 +1,8 @@
+[tools]
+node = "22"
+pnpm = "10.33.0"
+
+# Stormkit reads this and runs `mise run build` — overrides the UI build command.
+# This fixes "vite not found" when Stormkit runs `pnpm exec vite build` from root.
+[tasks.build]
+run = "pnpm --filter @workspace/app run build"

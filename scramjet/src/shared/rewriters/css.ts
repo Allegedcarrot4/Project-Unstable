@@ -10,7 +10,7 @@ export function unrewriteCss(css: string) {
 
 function handleCss(type: "rewrite" | "unrewrite", css: string, meta?: URLMeta) {
 	// regex from vk6 (https://github.com/ading2210)
-	const urlRegex = /url\(['"]?(.+?)['"]?\)/gm;
+	const urlRegex = /url\(['"]?([^'")]+)['"]?\)/gm;
 	const Atruleregex =
 		/@import\s+(url\s*?\(.{0,9999}?\)|['"].{0,9999}?['"]|.{0,9999}?)($|\s|;)/gm;
 	css = new String(css).toString();

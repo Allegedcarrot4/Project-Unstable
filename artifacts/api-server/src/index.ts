@@ -1,37 +1,51 @@
 import "dotenv/config";
-import { createServer } from "http";
-import app, { bares, wispHandler } from "./app";
 import { logger } from "./lib/logger";
 
-const rawPort = process.env["PORT"] || "8080";
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "Uncaught exception");
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled rejection");
+});
+process.on("beforeExit", (code) => {
+  logger.error({ code }, "Event loop draining — server likely not keeping process alive");
+});
+
+// Keep event loop alive even if server doesn't register handles properly
+setInterval(() => {}, 60000);
+
+const { default: app } = await import("./app");
+
+// Railway diagnostic endpoint
+app.get("/api/railway-info", async (_req, reply) => {
+  const addr = app.server.address();
+  return reply.send({
+    listening: app.server.listening,
+    port: typeof addr === "object" && addr ? addr.port : null,
+    address: typeof addr === "object" && addr ? addr.address : null,
+    family: typeof addr === "object" && addr ? addr.family : null,
+    envPort: process.env["PORT"],
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    pid: process.pid,
+    uptime: process.uptime(),
+  });
+});
+
+const rawPort = process.env["PORT"];
+if (!rawPort) throw new Error("PORT env not set");
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"`);
 
-const server = createServer((req, res) => {
-  for (const bare of bares) {
-    if (bare.shouldRoute(req)) { bare.routeRequest(req, res); return; }
-  }
-  app(req, res);
-});
-
-server.on("upgrade", (req, socket, head) => {
-  const url = req.url ?? "";
-
-  // Wisp protocol
-  if (url.startsWith("/api/wisp/") && wispHandler) {
-    wispHandler(req, socket, head);
-    return;
-  }
-
-  // Bare servers
-  for (const bare of bares) {
-    if (bare.shouldRoute(req)) { bare.routeUpgrade(req, socket, head); return; }
-  }
-
-  socket.end();
-});
-
-server.listen(port, (err?: Error) => {
-  if (err) { logger.error({ err }, "Error listening on port"); process.exit(1); }
-  logger.info({ port }, "Server listening");
-});
+try {
+  await app.listen({ port, host: "0.0.0.0" });
+  const addr = app.server.address();
+  const addrInfo = typeof addr === "object" ? `address=${addr!.address} port=${addr!.port} family=${addr!.family}` : String(addr);
+  logger.info({ port, pid: process.pid, addr: addrInfo }, "Server listening");
+  console.log(`[startup] HTTP server active: ${app.server.listening} — ${addrInfo} (PORT env: "${process.env["PORT"]}")`);
+} catch (err) {
+  logger.error({ err }, "Server failed to listen");
+  process.exit(1);
+}

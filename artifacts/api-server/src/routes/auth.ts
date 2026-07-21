@@ -1,4 +1,4 @@
-import { Router } from "express";
+import type { FastifyPluginAsync } from "fastify";
 import crypto from "node:crypto";
 import {
   getAuthedUser,
@@ -7,113 +7,111 @@ import {
   requireDeviceId,
 } from "../lib/supabase-admin";
 
-const router = Router();
-
+const SALT = crypto.randomBytes(16).toString("hex");
 const expectedHash = (() => {
   const raw = process.env.PASSWORD;
   if (!raw) return null;
   const trimmed = raw.trim().replace(/^['"]|['"]$/g, "");
-  return crypto.createHash("sha256").update(trimmed).digest("hex");
+  return crypto.pbkdf2Sync(trimmed, SALT, 100000, 64, "sha512").toString("hex");
 })();
 
-router.post("/auth/check", (req, res) => {
-  const { password } = req.body ?? {};
+const authRoute: FastifyPluginAsync = async (app) => {
+  app.post("/auth/check", async (req, reply) => {
+    const { password } = (req.body as any) ?? {};
 
-  if (!expectedHash) {
-    res.status(503).json({ dev: true });
-    return;
-  }
-
-  const provided = typeof password === "string" ? password.trim() : "";
-  if (!provided) {
-    res.status(401).json({ ok: false });
-    return;
-  }
-
-  const providedHash = crypto.createHash("sha256").update(provided).digest("hex");
-  const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
-  if (!valid) {
-    res.status(401).json({ ok: false });
-    return;
-  }
-
-  res.json({ ok: true });
-});
-
-router.post("/auth/device-status", async (req, res) => {
-  try {
-    const deviceId = requireDeviceId(req.body?.deviceId);
-    const deviceHash = hashDeviceId(deviceId);
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("device_bans")
-      .select("reason, banned_until")
-      .eq("device_hash", deviceHash)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    const activeBan = Boolean(data && (!data.banned_until || new Date(data.banned_until).getTime() > Date.now()));
-    res.json({
-      banned: activeBan,
-      reason: activeBan ? data?.reason ?? null : null,
-    });
-  } catch (err) {
-    res.status(503).json({ error: err instanceof Error ? err.message : "Device-ban check unavailable." });
-  }
-});
-
-router.get("/auth/context", async (req, res) => {
-  try {
-    const authed = await getAuthedUser(req.headers.authorization);
-    if (!authed) {
-      res.status(401).json({ error: "Authentication required." });
-      return;
+    if (!expectedHash) {
+      return reply.status(503).send({ dev: true });
     }
 
-    const supabase = getSupabaseAdmin();
-    const [{ data: roleRow, error: roleError }, { data: banRow, error: banError }] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", authed.user.id).maybeSingle(),
-      supabase.from("user_bans").select("reason, banned_until").eq("user_id", authed.user.id).maybeSingle(),
-    ]);
-
-    if (roleError || banError) throw roleError || banError;
-
-    const banned = Boolean(banRow && (!banRow.banned_until || new Date(banRow.banned_until).getTime() > Date.now()));
-    res.json({
-      isAdmin: roleRow?.role === "admin",
-      isBanned: banned,
-      banReason: banned ? banRow?.reason ?? null : null,
-    });
-  } catch (err) {
-    res.status(503).json({ error: err instanceof Error ? err.message : "Auth context unavailable." });
-  }
-});
-
-router.post("/auth/register-device", async (req, res) => {
-  try {
-    const authed = await getAuthedUser(req.headers.authorization);
-    if (!authed) {
-      res.status(401).json({ error: "Authentication required." });
-      return;
+    const provided = typeof password === "string" ? password.trim() : "";
+    if (!provided) {
+      return reply.status(401).send({ ok: false });
     }
 
-    const deviceId = requireDeviceId(req.body?.deviceId);
-    const deviceHash = hashDeviceId(deviceId);
-    const supabase = getSupabaseAdmin();
+    const providedHash = crypto.pbkdf2Sync(provided, SALT, 100000, 64, "sha512").toString("hex");
+    const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
+    if (!valid) {
+      return reply.status(401).send({ ok: false });
+    }
 
-    const { error } = await supabase.from("user_devices").upsert({
-      user_id: authed.user.id,
-      device_hash: deviceHash,
-      last_seen_at: new Date().toISOString(),
-    }, { onConflict: "user_id,device_hash" });
+    return reply.send({ ok: true });
+  });
 
-    if (error) throw error;
+  app.post("/auth/device-status", async (req, reply) => {
+    try {
+      const deviceId = requireDeviceId((req.body as any)?.deviceId);
+      const deviceHash = hashDeviceId(deviceId);
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("device_bans")
+        .select("reason, banned_until")
+        .eq("device_hash", deviceHash)
+        .maybeSingle() as any;
 
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(503).json({ error: err instanceof Error ? err.message : "Device registration unavailable." });
-  }
-});
+      if (error) throw error;
 
-export default router;
+      const record = data as { reason?: string; banned_until?: string | null } | null;
+      const activeBan = Boolean(record && (!record.banned_until || new Date(record.banned_until).getTime() > Date.now()));
+      return reply.send({
+        banned: activeBan,
+        reason: activeBan ? record?.reason ?? null : null,
+      });
+    } catch (err) {
+      return reply.status(503).send({ error: err instanceof Error ? err.message : "Device-ban check unavailable." });
+    }
+  });
+
+  app.get("/auth/context", async (req, reply) => {
+    try {
+      const authed = await getAuthedUser(req.headers.authorization);
+      if (!authed) {
+        return reply.status(401).send({ error: "Authentication required." });
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { data: banRow, error: banError } = await supabase
+        .from("user_bans")
+        .select("reason, banned_until")
+        .eq("user_id", authed.user.id)
+        .maybeSingle() as any;
+
+      if (banError) throw banError;
+
+      const banRecord = banRow as { reason?: string; banned_until?: string | null } | null;
+      const banned = Boolean(banRecord && (!banRecord.banned_until || new Date(banRecord.banned_until).getTime() > Date.now()));
+      return reply.send({
+        isBanned: banned,
+        banReason: banned ? banRecord?.reason ?? null : null,
+      });
+    } catch (err) {
+      return reply.status(503).send({ error: err instanceof Error ? err.message : "Auth context unavailable." });
+    }
+  });
+
+  app.post("/auth/register-device", async (req, reply) => {
+    try {
+      const authed = await getAuthedUser(req.headers.authorization);
+      if (!authed) {
+        return reply.status(401).send({ error: "Authentication required." });
+      }
+
+      const deviceId = requireDeviceId((req.body as any)?.deviceId);
+      const deviceHash = hashDeviceId(deviceId);
+      const supabase = getSupabaseAdmin();
+
+      const { error } = await (supabase.from("user_devices") as any).upsert({
+        user_id: authed.user.id,
+        device_hash: deviceHash,
+        last_seen_at: new Date().toISOString(),
+      }, { onConflict: "user_id,device_hash" });
+
+      if (error) throw error;
+
+      return reply.send({ ok: true });
+    } catch (err) {
+      return reply.status(503).send({ error: err instanceof Error ? err.message : "Device registration unavailable." });
+    }
+  });
+};
+
+export default authRoute;
