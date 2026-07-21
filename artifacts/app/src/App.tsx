@@ -4658,8 +4658,33 @@ function BrowserApp({
   function handleOpenInNewTab() {
     if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
     const win = window.open("about:blank", "_blank"); if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Unstable</title><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#0d0d0d}iframe{width:100%;height:100%;border:none;display:block}</style></head><body><iframe src="${activeTab.url}" allowfullscreen allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *"></iframe></body></html>`);
-    win.document.close();
+    const doc = win.document;
+    doc.title = "Unstable";
+
+    const html = doc.documentElement;
+    const body = doc.body || doc.createElement("body");
+    html.style.margin = "0";
+    html.style.padding = "0";
+    html.style.width = "100%";
+    html.style.height = "100%";
+    html.style.background = "#0d0d0d";
+    body.style.margin = "0";
+    body.style.padding = "0";
+    body.style.width = "100%";
+    body.style.height = "100%";
+    body.style.background = "#0d0d0d";
+
+    const iframe = doc.createElement("iframe");
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.style.display = "block";
+    iframe.src = activeTab.url;
+    iframe.setAttribute("allowfullscreen", "");
+    iframe.setAttribute("allow", "fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *");
+
+    body.replaceChildren(iframe);
+    if (!doc.body) html.appendChild(body);
   }
 
   function toggleDevTools() {
