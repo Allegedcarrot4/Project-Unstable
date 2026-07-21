@@ -17,9 +17,6 @@ setInterval(() => {}, 60000);
 
 const { default: app } = await import("./app");
 
-// Root-level health check — Railway pings this
-app.get("/", async (_req, reply) => reply.type("text/plain").send("OK"));
-
 // Railway diagnostic endpoint
 app.get("/api/railway-info", async (_req, reply) => {
   const addr = app.server.address();
