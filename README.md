@@ -22,7 +22,7 @@
 - Recordable keyboard shortcuts
 - `unstable://` protocol (newtab, settings, credits, blank)
 - Password-protected access
-- Dark themes with animated Vanta backgrounds
+- Dark themes with animated backgrounds
 
 ---
 
