@@ -68,7 +68,11 @@ export function unrewriteUrl(url: string | URL) {
 
 	const prefixed = location.origin + config.prefix;
 
-	if (url.startsWith("javascript:")) {
+	if (
+		url.startsWith("javascript:") ||
+		url.startsWith("data:") ||
+		url.startsWith("vbscript:")
+	) {
 		//TODO
 		return url;
 	} else if (url.startsWith("blob:")) {
