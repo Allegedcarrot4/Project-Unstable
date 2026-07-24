@@ -33,6 +33,10 @@ export class ScramjetServiceWorker extends EventTarget {
 	 */
 	syncPool: Record<number, (val?: any) => void> = {};
 	/**
+	 * Set of internally issued sync tokens that are valid for callback resolution.
+	 */
+	issuedSyncTokens = new Set<number>();
+	/**
 	 * Current sync token for collected messages in the queue.
 	 */
 	synctoken = 0;
@@ -69,9 +73,14 @@ export class ScramjetServiceWorker extends EventTarget {
 			if ("scramjet$token" in data) {
 				// (ack message)
 				const token = data.scramjet$token;
-				if (Object.prototype.hasOwnProperty.call(this.syncPool, token)) {
+				if (
+					typeof token === "number" &&
+					this.issuedSyncTokens.has(token) &&
+					Object.prototype.hasOwnProperty.call(this.syncPool, token)
+				) {
 					const cb = this.syncPool[token];
 					delete this.syncPool[token];
+					this.issuedSyncTokens.delete(token);
 					if (typeof cb === "function") cb(data);
 				}
 
