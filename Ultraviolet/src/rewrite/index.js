@@ -118,6 +118,10 @@ class Ultraviolet {
 			return "javascript:" + this.js.rewrite(str.slice("javascript:".length));
 		}
 
+		if (str.startsWith("data:") || str.startsWith("vbscript:")) {
+			return "about:blank";
+		}
+
 		if (/^[a-z][a-z0-9+.-]*:/i.test(str) && !/^https?:\/\//i.test(str)) {
 			return str;
 		}
