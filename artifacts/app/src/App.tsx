@@ -4655,8 +4655,20 @@ function BrowserApp({
   function handleCloseOtherTabs(id: string) {
     setTabs(tabs.filter(t => t.id === id));
   }
+  function isAllowedExternalUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
   function handleOpenInNewTab() {
     if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
+    if (!isAllowedExternalUrl(activeTab.url)) return;
+    const safeUrl = new URL(activeTab.url).href;
+
     const win = window.open("about:blank", "_blank"); if (!win) return;
     const doc = win.document;
     doc.title = "Unstable";
@@ -4679,7 +4691,7 @@ function BrowserApp({
     iframe.style.height = "100%";
     iframe.style.border = "none";
     iframe.style.display = "block";
-    iframe.src = activeTab.url;
+    iframe.src = safeUrl;
     iframe.setAttribute("allowfullscreen", "");
     iframe.setAttribute("allow", "fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *");
 
