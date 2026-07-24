@@ -478,6 +478,7 @@ export class ScramjetClient {
 		if (!target) return;
 		if (!prop) return;
 		if (prop === "__proto__" || prop === "prototype" || prop === "constructor") return;
+		if (this.isUnsafeProxyTarget(target)) return;
 		if (!Reflect.has(target, prop)) return;
 
 		const value = Reflect.get(target, prop);
@@ -588,6 +589,14 @@ export class ScramjetClient {
 	}
 	private isUnsafePropertyKey(key: string): boolean {
 		return key === "__proto__" || key === "prototype" || key === "constructor";
+	}
+
+	private isUnsafeProxyTarget(target: any): boolean {
+		return (
+			target === Object.prototype ||
+			target === Function.prototype ||
+			target === Array.prototype
+		);
 	}
 
 	Trap<T>(name: string | string[], descriptor: Trap<T>): PropertyDescriptor {
