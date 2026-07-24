@@ -586,6 +586,10 @@ export class ScramjetClient {
 		h.getOwnPropertyDescriptor = getOwnPropertyDescriptorHandler;
 		target[prop] = new Proxy(value, h);
 	}
+	private isUnsafePropertyKey(key: string): boolean {
+		return key === "__proto__" || key === "prototype" || key === "constructor";
+	}
+
 	Trap<T>(name: string | string[], descriptor: Trap<T>): PropertyDescriptor {
 		if (Array.isArray(name)) {
 			for (const n of name) {
@@ -596,7 +600,11 @@ export class ScramjetClient {
 		}
 
 		const split = name.split(".");
+		if (split.some((segment) => this.isUnsafePropertyKey(segment))) return;
+
 		const prop = split.pop();
+		if (!prop || this.isUnsafePropertyKey(prop)) return;
+
 		const target = split.reduce((a, b) => a?.[b], this.global);
 		if (!target) return;
 
