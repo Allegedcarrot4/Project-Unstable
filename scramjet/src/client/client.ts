@@ -453,6 +453,16 @@ export class ScramjetClient {
 		}
 
 		const split = name.split(".");
+		if (
+			split.some(
+				(segment) =>
+					!segment ||
+					segment === "__proto__" ||
+					segment === "prototype" ||
+					segment === "constructor"
+			)
+		)
+			return;
 		const prop = split.pop();
 		const target = split.reduce((a, b) => a?.[b], this.global);
 		if (!target) return;
