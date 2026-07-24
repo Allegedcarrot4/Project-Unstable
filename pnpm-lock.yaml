@@ -90,6 +90,7 @@ overrides:
   picomatch@>=4: ^4.0.4
   brace-expansion: ^2.0.3
   tar: ^7.5.19
+  websocket-driver: ^0.7.5
   js-yaml: ^4.2.0
   markdown-it: ^14.2.0
   '@babel/core': ^7.29.6

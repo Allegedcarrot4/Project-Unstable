@@ -125,6 +125,7 @@
 			"webpack-dev-server": ">=5.2.4",
 			"node-tar": ">=7.5.19",
 			"tar": ">=7.5.19",
+			"websocket-driver": ">=0.7.5",
 			"markdown-it": ">=14.2.0",
 			"flatted": ">=3.4.2",
 			"esbuild": ">=0.28.1",
