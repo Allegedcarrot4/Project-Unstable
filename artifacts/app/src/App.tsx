@@ -242,6 +242,7 @@ const SETTINGS_KEY = "unstable_settings";
 const PANIC_URL_KEY = "unstable_panic_url";
 const BARE_KEY = "unstable_bare";
 const DEVICE_ID_KEY = "unstable_device_id";
+const TABS_KEY = "unstable_tabs";
 
 const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab1: "Alt+1", tab2: "Alt+2", tab3: "Alt+3", tab4: "Alt+4", tab5: "Alt+5",
@@ -320,7 +321,7 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
   { id: "github", name: "GitHub", url: "https://github.com", favicon: faviconUrl("github.com") },
   { id: "spotify", name: "Spotify", url: "https://open.spotify.com", favicon: faviconUrl("open.spotify.com") },
   { id: "twitch", name: "Twitch", url: "https://twitch.tv", favicon: faviconUrl("twitch.tv") },
-  { id: "vscode", name: "VS Code", url: "https://vscode.dev", favicon: "/vscode-logo.png" },
+  { id: "vscode", name: "VS Code", url: "https://vscode.dev", favicon: faviconUrl("vscode.dev") },
 ];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -637,6 +638,26 @@ function loadCustomShortcuts(): Shortcut[] {
   catch { return []; }
 }
 function saveCustomShortcuts(s: Shortcut[]) { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(s)); }
+
+function loadTabs(): { tabs: Tab[]; activeId: string } {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (!raw) { const t = makeTab(); return { tabs: [t], activeId: t.id }; }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return { tabs: parsed.map(t => ({ ...t, loading: false })), activeId: parsed[0]?.id ?? "" };
+    }
+    if (parsed && Array.isArray(parsed.tabs)) {
+      const tabs = parsed.tabs.map(t => ({ ...t, loading: false }));
+      const activeId = tabs.some(t => t.id === parsed.activeId) ? parsed.activeId : tabs[0]?.id ?? "";
+      return { tabs, activeId };
+    }
+    const t = makeTab(); return { tabs: [t], activeId: t.id };
+  } catch { const t = makeTab(); return { tabs: [t], activeId: t.id }; }
+}
+function saveTabs(t: Tab[], activeId?: string) {
+  localStorage.setItem(TABS_KEY, JSON.stringify({ tabs: t, activeId }));
+}
 
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
@@ -4155,8 +4176,9 @@ function BrowserApp({
   if (pathname !== "/" && !isProxyPath) {
     return <NotFound />;
   }
-  const [tabs, setTabs] = useState<Tab[]>([makeTab()]);
-  const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
+  const initialTabs = useRef(loadTabs()).current;
+  const [tabs, setTabs] = useState<Tab[]>(initialTabs.tabs);
+  const [activeTabId, setActiveTabId] = useState<string>(initialTabs.activeId || initialTabs.tabs[0].id);
   const [urlInput, setUrlInput] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
   const [adblockCount, setAdblockCount] = useState(0);
@@ -4292,6 +4314,7 @@ function BrowserApp({
 
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
   useEffect(() => { saveSettings(settings); }, [settings]);
+  useEffect(() => { saveTabs(tabs, activeTabId); }, [tabs, activeTabId]);
 
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
@@ -5114,6 +5137,55 @@ function BrowserApp({
   );
 }
 
+// ─── Loading Spinner ─────────────────────────────────────────────────────────
+
+const LOADING_MESSAGES = [
+  { at: 0, text: "Starting services…" },
+  { at: 33, text: "Connecting…" },
+  { at: 66, text: "Almost ready…" },
+];
+
+function LoadingSpinner() {
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const duration = 3500;
+    let raf: number;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setProgress(Math.round(eased * 100));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const msg = [...LOADING_MESSAGES].reverse().find(m => progress >= m.at)?.text ?? LOADING_MESSAGES[0].text;
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  const offset = c - (progress / 100) * c;
+  return (
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 32 }}>
+      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r={r} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="9" />
+          <circle cx="70" cy="70" r={r} fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round"
+            strokeDasharray={c} strokeDashoffset={offset}
+            transform="rotate(-90 70 70)" style={{ transition: "stroke-dashoffset 0.1s linear" }} />
+        </svg>
+        <span style={{ position: "absolute", fontFamily: "'Space Grotesk', sans-serif", fontSize: "1.6rem", fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>
+          {progress}%
+        </span>
+      </div>
+      <motion.span key={msg} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+        style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", color: "rgba(255,255,255,0.45)", letterSpacing: "0.08em" }}>
+        {msg}
+      </motion.span>
+    </div>
+  );
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -5201,7 +5273,6 @@ export default function App() {
         setUser(null);
         setProfile(null);
         setAuthContext({ isBanned: false, banReason: null });
-        setAccountError(err instanceof Error ? `${err.message} Continuing locally.` : "Account sync unavailable. Continuing locally.");
         setAccountLoading(false);
       }
     }
@@ -5236,8 +5307,10 @@ export default function App() {
     <>
       <AnimatePresence mode="wait">
         {accountLoading ? (
-          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d0d0d", color: "rgba(255,255,255,0.55)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", fontSize: "0.68rem" }}>
-            syncing account…
+          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#000", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+            <LoadingSpinner />
           </motion.div>
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
