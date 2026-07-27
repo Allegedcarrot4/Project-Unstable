@@ -1,4 +1,3 @@
-
 packages:
   - artifacts/*
   - lib/*
@@ -31,6 +30,8 @@ catalog:
 allowBuilds:
   '@mercuryworkshop/scramjet': true
   bufferutil: true
+  esbuild: set this to true or false
+  ttf2woff2: set this to true or false
 # ============================================================================
 # SECURITY: Minimum release age for npm packages (supply-chain attack defense)
 # ============================================================================
