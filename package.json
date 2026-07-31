@@ -10,10 +10,14 @@
     "build:api-server": "pnpm --filter @workspace/api-server run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "vite": "vite build --config artifacts/app/vite.config.ts"
+    "vite": "vite build --config artifacts/app/vite.config.ts",
+    "dev:api": "pnpm --filter @workspace/api-server run dev",
+    "dev:app": "vite --config artifacts/app/vite.config.ts",
+    "dev": "concurrently -n api,app -c blue,green \"pnpm run dev:api\" \"pnpm run dev:app\""
   },
   "private": true,
   "devDependencies": {
+    "concurrently": "^10.0.4",
     "prettier": "^3.8.4",
     "typescript": "~6.0.3",
     "vite": "catalog:"

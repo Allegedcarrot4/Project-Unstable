@@ -12,6 +12,9 @@ export interface ErrorDetails {
   clientOnline: boolean;
   backendStatus: 'online' | 'offline' | 'unknown';
   latency?: number;
+  transport?: string;
+  encoding?: string;
+  transportEncryption?: boolean;
   originalError?: Error;
   suggestion?: string;
 }
@@ -116,6 +119,11 @@ Category: ${errorDetails.category}
 ${errorDetails.statusCode ? `Status Code: ${errorDetails.statusCode}` : ''}
 ${errorDetails.url ? `URL: ${errorDetails.url}` : ''}
 ${errorDetails.suggestion ? `Suggestion: ${errorDetails.suggestion}` : ''}
+
+Proxy:
+- Transport: ${errorDetails.transport || 'N/A'}
+- Encoding: ${errorDetails.encoding || 'N/A'}
+- Transport Encryption: ${errorDetails.transportEncryption ? 'Enabled' : 'Disabled'}
 
 Client Status:
 - Online: ${errorDetails.clientOnline ? 'Yes' : 'No'}

@@ -157,6 +157,18 @@ export function ErrorScreen() {
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '1rem', marginBottom: '1rem', rowGap: '0.75rem' }}>
                   <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Error Type</span>
                   <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{currentError.category}</span>
+                  {currentError.transport && (
+                    <>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Transport</span>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{currentError.transport}</span>
+                    </>
+                  )}
+                  {currentError.encoding && (
+                    <>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Encoding</span>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{currentError.encoding}{currentError.transportEncryption ? ' + encrypt' : ''}</span>
+                    </>
+                  )}
                   {currentError.statusCode && (
                     <>
                       <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Status Code</span>
@@ -237,6 +249,24 @@ export function ErrorScreen() {
                         <span style={{ fontSize: '0.65rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Latency</span>
                       </div>
                       <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0 }}>{currentError.latency}ms</p>
+                    </div>
+                  )}
+                  {currentError.transport && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                        <span style={{ width: '14px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))` }}>T</span>
+                        <span style={{ fontSize: '0.65rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Transport</span>
+                      </div>
+                      <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0, textTransform: 'capitalize' }}>{currentError.transport}</p>
+                    </div>
+                  )}
+                  {currentError.encoding && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                        <span style={{ width: '14px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))` }}>E</span>
+                        <span style={{ fontSize: '0.65rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Encoding</span>
+                      </div>
+                      <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0 }}>{currentError.encoding}{currentError.transportEncryption ? ' (encrypted)' : ''}</p>
                     </div>
                   )}
                 </div>

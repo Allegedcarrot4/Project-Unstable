@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, RefreshCw, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 import NotFound from "./pages/not-found";
@@ -12,7 +12,7 @@ import { makeCodec } from "./lib/codec";
 import { useErrorHandler } from "./lib/errorContext";
 import { addHistory, getHistory, clearHistory, deleteHistoryEntry, searchHistory } from "./lib/history";
 import { getBookmarks, addBookmark, removeBookmark, searchBookmarks, isBookmarked } from "./lib/bookmarks";
-import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload } from "./lib/downloads";
+import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload, downloadFile, retryDownload, cancelDownload, formatBytes, formatSpeed, subscribe, type DownloadEntry } from "./lib/downloads";
 import { loadWidgetConfig, saveWidgetConfig, toggleWidget, getGreeting, QUOTES, type WidgetType, type WidgetConfig, type Quote } from "./lib/widgets";
 
 
@@ -43,7 +43,7 @@ interface KeyShortcuts {
 }
 
 type ProxyEngine = "auto" | "uv" | "scramjet";
-type TransportMode = "auto" | "wisp" | "bare" | "epoxy";
+type TransportMode = "auto" | "wisp" | "bare" | "epoxy" | "drift";
 type ThemeId = "dark" | "midnight" | "ocean" | "sunset" | "cyberpunk" | "matrix" | "tuff";
 
 interface ThemeColors {
@@ -190,6 +190,7 @@ interface Shortcut { id: string; name: string; url: string; favicon: string; }
 interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
+  muted: boolean;
   /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
   lastProxyUrl?: string;
 }
@@ -718,7 +719,7 @@ function makeTab(url = ""): Tab {
     title = url.slice("unstable://".length);
     title = title.charAt(0).toUpperCase() + title.slice(1);
   }
-  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false };
+  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false, muted: false };
 }
 
 // ─── Proxy state ──────────────────────────────────────────────────────────────
@@ -730,7 +731,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare" | "epoxy";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative
+  transport: "none" | "libcurl" | "bare" | "epoxy" | "drift";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative, drift = rust wasm wisp
   bare: number;
   switching: boolean;
 }
@@ -793,6 +794,8 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
         },
         flags: { rewriterLogs: false, cleanErrors: false },
         codec: makeCodec(codecType),
+        transport: transportMode,
+        encoding: codecType,
       });
       await scrController.init();
     }
@@ -875,6 +878,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
       emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
     };
 
+    const tryDrift = async () => trySetTransport("/drift/index.mjs", [{ wisp: wispUrl }], "drift");
     const tryWisp = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: wispUrl }], "libcurl");
     const tryRelay = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: relayUrl }], "libcurl");
     const tryEpoxy = async () => trySetTransport("/epoxy/index.mjs", [{ wisp: wispUrl }], "epoxy");
@@ -886,9 +890,12 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
       try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
       try { await tryWisp(); } catch { await tryBare(); }
+    } else if (mode === "drift") {
+      try { await tryDrift(); } catch { await tryBare(); }
     } else {
-      // auto: wisp → relay → epoxy → bare
-      try { await tryWisp(); } catch {
+      // auto: drift → wisp → relay → epoxy → bare
+      try { await tryDrift(); } catch {
+        if (!transportSet) try { await tryWisp(); } catch {}
         if (!transportSet) try { await tryRelay(); } catch {}
         if (!transportSet) try { await tryEpoxy(); } catch {}
         if (!transportSet) try { await tryBare(); } catch {}
@@ -917,6 +924,11 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
       if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
       emitStatus({ switching: false, transport: "bare", bare: n });
     };
+    const tryDrift = async () => {
+      await bareConn.setTransport("/drift/index.mjs", [{ wisp: wispUrl }]);
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      emitStatus({ switching: false, transport: "drift", bare: n });
+    };
     const tryWisp = async () => {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
       if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
@@ -937,8 +949,11 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
       try { await tryEpoxy(); } catch { await tryBare(); }
     } else if (mode === "wisp") {
       try { await tryWisp(); } catch { await tryBare(); }
+    } else if (mode === "drift") {
+      try { await tryDrift(); } catch { await tryBare(); }
     } else {
-      try { await tryWisp(); } catch {
+      try { await tryDrift(); } catch {
+        try { await tryWisp(); } catch {}
         try { await tryRelay(); } catch {}
         try { await tryEpoxy(); } catch {}
         await tryBare();
@@ -1119,7 +1134,7 @@ function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, tran
   const phaseLabel = s.phase === "idle" ? "Initializing…"
     : s.phase === "loading" ? "Starting proxy…"
       : s.switching ? `Switching ws${s.bare}…`
-        : s.phase === "ready" ? (s.transport === "libcurl" ? "Libcurl + Wisp" : `Bare ws${s.bare}`)
+        : s.phase === "ready" ? (s.transport === "libcurl" ? "Libcurl + Wisp" : s.transport === "drift" ? "Drift (Rust WASM)" : `Bare ws${s.bare}`)
           : s.phase === "error" ? `Error: ${s.message?.slice(0, 60)}`
             : "…";
   const phaseColor = s.phase === "ready" ? green : s.phase === "error" ? red : amber;
@@ -1169,7 +1184,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
   const phaseLabel = s.phase === "idle" ? "initializing…"
     : s.phase === "loading" ? "starting proxy…"
       : s.switching ? `switching ws${s.bare}…`
-        : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : `bare ws${s.bare}`)
+        : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : s.transport === "drift" ? "drift" : `bare ws${s.bare}`)
           : isError ? `err: ${s.message.slice(0, 40)}`
             : "…";
   const phaseColor = isReady ? green : isError ? red : amber;
@@ -2036,11 +2051,11 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport mode</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Determines how your traffic is routed. Auto tries Wisp (libcurl) first, falls back to bare HTTP.
+          Determines how your traffic is routed. Ordered fastest to slowest: Drift (Rust WASM) &gt; Wisp &gt; Epoxy &gt; Bare HTTP. Auto tries Drift first, then Wisp, then bare HTTP.
         </p>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "wisp", "epoxy", "bare"] as TransportMode[]).map(id => {
-            const labels: Record<TransportMode, string> = { auto: "Auto", wisp: "Wisp", epoxy: "Epoxy", bare: "Bare" };
+          {(["auto", "drift", "wisp", "epoxy", "bare"] as TransportMode[]).map(id => {
+            const labels: Record<TransportMode, string> = { auto: "Auto", drift: "Drift", wisp: "Wisp", epoxy: "Epoxy", bare: "Bare" };
             const active = settings.transportMode === id;
             return (
               <motion.button
@@ -2356,8 +2371,10 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   useEffect(() => {
     if (!modeDropdownOpen) return;
     const handler = () => setModeDropdownOpen(false);
+    const blurHandler = () => setModeDropdownOpen(false);
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    window.addEventListener("blur", blurHandler);
+    return () => { document.removeEventListener("mousedown", handler); window.removeEventListener("blur", blurHandler); };
   }, [modeDropdownOpen]);
 
   useEffect(() => {
@@ -3271,8 +3288,10 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
     }
+    function handleBlur() { setMenuOpenId(null); }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    window.addEventListener("blur", handleBlur);
+    return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
   }, []);
 
   useEffect(() => {
@@ -3472,12 +3491,12 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "4px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
             {menuOpenId === sc.id && (
               <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "4px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
-                <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
                   onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Edit</button>
-                <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "block", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}><Pencil size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Edit</button>
+                <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
                   onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "none"}>Delete</button>
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}><Trash2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Delete</button>
               </div>
             )}
           </motion.div>
@@ -3729,39 +3748,81 @@ function BookmarksPage({ onNavigate }: { onNavigate: (url: string) => void }) {
 
 function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
   const [entries, setEntries] = useState<DownloadEntry[]>(() => getDownloads());
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"date" | "name" | "size">("date");
 
   const refresh = useCallback(() => setEntries(getDownloads()), []);
+
+  useEffect(() => {
+    const unsub = subscribe(refresh);
+    return unsub;
+  }, [refresh]);
+
+  const filtered = useMemo(() => {
+    let list = entries;
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(d => d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q));
+    }
+    const sorted = [...list];
+    if (sortBy === "name") sorted.sort((a, b) => a.filename.localeCompare(b.filename));
+    else if (sortBy === "size") sorted.sort((a, b) => b.totalBytes - a.totalBytes);
+    else sorted.sort((a, b) => b.startedAt - a.startedAt);
+    return sorted;
+  }, [entries, search, sortBy]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}>
       <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--t-border-light)", display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
         <Download size={16} />
         <h2 style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--t-text)", flex: 1, letterSpacing: "0.01em" }}>Downloads</h2>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search downloads…"
+          style={{ background: "var(--t-bg-tertiary)", border: "1px solid var(--t-border-light)", borderRadius: "6px", padding: "0.3rem 0.6rem", fontSize: "0.65rem", color: "var(--t-text)", outline: "none", width: 160, fontFamily: "'Space Grotesk', sans-serif" }}
+        />
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
+          style={{ background: "var(--t-bg-tertiary)", border: "1px solid var(--t-border-light)", borderRadius: "6px", padding: "0.3rem 0.4rem", fontSize: "0.6rem", color: "var(--t-text)", outline: "none", fontFamily: "'Space Grotesk', sans-serif" }}>
+          <option value="date">Newest</option>
+          <option value="name">Name</option>
+          <option value="size">Size</option>
+        </select>
         {entries.length > 0 && (
           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             onClick={() => { clearDownloads(); refresh(); }}
             style={{ background: "none", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,120,120,0.8)", padding: "0.35rem 0.7rem", borderRadius: "6px", fontSize: "0.6rem", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.3rem" }}
-          ><Trash2 size={12} /> Clear</motion.button>
+          ><Trash2 size={12} /> Clear all</motion.button>
         )}
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.5rem" }}>
-        {entries.length === 0 ? (
-          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>No downloads yet</p>
+        {filtered.length === 0 ? (
+          <p style={{ textAlign: "center", marginTop: "3rem", color: "var(--t-text-muted)", fontSize: "0.7rem" }}>
+            {search ? "No matching downloads" : "No downloads yet"}
+          </p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            {entries.map(d => (
-              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.75rem", borderRadius: "8px", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)" }}>
-                <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--t-bg-tertiary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Download size={14} style={{ color: d.state === "complete" ? "var(--t-accent)" : "var(--t-text-muted)" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+            {filtered.map(d => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.6rem 0.75rem", borderRadius: "8px", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)" }}>
+                <div style={{ width: 34, height: 34, borderRadius: 6, background: "var(--t-bg-tertiary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Download size={14} style={{ color: d.state === "complete" ? "var(--t-accent)" : d.state === "error" ? "rgba(255,120,120,0.7)" : "var(--t-text-muted)" }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 500, color: "var(--t-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</p>
                   <p style={{ margin: "0.05rem 0 0", fontSize: "0.55rem", color: "var(--t-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {d.state === "complete" ? `${(d.totalBytes / 1024 / 1024).toFixed(1)} MB` : d.state === "error" ? "Failed" : "Downloading…"}
-                    {" · "}{new Date(d.startedAt).toLocaleDateString()}
+                    {d.state === "complete" && `${formatBytes(d.totalBytes)} · ${new Date(d.completedAt || d.startedAt).toLocaleDateString()}`}
+                    {d.state === "error" && `Failed${d.errorMessage ? ": " + d.errorMessage : ""}`}
+                    {d.state === "in-progress" && (
+                      <span>{d.totalBytes > 0 ? `${formatBytes(d.downloadedBytes)} / ${formatBytes(d.totalBytes)}` : formatBytes(d.downloadedBytes)}{d.speedBytesPerSec ? ` · ${formatSpeed(d.speedBytesPerSec)}` : ""}</span>
+                    )}
                   </p>
+                  {d.state === "in-progress" && d.totalBytes > 0 && (
+                    <div style={{ marginTop: 4, height: 3, borderRadius: 2, background: "var(--t-bg-tertiary)", overflow: "hidden" }}>
+                      <motion.div animate={{ width: `${Math.min((d.downloadedBytes / d.totalBytes) * 100, 100)}%` }}
+                        style={{ height: "100%", borderRadius: 2, background: "var(--t-accent, #5898d4)", transition: "width 0.3s ease" }} />
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: "0.25rem" }}>
+                <div style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
                   {d.state === "complete" && (
                     <button onClick={() => onNavigate(d.url)}
                       style={{ background: "var(--t-bg-tertiary)", border: "none", color: "var(--t-text-secondary)", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif" }}
@@ -3769,11 +3830,26 @@ function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
                       onMouseLeave={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
                     ><ExternalLink size={12} /></button>
                   )}
-                  <button onClick={() => { removeDownload(d.id); refresh(); }}
-                    style={{ background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "5px", borderRadius: "6px" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  ><X size={12} /></button>
+                  {d.state === "error" && (
+                    <button onClick={() => retryDownload(d.id)}
+                      style={{ background: "var(--t-bg-tertiary)", border: "none", color: "var(--t-text-secondary)", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif", display: "flex", alignItems: "center", gap: "0.2rem" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                    ><RefreshCw size={11} /> Retry</button>
+                  )}
+                  {d.state === "in-progress" ? (
+                    <button onClick={() => { cancelDownload(d.id); }}
+                      style={{ background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "5px", borderRadius: "6px" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    ><X size={12} /></button>
+                  ) : (
+                    <button onClick={() => { removeDownload(d.id); refresh(); }}
+                      style={{ background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "5px", borderRadius: "6px" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-tertiary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    ><X size={12} /></button>
+                  )}
                 </div>
               </div>
             ))}
@@ -3784,11 +3860,26 @@ function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
   );
 }
 
+// ─── Split pane header ────────────────────────────────────────────────────────
+
+function SplitHeader({ tab, onSwap, onClose }: { tab: Tab; onSwap: () => void; onClose: () => void }) {
+  const label = tab.title || getDomainFromProxyUrl(tab.url) || "New Tab";
+  const hdrBtn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.35)", cursor: "pointer", padding: "2px", borderRadius: "3px", display: "flex", alignItems: "center", justifyContent: "center" };
+  return (
+    <div onClick={onSwap} title="Click to swap sides" style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.45rem", background: "#0c0c0c", borderBottom: "1px solid #1a1a1a", flexShrink: 0, fontSize: "0.62rem", color: "rgba(255,255,255,0.55)", userSelect: "none", cursor: "pointer" }}>
+      {tab.favicon ? <img src={tab.favicon} alt="" width={12} height={12} style={{ borderRadius: 2, objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} /> : <Globe size={12} style={{ opacity: 0.5 }} />}
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <button title="Swap sides" style={hdrBtn} onClick={e => { e.stopPropagation(); onSwap(); }} onMouseEnter={e => e.currentTarget.style.color = "#e8e8e8"} onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.35)"}><ArrowLeftRight size={11} /></button>
+      <button title="Close split" style={hdrBtn} onClick={e => { e.stopPropagation(); onClose(); }} onMouseEnter={e => e.currentTarget.style.color = "#e8e8e8"} onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.35)"}><X size={11} /></button>
+    </div>
+  );
+}
+
 // ─── Browser tab ──────────────────────────────────────────────────────────────
 
-function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit }: {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, inSplit }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
-  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; inSplit?: boolean;
 }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
@@ -3800,14 +3891,16 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     function handleClick(e: MouseEvent) {
       if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxOpen(false);
     }
+    function handleBlur() { setCtxOpen(false); }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    window.addEventListener("blur", handleBlur);
+    return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
   }, []);
 
   return (
     <motion.div layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12, width: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}
       onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
-      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", minWidth: 110, maxWidth: 180, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
     >
@@ -3818,6 +3911,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
         }
       </div>
       <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
+      {tab.muted && <VolumeX size={11} style={{ flexShrink: 0, opacity: 0.55 }} />}
       <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
@@ -3826,12 +3920,13 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
         {ctxOpen && (
           <motion.div ref={ctxRef} initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
             style={{ position: "fixed", top: ctxPos.y, left: ctxPos.x, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
-            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tab</motion.button>
-            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Refresh tab</motion.button>}
-            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Duplicate tab</motion.button>}
-            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onSplit?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Split view</motion.button>}
-            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close tabs to right</motion.button>
-            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>Close other tabs</motion.button>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><X size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close tab</motion.button>
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><RefreshCw size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Refresh tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Copy size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Duplicate tab</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onSplit?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Columns2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{inSplit ? "Close split" : "Split view"}</motion.button>}
+            {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onToggleMute?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>{tab.muted ? <VolumeX size={12} style={{ opacity: 0.7, flexShrink: 0 }} /> : <Volume2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />}{tab.muted ? "Unmute tab" : "Mute tab"}</motion.button>}
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ChevronRight size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close tabs to right</motion.button>
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Layers size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close other tabs</motion.button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4182,14 +4277,19 @@ function BrowserApp({
   const [urlInput, setUrlInput] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
   const [adblockCount, setAdblockCount] = useState(0);
-  const [splitTabId, setSplitTabId] = useState<string | null>(null);
+  const [split, setSplit] = useState<{ other: string; ratio: number; direction: "horizontal" | "vertical" } | null>(null);
+  const splitPaneRef = useRef<HTMLDivElement>(null);
+  const paneARef = useRef<HTMLDivElement>(null);
+  const [splitDragging, setSplitDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const toolMenuRef = useRef<HTMLDivElement>(null);
   const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
   const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
-  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {} });
+  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {}, activateTab: (id: string) => {} });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -4206,9 +4306,12 @@ function BrowserApp({
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (urlEngineRef.current && !urlEngineRef.current.contains(e.target as Node)) setUrlEngineOpen(false);
+      if (toolMenuRef.current && !toolMenuRef.current.contains(e.target as Node)) setToolMenuOpen(false);
     }
+    function handleBlur() { setToolMenuOpen(false); setUrlEngineOpen(false); }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    window.addEventListener("blur", handleBlur);
+    return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
   }, []);
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
@@ -4285,17 +4388,7 @@ function BrowserApp({
       if (e.data?.type === "unstable-download" && e.data?.url) {
         const url = e.data.url;
         const filename = e.data.filename || "download";
-        fetch(url).then(r => r.blob()).then(blob => {
-          const blobUrl = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = blobUrl;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(blobUrl);
-          addDownload(filename, url, blob.size, blob.type);
-        }).catch(() => {});
+        void downloadFile(url, filename);
         return;
       }
     }
@@ -4351,9 +4444,14 @@ function BrowserApp({
   // Watch proxy phase for errors -> show our error screen
   useEffect(() => {
     if (proxyStatus.phase === "error") {
-      void setError(new Error(proxyStatus.message || "Proxy connection failed"), "/proxy");
+      void setError(new Error(proxyStatus.message || "Proxy connection failed"), {
+        url: "/proxy",
+        transport: settings.transportMode,
+        encoding: settings.codec,
+        transportEncryption: settings.transportEncryption,
+      });
     }
-  }, [proxyStatus.phase, proxyStatus.message, setError]);
+  }, [proxyStatus.phase, proxyStatus.message, settings.transportMode, settings.codec, settings.transportEncryption, setError]);
 
   // Font obfuscation toggle
   useEffect(() => {
@@ -4502,8 +4600,8 @@ function BrowserApp({
     el?.scrollIntoView({ block: "nearest" });
   }, [suggestIndex]);
 
-  const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts });
-  useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts }; });
+  const stateRef = useRef({ tabs, activeTabId, settings, customShortcuts, split });
+  useEffect(() => { stateRef.current = { tabs, activeTabId, settings, customShortcuts, split }; });
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -4513,12 +4611,12 @@ function BrowserApp({
       if ((el as HTMLElement)?.isContentEditable) return;
       const combo = buildCombo(e);
       if (!combo) return;
-      const { tabs, activeTabId, settings, customShortcuts } = stateRef.current;
+      const { tabs, activeTabId, settings, customShortcuts, split } = stateRef.current;
       const s = settings.shortcuts;
 
       for (let i = 1; i <= 9; i++) {
         if (combo === s[`tab${i}` as keyof KeyShortcuts]) {
-          e.preventDefault(); const t = tabs[i - 1]; if (t) setActiveTabId(t.id); return;
+          e.preventDefault(); const t = tabs[i - 1]; if (t) navRefs.current.activateTab(t.id); return;
         }
       }
       if (combo === s.closeTab) {
@@ -4526,10 +4624,13 @@ function BrowserApp({
         if (tabs.length === 1) { setTabs([makeTab()]); return; }
         const idx = tabs.findIndex(t => t.id === activeTabId);
         const next = tabs.filter(t => t.id !== activeTabId);
-        setTabs(next); setActiveTabId(next[Math.min(idx, next.length - 1)].id); return;
+        const newActive = next[Math.min(idx, next.length - 1)].id;
+        setTabs(next); setActiveTabId(newActive);
+        if (split && (split.other === activeTabId || split.other === newActive)) setSplit(null);
+        return;
       }
       if (combo === s.newTab) {
-        e.preventDefault(); const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); return;
+        e.preventDefault(); setSplit(null); const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); return;
       }
       if (combo === s.addShortcut) {
         e.preventDefault();
@@ -4648,13 +4749,16 @@ function BrowserApp({
     const src = iframeRef.current.src; iframeRef.current.src = "";
     setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
-  function handleNewTab() { const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
-  navRefs.current = { handleNavigate, handleNewTab };
+  function handleNewTab() { setSplit(null); const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
+  navRefs.current = { handleNavigate, handleNewTab, activateTab: handleTabActivate };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
     const idx = tabs.findIndex(t => t.id === id);
     const next = tabs.filter(t => t.id !== id); setTabs(next);
-    if (activeTabId === id) setActiveTabId(next[Math.min(idx, next.length - 1)].id);
+    const newActive = activeTabId === id ? next[Math.min(idx, next.length - 1)].id : activeTabId;
+    if (activeTabId === id) setActiveTabId(newActive);
+    if (split?.other === id) { setSplit(null); return; }
+    if (split && newActive === split.other) setSplit(null);
   }
   function handleRefreshTab(id: string) {
     const iframe = iframeRefs.current[id];
@@ -4673,10 +4777,90 @@ function BrowserApp({
     const idx = tabs.findIndex(t => t.id === id);
     const keep = tabs.slice(0, idx + 1);
     setTabs(keep);
-    if (!keep.find(t => t.id === activeTabId)) setActiveTabId(keep[keep.length - 1].id);
+    const newActive = keep.some(t => t.id === activeTabId) ? activeTabId : keep[keep.length - 1].id;
+    if (activeTabId !== newActive) setActiveTabId(newActive);
+    if (split && (newActive === split.other || !keep.some(t => t.id === split.other))) setSplit(null);
   }
   function handleCloseOtherTabs(id: string) {
     setTabs(tabs.filter(t => t.id === id));
+    if (activeTabId !== id) setActiveTabId(id);
+    setSplit(null);
+  }
+  function handleToggleMute(id: string) {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, muted: !t.muted } : t));
+  }
+  function handleTabActivate(id: string) {
+    if (split) {
+      if (id === split.other) { handleSwapSplit(); return; }
+      if (id === activeTabId) return;
+      setSplit(null);
+    }
+    setActiveTabId(id);
+  }
+  function handleSplitTab(id: string) {
+    if (split && id !== activeTabId) {
+      if (split.other === id) { setSplit(null); return; }
+      setSplit({ ...split, other: id });
+      return;
+    }
+    const nt = makeTab();
+    setTabs(prev => [...prev, nt]);
+    setSplit({ other: nt.id, ratio: 0.5, direction: "horizontal" });
+  }
+  function handleSplitActive() {
+    if (split) { setSplit(null); return; }
+    const nt = makeTab();
+    setTabs(prev => [...prev, nt]);
+    setSplit({ other: nt.id, ratio: 0.5, direction: "horizontal" });
+  }
+  function handleSwapSplit() {
+    if (!split) return;
+    const other = split.other;
+    setSplit({ ...split, other: activeTabId });
+    setActiveTabId(other);
+  }
+  function startSplitDrag(e: React.MouseEvent) {
+    if (!split || !splitPaneRef.current || !paneARef.current) return;
+    e.preventDefault();
+    const rect = splitPaneRef.current.getBoundingClientRect();
+    const startRatio = split.ratio;
+    const horizontal = split.direction === "horizontal";
+    const startPos = horizontal ? e.clientX : e.clientY;
+    const size = horizontal ? rect.width : rect.height;
+    const paneA = paneARef.current;
+    const apply = (ratio: number) => {
+      if (horizontal) paneA.style.width = `${ratio * 100}%`;
+      else paneA.style.height = `${ratio * 100}%`;
+    };
+    let pendingRatio: number | null = null;
+    let rafId = 0;
+    setSplitDragging(true);
+    const move = (ev: MouseEvent) => {
+      const delta = (horizontal ? ev.clientX : ev.clientY) - startPos;
+      pendingRatio = Math.min(0.85, Math.max(0.15, startRatio + delta / size));
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          if (pendingRatio != null) { apply(pendingRatio); pendingRatio = null; }
+        });
+      }
+    };
+    const finish = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", finish);
+      window.removeEventListener("blur", finish);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSplitDragging(false);
+      const finalRatio = Math.min(0.85, Math.max(0.15, (horizontal ? parseFloat(paneA.style.width) : parseFloat(paneA.style.height)) / 100));
+      setSplit(s => (s ? { ...s, ratio: finalRatio } : s));
+    };
+    document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", finish);
+    window.addEventListener("blur", finish);
   }
   function isAllowedExternalUrl(url: string): boolean {
     try {
@@ -4809,7 +4993,7 @@ function BrowserApp({
     if (tab.url === "unstable://privacy") return <PrivacyPage />;
     if (tab.url === "unstable://blank") return <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />;
     return (
-      <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; }}
+      <iframe ref={(el) => { if (el) { iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; (el as HTMLIFrameElement & { muted: boolean }).muted = tab.muted; } }}
         src={tab.url}
         style={{ width: "100%", height: "100%", border: "none", display: "block" }}
         allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
@@ -4911,7 +5095,27 @@ function BrowserApp({
           <div style={{ display: "flex", alignItems: "stretch", background: "#080808", borderBottom: "1px solid #1a1a1a", height: 36, flexShrink: 0, overflow: "hidden" }}>
             <div className="tab-scroll" style={{ display: "flex", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
               <AnimatePresence>
-                {tabs.map(tab => <BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => setActiveTabId(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => setSplitTabId(splitTabId === tab.id ? null : tab.id)} />)}
+                {(() => {
+                  const tabEls: React.ReactNode[] = [];
+                  const splitTabIds = split ? new Set([activeTabId, split.other]) : null;
+                  let groupPushed = false;
+                  tabs.forEach(tab => {
+                    if (splitTabIds?.has(tab.id)) {
+                      if (groupPushed) return;
+                      groupPushed = true;
+                      tabEls.push(
+                        <div key="split-group" style={{ display: "flex", alignItems: "stretch", height: "100%", background: "#151515", border: "1px solid #262626", borderRadius: "6px", margin: "0 2px", overflow: "hidden", flexShrink: 0 }}>
+                          {tabs.filter(t => splitTabIds.has(t.id)).map(t => (
+                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} />
+                          ))}
+                        </div>
+                      );
+                      return;
+                    }
+                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} />);
+                  });
+                  return tabEls;
+                })()}
               </AnimatePresence>
               <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleNewTab} style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", color: "rgba(255,255,255,0.28)", cursor: "pointer", padding: "0 0.85rem", fontSize: 18, lineHeight: 1, flexShrink: 0, transition: "color 0.1s" }}
                 onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"} onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.28)"} data-tooltip="New tab" aria-label="New tab">+</motion.button>
@@ -5010,15 +5214,24 @@ function BrowserApp({
               </AnimatePresence>
             </div>
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
-            <button onClick={toggleDevTools} style={btn} {...hov(true)} data-tooltip="DevTools" aria-label="DevTools">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></svg>
-            </button>
-            <button onClick={handleOpenInNewTab} style={btn} {...hov(true)} data-tooltip="Open in new window" aria-label="Open in new window">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
-            </button>
-            <button onClick={() => setFullscreen(f => !f)} style={btn} {...hov(true)} data-tooltip="Fullscreen" aria-label="Fullscreen">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-            </button>
+            <div ref={toolMenuRef} style={{ position: "relative" }}>
+              <button onClick={() => setToolMenuOpen(o => !o)} style={btn} {...hov(true)} data-tooltip="Tools" aria-label="Tools">
+                <EllipsisVertical size={15} stroke={!!devToolsOpen[activeTabId] ? "#e8e8e8" : "currentColor"} />
+              </button>
+              <AnimatePresence>
+                {toolMenuOpen && (
+                  <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); toggleDevTools(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: devToolsOpen[activeTabId] ? "#e8e8e8" : "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Wrench size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{devToolsOpen[activeTabId] ? "Close DevTools" : "DevTools"}</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleOpenInNewTab(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ExternalLink size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Open in new tab</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setFullscreen(f => !f); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Maximize size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{fullscreen ? "Exit fullscreen" : "Fullscreen"}</motion.button>
+                    <div style={{ height: 1, background: "#222", margin: "0.2rem 0" }} />
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleSplitActive(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Columns2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{split ? "Close split" : "Split current tab"}</motion.button>
+                    {split && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setSplit(s => s && ({ ...s, direction: s.direction === "horizontal" ? "vertical" : "horizontal" })); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ArrowUpDown size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Rotate split</motion.button>}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           {/* Loading progress bar */}
@@ -5063,7 +5276,7 @@ function BrowserApp({
             onNavigate={(url) => handleNavigate(url, activeTabId)}
             tabs={tabs}
             activeTabId={activeTabId}
-            onTabActivate={(id) => setActiveTabId(id)}
+            onTabActivate={(id) => handleTabActivate(id)}
             onTabClose={(id) => handleCloseTab(id)}
             onNewTab={handleNewTab}
             verticalTabs={settings.verticalTabs}
@@ -5075,16 +5288,45 @@ function BrowserApp({
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
           <div style={{ position: "relative", width: "100%", height: "100%", display: "flex" }}>
-            {splitTabId && splitTabId !== activeTabId && (() => {
-              const splitTab = tabs.find(t => t.id === splitTabId);
-              if (!splitTab) return null;
+            {split ? (() => {
+              const otherTab = tabs.find(t => t.id === split.other);
+              const horizontal = split.direction === "horizontal";
               return (
-                <div style={{ width: "50%", height: "100%", position: "relative", borderRight: "1px solid #1a1a1a" }}>
-                  <button onClick={() => setSplitTabId(null)} style={{ position: "absolute", top: 4, right: 4, zIndex: 10, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "2px 6px", borderRadius: "4px", fontSize: "0.5rem", fontFamily: "'Space Grotesk', sans-serif" }}>×</button>
-                  {renderTabContent(splitTab)}
+                <div ref={splitPaneRef} style={{ flex: 1, display: "flex", flexDirection: horizontal ? "row" : "column", minWidth: 0, minHeight: 0, position: "relative" }}>
+                  {splitDragging && (
+                    <div style={{ position: "absolute", inset: 0, zIndex: 40, cursor: horizontal ? "col-resize" : "row-resize" }} />
+                  )}
+                  <div ref={paneARef} style={{ width: horizontal ? `${split.ratio * 100}%` : "100%", height: horizontal ? "100%" : `${split.ratio * 100}%`, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
+                    <SplitHeader tab={activeTab} onSwap={handleSwapSplit} onClose={() => setSplit(null)} />
+                    <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+                      <AnimatePresence mode="wait">
+                        {tabs.filter(t => t.id === activeTabId).map(tab => (
+                          <motion.div key={tab.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ type: "spring", stiffness: 300, damping: 25 }} style={{ position: "absolute", inset: 0 }}>
+                            {renderTabContent(tab)}
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                  <div onMouseDown={startSplitDrag} onDoubleClick={() => setSplit(s => s && ({ ...s, ratio: 0.5 }))}
+                    style={{ width: horizontal ? 4 : "100%", height: horizontal ? "100%" : 4, cursor: horizontal ? "col-resize" : "row-resize", background: splitDragging ? "#333" : "#1a1a1a", flexShrink: 0, transition: "background 0.15s", position: "relative", zIndex: 5 }}>
+                    {horizontal
+                      ? <GripVertical size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />
+                      : <GripHorizontal size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />}
+                  </div>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
+                    {otherTab ? (
+                      <>
+                        <SplitHeader tab={otherTab} onSwap={handleSwapSplit} onClose={() => setSplit(null)} />
+                        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>{renderTabContent(otherTab)}</div>
+                      </>
+                    ) : (
+                      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Tab closed</div>
+                    )}
+                  </div>
                 </div>
               );
-            })()}
+            })() : (
             <div style={{ flex: 1, position: "relative", height: "100%" }}>
             <AnimatePresence mode="wait">
               {tabs.filter(t => t.id === activeTabId).map(tab => (
@@ -5101,6 +5343,7 @@ function BrowserApp({
           ))}
           </AnimatePresence>
             </div>
+            )}
           </div>
         </div>
       </div>
