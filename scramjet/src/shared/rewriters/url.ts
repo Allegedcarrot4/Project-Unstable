@@ -32,7 +32,7 @@ export function unrewriteBlob(url: string) {
 export function rewriteUrl(url: string | URL, meta: URLMeta) {
 	if (url instanceof URL) url = url.toString();
 
-	if (url.startsWith("javascript:")) {
+	if (url.startsWith("javascript:") || url.startsWith("vbscript:")) {
 		return (
 			"javascript:" +
 			rewriteJs(url.slice("javascript:".length), "(javascript: url)", meta)
