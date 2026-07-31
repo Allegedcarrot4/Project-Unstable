@@ -19,6 +19,7 @@ const basePath = process.env.BASE_PATH || "/";
 const isProd = process.env.NODE_ENV === "production";
 
 const epoxyDist = path.relative(import.meta.dirname, path.resolve(import.meta.dirname, "node_modules", "@mercuryworkshop", "epoxy-transport", "dist")).replace(/\\/g, "/");
+const driftDist = path.relative(import.meta.dirname, path.resolve(import.meta.dirname, "node_modules", "@allegedcarrot4", "drift")).replace(/\\/g, "/");
 
 export default defineConfig({
   base: basePath,
@@ -28,11 +29,12 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         { src: epoxyDist + "/index.mjs", dest: "epoxy" },
+        { src: driftDist + "/drift_wasm_bg.wasm", dest: "drift" },
       ],
     }),
     ...(isProd ? [javascriptObfuscator({
       include: [/\.js$/],
-      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/],
+      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/, /drift/],
       options: {
         compact: true,
         controlFlowFlattening: true,
@@ -94,25 +96,21 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: "http://localhost:3001",
         changeOrigin: true,
         ws: true,
       },
       "/service": {
-        target: "http://localhost:8080",
+        target: "http://localhost:3001",
         changeOrigin: true,
       },
       "/ham": {
-        target: "http://localhost:8080",
+        target: "http://localhost:3001",
         changeOrigin: true,
         ws: true,
       },
-      "/baremux": {
-        target: "http://localhost:8080",
-        changeOrigin: true,
-      },
       "/return": {
-        target: "http://localhost:8080",
+        target: "http://localhost:3001",
         changeOrigin: true,
       },
     },

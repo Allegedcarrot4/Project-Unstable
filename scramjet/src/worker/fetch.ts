@@ -370,7 +370,7 @@ export async function handleFetch(
 			)
 			.join("\n\n");
 
-		return renderError(formattedError, unrewriteUrl(request.url));
+		return renderError(formattedError, unrewriteUrl(request.url), config.transport, config.encoding);
 	}
 }
 

@@ -9,5 +9,5 @@ overrides:
   "websocket-driver": ">=0.7.5"
 
 allowBuilds:
-  bufferutil: set this to true or false
-  core-js: set this to true or false
+  bufferutil: true
+  core-js: true

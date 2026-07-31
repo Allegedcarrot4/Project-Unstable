@@ -62,6 +62,8 @@ export interface ScramjetConfig {
 		encode: string;
 		decode: string;
 	};
+	transport?: string;
+	encoding?: string;
 }
 
 /**

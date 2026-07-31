@@ -2,9 +2,16 @@ import { createContext, useState, useCallback, ReactNode, useContext } from 'rea
 import type { ErrorDetails } from './errorHandler';
 import { parseError, checkBackendStatus, checkInternetConnectivity } from './errorHandler';
 
+export interface ErrorContextOptions {
+  url?: string;
+  transport?: string;
+  encoding?: string;
+  transportEncryption?: boolean;
+}
+
 interface ErrorContextType {
   currentError: ErrorDetails | null;
-  setError: (error: unknown, url?: string) => Promise<void>;
+  setError: (error: unknown, urlOrOpts?: string | ErrorContextOptions) => Promise<void>;
   clearError: () => void;
   retry: () => Promise<void>;
   onRetry?: () => Promise<void>;
@@ -17,8 +24,9 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
   const [onRetryCallback, setOnRetryCallback] = useState<(() => Promise<void>) | undefined>();
 
   const setError = useCallback(
-    async (error: unknown, url?: string) => {
-      const errorDetails = parseError(error, url);
+    async (error: unknown, urlOrOpts?: string | ErrorContextOptions) => {
+      const opts = typeof urlOrOpts === 'string' ? { url: urlOrOpts } : urlOrOpts;
+      const errorDetails = parseError(error, opts?.url);
       
       // Check backend and internet status
       const [{ online: backendOnline, latency }, isOnline] = await Promise.all([
@@ -29,6 +37,9 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
       errorDetails.clientOnline = isOnline;
       errorDetails.backendStatus = backendOnline ? 'online' : 'offline';
       errorDetails.latency = latency;
+      errorDetails.transport = opts?.transport;
+      errorDetails.encoding = opts?.encoding;
+      errorDetails.transportEncryption = opts?.transportEncryption;
 
       if (error instanceof Error) {
         errorDetails.originalError = error;

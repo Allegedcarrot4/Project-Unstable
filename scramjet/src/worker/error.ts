@@ -1,9 +1,11 @@
-export function errorTemplate(trace: string, fetchedURL: string) {
+export function errorTemplate(trace: string, fetchedURL: string, transport?: string, encoding?: string) {
 	const script = `
         window.errorDetails = {
             trace: ${JSON.stringify(trace)},
             url: ${JSON.stringify(fetchedURL)},
             proxy: 'Scramjet',
+            transport: ${JSON.stringify(transport || 'N/A')},
+            encoding: ${JSON.stringify(encoding || 'N/A')},
             hostname: ${JSON.stringify(location.hostname)},
             version: ${JSON.stringify((globalThis as any).$scramjetVersion?.version || "2.0.2-alpha")},
             build: ${JSON.stringify((globalThis as any).$scramjetVersion?.build || "unknown")}
@@ -516,6 +518,8 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                     techPre.textContent = 'Error Report - ' + timestampStr + '\\n\\n' +
                         'Message: ' + data.trace + '\\n' +
                         'Proxy: ' + data.proxy + '\\n' +
+                        'Transport: ' + (data.transport || 'N/A') + '\\n' +
+                        'Encoding: ' + (data.encoding || 'N/A') + '\\n' +
                         'URL: ' + data.url + '\\n' +
                         'Hostname: ' + data.hostname + '\\n' +
                         'Version: ' + data.version + ' (build ' + data.build + ')\\n' +
@@ -682,7 +686,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
         </html>`;
 }
 
-export function renderError(err: unknown, fetchedURL: string) {
+export function renderError(err: unknown, fetchedURL: string, transport?: string, encoding?: string) {
 	const headers: Record<string, string> = {
 		"content-type": "text/html",
 	};
@@ -690,7 +694,7 @@ export function renderError(err: unknown, fetchedURL: string) {
 		headers["Cross-Origin-Embedder-Policy"] = "require-corp";
 	}
 
-	return new Response(errorTemplate(String(err), fetchedURL), {
+	return new Response(errorTemplate(String(err), fetchedURL, transport, encoding), {
 		status: 500,
 		headers: headers,
 	});
