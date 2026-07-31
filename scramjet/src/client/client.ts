@@ -585,7 +585,10 @@ export class ScramjetClient {
 		}
 
 		h.getOwnPropertyDescriptor = getOwnPropertyDescriptorHandler;
-		target[prop] = new Proxy(value, h);
+		if (Object(target) !== target) return;
+		if (this.isUnsafeProxyTarget(target)) return;
+		if (!Object.prototype.hasOwnProperty.call(target, prop)) return;
+		if (!Reflect.set(target, prop, new Proxy(value, h))) return;
 	}
 	private isUnsafePropertyKey(key: string): boolean {
 		return key === "__proto__" || key === "prototype" || key === "constructor";
