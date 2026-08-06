@@ -1,0 +1,271 @@
+step "manual-intervention-required" {
+    name = "Manual Intervention Required"
+
+    action {
+        action_type = "Octopus.Manual"
+        notes = "Review the release. Verify the proxy is healthy in Staging before allowing Production."
+        properties = {
+            Octopus.Action.Manual.BlockConcurrentDeployments = "False"
+            Octopus.Action.Manual.Instructions = "Please review this release before proceeding to Production. Verify that the proxy is healthy and running smoothly in the Staging environment."
+        }
+    }
+}
+
+step "provision-node-22-pnpm" {
+    name = "Provision Node 22 + pnpm"
+    properties = {
+        Octopus.Action.TargetRoles = "linux-app-server"
+    }
+
+    action {
+        action_type = "Octopus.Script"
+        properties = {
+            Octopus.Action.RunOnServer = "false"
+            Octopus.Action.Script.ScriptBody = <<-EOT
+                #!/usr/bin/env bash
+                # Octopus step: "Provision Node 22 + pnpm" (Run a Script, Bash)
+                # Installs Node 22 to /opt/node, enables corepack/pnpm, creates the "unstable" user. Idempotent.
+                set -euo pipefail
+                
+                NODE_MAJOR="${NODE_MAJOR:-22}"
+                NODE_DIR="/opt/node"
+                SERVICE_USER="unstable"
+                
+                if command -v apt-get >/dev/null 2>&1; then
+                  apt-get update -qq
+                  apt-get install -y -qq curl tar xz-utils ca-certificates >/dev/null
+                fi
+                
+                if ! command -v node >/dev/null 2>&1; then
+                  echo "[provision] Installing Node ${NODE_MAJOR}..."
+                  curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/node-v${NODE_MAJOR}.x-linux-x64.tar.xz" -o /tmp/node.tar.xz
+                  mkdir -p "${NODE_DIR}"
+                  tar -xJf /tmp/node.tar.xz --strip-components=1 -C "${NODE_DIR}"
+                  rm -f /tmp/node.tar.xz
+                fi
+                
+                export PATH="${NODE_DIR}/bin:${PATH}"
+                node --version
+                
+                corepack enable
+                corepack prepare pnpm@10.33.0 --activate 2>/dev/null || corepack prepare pnpm@latest-10 --activate
+                pnpm --version
+                
+                if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+                  useradd --system --create-home --home-dir /opt/unstable --shell /usr/sbin/nologin "${SERVICE_USER}"
+                  echo "[provision] created user '${SERVICE_USER}'"
+                fi
+                
+                echo "[provision] done"
+                
+                EOT
+            Octopus.Action.Script.ScriptSource = "Inline"
+            Octopus.Action.Script.Syntax = "Bash"
+        }
+        worker_pool_variable = ""
+    }
+}
+
+step "deploy-a-package" {
+    name = "Deploy a Package"
+    properties = {
+        Octopus.Action.TargetRoles = "linux-app-server"
+    }
+
+    action {
+        action_type = "Octopus.TentaclePackage"
+        properties = {
+            Octopus.Action.EnabledFeatures = "Octopus.Features.CustomDirectory,Octopus.Features.ConfigurationVariables,Octopus.Features.ConfigurationTransforms"
+            Octopus.Action.Package.AutomaticallyRunConfigurationTransformationFiles = "True"
+            Octopus.Action.Package.AutomaticallyUpdateAppSettingsAndConnectionStrings = "True"
+            Octopus.Action.Package.CustomInstallationDirectory = "/opt/unstable"
+            Octopus.Action.Package.CustomInstallationDirectoryShouldBePurgedBeforeDeployment = "True"
+            Octopus.Action.Package.DownloadOnTentacle = "False"
+            Octopus.Action.Package.FeedId = "octopus-server-built-in"
+            Octopus.Action.Package.PackageId = "Unstable"
+        }
+        worker_pool_variable = ""
+
+        packages {
+            acquisition_location = "Server"
+            feed = "octopus-server-built-in"
+            package_id = "Unstable"
+            properties = {
+                SelectionMode = "immediate"
+            }
+        }
+    }
+}
+
+step "install-production-dependencies" {
+    name = "Install production dependencies"
+    properties = {
+        Octopus.Action.TargetRoles = "linux-app-server"
+    }
+
+    action {
+        action_type = "Octopus.Script"
+        properties = {
+            Octopus.Action.RunOnServer = "false"
+            Octopus.Action.Script.ScriptBody = <<-EOT
+                #!/usr/bin/env bash
+                # Octopus step: "Install production dependencies" (Run a Script, Bash)
+                # Installs prod deps for the API server in the deployed package, then copies
+                # bare-as-module3 + ws out of the pnpm store (pnpm prod installs miss them —
+                # same trick as the Dockerfile runner stage).
+                set -euo pipefail
+                
+                export PATH="/opt/node/bin:${PATH}"
+                APP_DIR="${APP_DIR:-/opt/unstable}"
+                cd "${APP_DIR}"
+                
+                # The shipped lockfile has a broken bare-mux tarball integrity hash — regenerate it.
+                rm -f pnpm-lock.yaml
+                
+                pnpm install --prod --filter @workspace/api-server
+                
+                mkdir -p node_modules/@mercuryworkshop
+                bare_dir="$(find node_modules/.pnpm -path '*/@mercuryworkshop/bare-as-module3' -type d | head -n 1 || true)"
+                ws_dir="$(find node_modules/.pnpm -path '*/node_modules/ws' -type d | head -n 1 || true)"
+                if [ -n "${bare_dir}" ]; then
+                  cp -aL "${bare_dir}" node_modules/@mercuryworkshop/bare-as-module3
+                fi
+                if [ -n "${ws_dir}" ]; then
+                  cp -aL "${ws_dir}" node_modules/ws
+                fi
+                
+                echo "[install] node_modules ready"
+                
+                EOT
+            Octopus.Action.Script.ScriptSource = "Inline"
+            Octopus.Action.Script.Syntax = "Bash"
+        }
+        worker_pool_variable = ""
+    }
+}
+
+step "configure-env-systemd-unit-start" {
+    name = "Configure env, systemd unit, start"
+    properties = {
+        Octopus.Action.TargetRoles = "linux-app-server"
+    }
+
+    action {
+        action_type = "Octopus.Script"
+        properties = {
+            Octopus.Action.RunOnServer = "false"
+            Octopus.Action.Script.ScriptBody = <<-EOT
+                #!/usr/bin/env bash
+                # Octopus step: "Configure env, systemd unit, start" (Run a Script, Bash)
+                # Generates /opt/unstable/.env from Octopus variables, installs the systemd
+                # unit for the "unstable" service, and (re)starts it.
+                set -euo pipefail
+                
+                export PATH="/opt/node/bin:${PATH}"
+                APP_DIR="${APP_DIR:-/opt/unstable}"
+                SERVICE_NAME="unstable"
+                SERVICE_USER="unstable"
+                
+                chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}"
+                
+                escape() { printf '%s' "$1" | sed "s/'/'\\\\''/g"; }
+                
+                : > "${APP_DIR}/.env"
+                write_env() {
+                  local key="$1" value="${2:-}"
+                  if [ -n "${value}" ]; then
+                    printf '%s=%s\n' "${key}" "'$(escape "${value}")'" >> "${APP_DIR}/.env"
+                  fi
+                }
+                
+                write_env PORT "${PORT:-7860}"
+                write_env PASSWORD "${PASSWORD:-}"
+                write_env SESSION_SECRET "${SESSION_SECRET:-}"
+                write_env SUPABASE_SERVICE_ROLE_KEY "${SUPABASE_SERVICE_ROLE_KEY:-}"
+                write_env DATABASE_URL "${DATABASE_URL:-}"
+                write_env VITE_SUPABASE_URL "${VITE_SUPABASE_URL:-}"
+                write_env VITE_SUPABASE_ANON_KEY "${VITE_SUPABASE_ANON_KEY:-}"
+                write_env VITE_SUPABASE_PROJECT_ID "${VITE_SUPABASE_PROJECT_ID:-}"
+                write_env Anon_Public "${Anon_Public:-}"
+                write_env Project_ID "${Project_ID:-}"
+                write_env API_Url "${API_Url:-}"
+                
+                cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
+                [Unit]
+                Description=Unstable web proxy
+                After=network-online.target
+                Wants=network-online.target
+                
+                [Service]
+                Type=simple
+                User=${SERVICE_USER}
+                Group=${SERVICE_USER}
+                WorkingDirectory=${APP_DIR}
+                EnvironmentFile=${APP_DIR}/.env
+                Environment=NODE_ENV=production
+                ExecStart=/opt/node/bin/node --enable-source-maps ./artifacts/api-server/dist/index.mjs
+                Restart=on-failure
+                RestartSec=5
+                KillSignal=SIGTERM
+                
+                [Install]
+                WantedBy=multi-user.target
+                UNIT
+                
+                systemctl daemon-reload
+                systemctl enable "${SERVICE_NAME}"
+                systemctl restart "${SERVICE_NAME}"
+                systemctl --no-pager --lines=20 status "${SERVICE_NAME}" || true
+                
+                echo "[configure] ${SERVICE_NAME} (re)started"
+                
+                EOT
+            Octopus.Action.Script.ScriptSource = "Inline"
+            Octopus.Action.Script.Syntax = "Bash"
+        }
+        worker_pool_variable = ""
+    }
+}
+
+step "health-check" {
+    name = "Health check"
+    properties = {
+        Octopus.Action.TargetRoles = "linux-app-server"
+    }
+
+    action {
+        action_type = "Octopus.Script"
+        properties = {
+            Octopus.Action.RunOnServer = "false"
+            Octopus.Action.Script.ScriptBody = <<-EOT
+                #!/usr/bin/env bash
+                # Octopus step: "Health check" (Run a Script, Bash)
+                # Polls /api/healthz and the frontend root; exits 1 (failing the deployment)
+                # if the service does not come up in time.
+                set -uo pipefail
+                
+                PORT="${PORT:-7860}"
+                BASE="http://127.0.0.1:${PORT}"
+                
+                for i in $(seq 1 30); do
+                  if curl -fsS "${BASE}/api/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
+                    echo "[health] API healthy after ${i} tries"
+                    if curl -fsS "${BASE}/" -o /dev/null; then
+                      echo "[health] frontend reachable"
+                      exit 0
+                    fi
+                  fi
+                  sleep 2
+                done
+                
+                echo "[health] FAILED — service not healthy" >&2
+                journalctl -u unstable --no-pager -n 50 2>/dev/null || true
+                exit 1
+                
+                EOT
+            Octopus.Action.Script.ScriptSource = "Inline"
+            Octopus.Action.Script.Syntax = "Bash"
+        }
+        worker_pool_variable = ""
+    }
+}
