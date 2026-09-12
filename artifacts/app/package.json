@@ -42,6 +42,7 @@
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
@@ -83,6 +84,8 @@
     "@mercuryworkshop/scramjet": "2.0.2-alpha",
     "@supabase/supabase-js": "^2.105.4",
     "bare-mux-fork": "https://github.com/qerionx/bare-mux-noconsolelogs/releases/download/v2.1.8/bare-mux.tgz",
+    "eruda": "^3.4.3",
+    "qrcode": "^1.5.4",
     "three": "^0.185.1",
     "vite-plugin-static-copy": "^4.1.0"
   }

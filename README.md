@@ -74,9 +74,18 @@ pnpm start
 
 ```bash
 pnpm install
+copy .env.example .env
 ```
 
-In one terminal, start the frontend:
+Edit the root `.env` only. Do not create package-level `.env` files in `artifacts/app` or `artifacts/api-server`; Vite and the API server both read from the repo root.
+
+Start the full local stack:
+
+```bash
+pnpm dev
+```
+
+Or run the pieces manually. In one terminal, start the frontend:
 
 ```bash
 pnpm --filter @workspace/app dev
@@ -89,7 +98,7 @@ pnpm --filter @workspace/api-server build
 pnpm --filter @workspace/api-server start
 ```
 
-The dev password (when `PASSWORD` is unset) is `ripmoonlight`.
+If `PASSWORD` is set in the env, visitors must enter it on the login screen. If `PASSWORD` is unset, no login screen is shown.
 
 ---
 
@@ -100,7 +109,7 @@ Set these in your deployment platform's environment/secrets panel:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | **Yes** | Port the server listens on. Set to `7860` (also match your platform's exposed port). |
-| `PASSWORD` | **Yes** | Password users must enter to access Unstable. |
+| `PASSWORD` | No | Optional password users must enter to access Unstable. If unset, no password screen is shown. |
 | `SESSION_SECRET` | No | Optional but recommended for production session hardening. |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |
 | `VITE_SUPABASE_URL` | No | Supabase project URL. Falls back to built-in default. |

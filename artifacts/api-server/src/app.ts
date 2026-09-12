@@ -148,19 +148,19 @@ await app.register(fastifyStatic, {
   wildcard: true,
   preCompressed: true,
   cacheControl: false,
-  setHeaders(res, filePath) {
+  setHeaders(reply, filePath) {
     if (/\.html?$/i.test(filePath)) {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
     } else {
       const hashed = /[.\-_][A-Za-z0-9_-]{8,}\.(js|css|woff2?|png|jpe?g|svg|webp|gif)$/.test(filePath);
-      res.setHeader(
+      reply.header(
         "Cache-Control",
         hashed ? "public, max-age=31536000, immutable" : "public, max-age=3600",
       );
     }
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "SAMEORIGIN");
-    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "SAMEORIGIN");
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
   },
 });
 

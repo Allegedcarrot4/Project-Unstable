@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { useErrorHandler } from './errorContext';
-import { retryWithBackoff } from './errorHandler';
+import { useErrorHandler } from '@/lib/errorContext';
+import { retryWithBackoff } from '@/lib/errorHandler';
 
 interface FetchOptions extends RequestInit {
   timeout?: number;

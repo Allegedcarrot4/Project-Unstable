@@ -23,6 +23,7 @@ const driftDist = path.relative(import.meta.dirname, path.resolve(import.meta.di
 
 export default defineConfig({
   base: basePath,
+  envDir: path.resolve(import.meta.dirname, "..", ".."),
   plugins: [
     react(),
     tailwindcss(),
@@ -41,12 +42,10 @@ export default defineConfig({
         controlFlowFlatteningThreshold: 0.75,
         deadCodeInjection: true,
         deadCodeInjectionThreshold: 0.4,
-        debugProtection: true,
         disableConsoleOutput: true,
         identifierNamesGenerator: "hexadecimal",
         renameGlobals: false,
         rotateStringArray: true,
-        selfDefending: true,
         shuffleStringArray: true,
         splitStrings: true,
         splitStringsChunkLength: 10,

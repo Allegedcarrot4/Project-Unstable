@@ -3,24 +3,32 @@ import crypto from "node:crypto";
 import {
   getAuthedUser,
   getSupabaseAdmin,
+  hasDeviceHashSecret,
+  hasSupabaseAdminConfig,
   hashDeviceId,
   requireDeviceId,
 } from "../lib/supabase-admin";
+import { logger } from "../lib/logger";
 
 const SALT = crypto.randomBytes(16).toString("hex");
 const expectedHash = (() => {
   const raw = process.env.PASSWORD;
   if (!raw) return null;
   const trimmed = raw.trim().replace(/^['"]|['"]$/g, "");
+  if (!trimmed) return null;
   return crypto.pbkdf2Sync(trimmed, SALT, 100000, 64, "sha512").toString("hex");
 })();
 
 const authRoute: FastifyPluginAsync = async (app) => {
+  app.get("/auth/password-status", async (_req, reply) => {
+    return reply.send({ required: Boolean(expectedHash) });
+  });
+
   app.post("/auth/check", async (req, reply) => {
     const { password } = (req.body as any) ?? {};
 
     if (!expectedHash) {
-      return reply.status(503).send({ dev: true });
+      return reply.send({ ok: true, required: false });
     }
 
     const provided = typeof password === "string" ? password.trim() : "";
@@ -39,6 +47,10 @@ const authRoute: FastifyPluginAsync = async (app) => {
 
   app.post("/auth/device-status", async (req, reply) => {
     try {
+      if (!hasSupabaseAdminConfig() || !hasDeviceHashSecret()) {
+        return reply.send({ banned: false, reason: null, skipped: true });
+      }
+
       const deviceId = requireDeviceId((req.body as any)?.deviceId);
       const deviceHash = hashDeviceId(deviceId);
       const supabase = getSupabaseAdmin();
@@ -57,12 +69,17 @@ const authRoute: FastifyPluginAsync = async (app) => {
         reason: activeBan ? record?.reason ?? null : null,
       });
     } catch (err) {
-      return reply.status(503).send({ error: err instanceof Error ? err.message : "Device-ban check unavailable." });
+      logger.warn({ err }, "Device-ban check unavailable; allowing sign-in");
+      return reply.send({ banned: false, reason: null, skipped: true });
     }
   });
 
   app.get("/auth/context", async (req, reply) => {
     try {
+      if (!hasSupabaseAdminConfig()) {
+        return reply.send({ isBanned: false, banReason: null, skipped: true });
+      }
+
       const authed = await getAuthedUser(req.headers.authorization);
       if (!authed) {
         return reply.status(401).send({ error: "Authentication required." });
@@ -84,12 +101,17 @@ const authRoute: FastifyPluginAsync = async (app) => {
         banReason: banned ? banRecord?.reason ?? null : null,
       });
     } catch (err) {
-      return reply.status(503).send({ error: err instanceof Error ? err.message : "Auth context unavailable." });
+      logger.warn({ err }, "Auth context unavailable; allowing account access");
+      return reply.send({ isBanned: false, banReason: null, skipped: true });
     }
   });
 
   app.post("/auth/register-device", async (req, reply) => {
     try {
+      if (!hasSupabaseAdminConfig() || !hasDeviceHashSecret()) {
+        return reply.send({ ok: true, skipped: true });
+      }
+
       const authed = await getAuthedUser(req.headers.authorization);
       if (!authed) {
         return reply.status(401).send({ error: "Authentication required." });
@@ -109,7 +131,8 @@ const authRoute: FastifyPluginAsync = async (app) => {
 
       return reply.send({ ok: true });
     } catch (err) {
-      return reply.status(503).send({ error: err instanceof Error ? err.message : "Device registration unavailable." });
+      logger.warn({ err }, "Device registration unavailable; continuing without device registry");
+      return reply.send({ ok: true, skipped: true });
     }
   });
 };

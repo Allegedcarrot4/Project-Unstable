@@ -196,9 +196,41 @@ function injectFingerprint(response) {
   } catch { return response; }
 }
 
+function isLocalApiOrNavigationRequest(url) {
+  try {
+    const u = new URL(url);
+    const p = u.pathname;
+    return u.origin === self.location.origin && (
+      u.mode === "navigate" ||
+      p.startsWith("/api/") ||
+      p.startsWith("/service/") ||
+      p.startsWith("/ham/") ||
+      p.startsWith("/baremux/") ||
+      p.startsWith("/return") ||
+      p.startsWith("/eggs/") ||
+      p.startsWith("/sw.js") ||
+      p.startsWith("/uv.sw.js") ||
+      p.startsWith("/s_sw.js") ||
+      p.startsWith("/inject.js") ||
+      p.startsWith("/manifest.json")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function handleRequest(event) {
   const reqUrl = event.request.url;
   let request = event.request;
+
+  if (isLocalApiOrNavigationRequest(reqUrl)) {
+    try {
+      return await fetch(request, { cache: "no-store" });
+    } catch (err) {
+      console.warn("Bypassed service worker fetch failed:", reqUrl, err);
+      return new Response("Network error", { status: 502 });
+    }
+  }
 
   // Adblock: block known ad/tracker requests
   if (adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes("/cdn-cgi/"))) {

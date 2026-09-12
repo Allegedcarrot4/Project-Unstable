@@ -143,6 +143,9 @@ export function ErrorScreen() {
                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={copyErrorReport} style={buttonStyle}>
                   {copied ? '✓ Copied' : '⧉ Copy details'}
                 </motion.button>
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => window.dispatchEvent(new CustomEvent('unstable-retry-transport'))} style={{ ...buttonStyle, borderColor: 'rgba(136,200,200,0.5)', color: 'rgba(176,208,224,0.9)' }}>
+                  ⇄ Try different transport
+                </motion.button>
               </motion.div>
 
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} style={{ ...cardStyle, padding: '2rem', marginBottom: '2rem' }}>
@@ -202,7 +205,7 @@ export function ErrorScreen() {
                 </motion.button>
                 <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => (window.location.href = '/settings')} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>
                   <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>⚙ Settings</p>
-                  <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Ctrl + ,</p>
+                  <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Alt + ,</p>
                 </motion.button>
                 <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => (window.location.href = '/games')} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>
                   <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>◇ Games</p>

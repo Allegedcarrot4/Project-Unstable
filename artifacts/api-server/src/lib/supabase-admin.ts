@@ -4,12 +4,15 @@ import ws from "ws";
 
 let adminClient: ReturnType<typeof createClient> | null = null;
 
-function requireEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
+export function hasSupabaseAdminConfig(): boolean {
+  return Boolean(
+    (process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()) &&
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  );
+}
+
+export function hasDeviceHashSecret(): boolean {
+  return Boolean(process.env.DEVICE_ID_HMAC_SECRET?.trim() || process.env.SESSION_SECRET?.trim());
 }
 
 export function getSupabaseAdmin() {
@@ -19,7 +22,7 @@ export function getSupabaseAdmin() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (!url) {
-    throw new Error("Missing required environment variable: SUPABASE_URL");
+    throw new Error("Missing required environment variable: VITE_SUPABASE_URL");
   }
   if (!serviceRoleKey) {
     throw new Error("Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY");
@@ -36,7 +39,7 @@ export function getSupabaseAdmin() {
 export function hashDeviceId(deviceId: string): string {
   const secret = process.env.DEVICE_ID_HMAC_SECRET?.trim() || process.env.SESSION_SECRET?.trim();
   if (!secret) {
-    throw new Error("Missing required environment variable: DEVICE_ID_HMAC_SECRET");
+    throw new Error("Missing required environment variable: DEVICE_ID_HMAC_SECRET or SESSION_SECRET");
   }
 
   return crypto.createHmac("sha256", secret).update(deviceId).digest("hex");

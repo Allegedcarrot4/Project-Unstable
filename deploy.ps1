@@ -45,8 +45,8 @@ Write-Host "  Frontend synced" -ForegroundColor Gray
 # ── Sync backend ──
 Write-Host "[4/5] Syncing backend to target..." -ForegroundColor Yellow
 Copy-Item "artifacts\api-server\dist\*" "$TargetDir\backend\dist\" -Recurse -Force
-if (Test-Path "artifacts\api-server\.env") {
-  Copy-Item "artifacts\api-server\.env" "$TargetDir\backend\.env" -Force
+if (Test-Path ".env") {
+  Copy-Item ".env" "$TargetDir\backend\.env" -Force
 }
 Write-Host "  Backend synced" -ForegroundColor Gray
 

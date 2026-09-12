@@ -1,0 +1,58 @@
+name: Build, package and push to Octopus
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate || corepack prepare pnpm@latest-10 --activate
+
+      - name: Install workspace dependencies
+        run: |
+          rm -f pnpm-lock.yaml
+          pnpm install
+
+      - name: Build frontend
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          BASE_PATH=/ PORT=7860 NODE_ENV=production pnpm --filter @workspace/app run build
+
+      - name: Build API server
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Stage package contents
+        run: |
+          STAGE="$RUNNER_TEMP/stage"
+          mkdir -p "$STAGE"
+          git archive HEAD | tar -x -C "$STAGE"
+          cp -a artifacts/api-server/dist "$STAGE/artifacts/api-server/"
+          cp -a artifacts/app/dist "$STAGE/artifacts/app/"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - uses: OctopusDeploy/install-octopus-cli-action@v3
+        with:
+          version: latest
+
+      - name: Pack and push
+        env:
+          OCTOPUS_URL: ${{ secrets.OCTOPUS_URL }}
+          OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+          OCTOPUS_SPACE: ${{ secrets.OCTOPUS_SPACE }}
+        run: |
+          octo pack --id Unstable --version "0.0.${{ github.run_number }}" --basePath "$STAGE" --outFolder packages --format zip
+          octo push --package "packages/Unstable.0.0.${{ github.run_number }}.zip" --server "$OCTOPUS_URL" --apiKey "$OCTOPUS_API_KEY" --space "$OCTOPUS_SPACE"

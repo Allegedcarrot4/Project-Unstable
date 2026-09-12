@@ -2,9 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType }
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
+import { DMChat } from "./components/DMChat";
+import { ProfilePage } from "./components/ProfilePage";
 import NotFound from "./pages/not-found";
 
 import type { CodecType } from "./lib/codec";
@@ -206,6 +208,9 @@ type AIMode = "fast" | "think";
 interface Profile {
   id: string;
   username: string;
+  bio: string | null;
+  avatar_url: string | null;
+  created_at: string | null;
 }
 
 interface AppAuthContext {
@@ -360,6 +365,10 @@ function normalizeUsername(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function usernameToAuthEmail(username: string) {
   return `${normalizeUsername(username)}@unstableuser.com`;
 }
@@ -436,19 +445,24 @@ async function fetchDeviceBanStatus(): Promise<{ banned: boolean; reason: string
 }
 
 async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
-  const res = await fetch("/api/auth/context", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  try {
+    const res = await fetch("/api/auth/context", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to load account access information.");
+    const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(data?.error || "Unable to load account access information.");
+    }
+
+    return {
+      isBanned: Boolean(data?.isBanned),
+      banReason: data?.banReason ?? null,
+    };
+  } catch (err) {
+    console.warn("Auth context fetch failed; allowing access temporarily.", err);
+    return { isBanned: false, banReason: null };
   }
-
-  return {
-    isBanned: Boolean(data?.isBanned),
-    banReason: data?.banReason ?? null,
-  };
 }
 
 async function registerCurrentDevice(accessToken: string) {
@@ -470,12 +484,12 @@ async function registerCurrentDevice(accessToken: string) {
 async function fetchProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username")
+    .select("id, username, bio, avatar_url, created_at")
     .eq("id", userId)
     .maybeSingle();
 
   if (error) throw error;
-  return data;
+  return data as Profile | null;
 }
 
 async function createProfile(userId: string, username: string): Promise<Profile> {
@@ -483,11 +497,11 @@ async function createProfile(userId: string, username: string): Promise<Profile>
   const { data, error } = await supabase
     .from("profiles")
     .insert({ id: userId, username: trimmed })
-    .select("id, username")
+    .select("id, username, bio, avatar_url, created_at")
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Profile;
 }
 
 function stripTrackingParams(url: string): string {
@@ -589,6 +603,17 @@ function buildCombo(e: KeyboardEvent): string {
   return parts.join("+");
 }
 
+function migrateCtrlShortcuts(shortcuts: KeyShortcuts): KeyShortcuts {
+  const copy = { ...shortcuts } as Record<string, string>;
+  for (const key of Object.keys(copy)) {
+    const combo = copy[key];
+    if (typeof combo === "string" && /^Ctrl\+/.test(combo)) {
+      copy[key] = combo.replace(/^Ctrl\+/, "Alt+");
+    }
+  }
+  return copy as unknown as KeyShortcuts;
+}
+
 // ─── Settings persistence ──────────────────────────────────────────────────────
 
 function loadSettings(): Settings {
@@ -598,7 +623,7 @@ function loadSettings(): Settings {
     const parsed = JSON.parse(raw);
     return {
       cloak: parsed.cloak ?? "none",
-      shortcuts: { ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) },
+      shortcuts: migrateCtrlShortcuts({ ...DEFAULT_KEY_SHORTCUTS, ...(parsed.shortcuts ?? {}) }),
       proxyEngine: (parsed.proxyEngine ?? "auto") as ProxyEngine,
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
       theme: (parsed.theme ?? "dark") as ThemeId,
@@ -649,8 +674,8 @@ function loadTabs(): { tabs: Tab[]; activeId: string } {
       return { tabs: parsed.map(t => ({ ...t, loading: false })), activeId: parsed[0]?.id ?? "" };
     }
     if (parsed && Array.isArray(parsed.tabs)) {
-      const tabs = parsed.tabs.map(t => ({ ...t, loading: false }));
-      const activeId = tabs.some(t => t.id === parsed.activeId) ? parsed.activeId : tabs[0]?.id ?? "";
+      const tabs = parsed.tabs.map((t: Tab) => ({ ...t, loading: false }));
+      const activeId = tabs.some((t: Tab) => t.id === parsed.activeId) ? parsed.activeId : tabs[0]?.id ?? "";
       return { tabs, activeId };
     }
     const t = makeTab(); return { tabs: [t], activeId: t.id };
@@ -1230,6 +1255,7 @@ function AccountAuthScreen({
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1254,15 +1280,18 @@ function AccountAuthScreen({
       }
 
       if (mode === "signup") {
+        const cleanEmail = email.trim();
+        if (!isValidEmail(cleanEmail)) throw new Error("Enter a valid working email address.");
         const { data, error: signUpError } = await supabase.auth.signUp({
-          email: authEmail,
+          email: cleanEmail,
           password,
+          options: { data: { username: cleanUsername } },
         });
         if (signUpError) throw signUpError;
 
         if (!data.user) throw new Error("Sign up did not return a user.");
         if (!data.session) {
-          setNotice("Account created, but Supabase email confirmation is still on. Disable email confirmation for username-only instant sign-in.");
+          setNotice("Account created. Check your email to confirm before signing in.");
           return;
         }
 
@@ -1378,10 +1407,20 @@ function AccountAuthScreen({
             value={username}
             autoFocus
             onChange={e => { setUsername(e.target.value); setError(""); setNotice(""); }}
-            placeholder="username"
+            placeholder={mode === "signup" ? "username" : "username"}
             style={inputStyle}
             whileFocus={{ borderColor: "#666" }}
           />
+          {mode === "signup" && (
+            <motion.input
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setError(""); setNotice(""); }}
+              placeholder="email address"
+              style={inputStyle}
+              whileFocus={{ borderColor: "#666" }}
+            />
+          )}
           <motion.input
             type="password"
             value={password}
@@ -2975,6 +3014,7 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
   const [replyTarget, setReplyTarget] = useState<ChatMessageRecord | null>(null);
   const [reactionPickerId, setReactionPickerId] = useState<string | null>(null);
   const [recentOwnMessageId, setRecentOwnMessageId] = useState<string | null>(null);
+  const [chatTab, setChatTab] = useState<"global" | "dm">("global");
   const [reactions, setReactions] = useState<Record<string, string[]>>(() => {
     try {
       const raw = localStorage.getItem(`unstable_chat_reactions_${user.id}`);
@@ -3113,144 +3153,187 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
         fontFamily: "'Space Grotesk', sans-serif",
       }}
     >
-      <div style={{ height: "100%", maxWidth: 1000, margin: "0 auto", padding: "1.4rem", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
-        <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", borderRadius: "18px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-          <div>
-            <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — chat</p>
-            <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Realtime room across devices.</p>
-            <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
-              Messages sync through Supabase Realtime. Everyone signed into this app sees the same room.
-            </p>
-          </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
-            <p style={{ margin: 0, fontSize: "0.9rem", color: "#eef2f7" }}>{profile.username}</p>
-          </div>
-        </aside>
+      <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", justifyContent: "flex-start" }}>
+          <button
+            onClick={() => setChatTab("global")}
+            style={{
+              background: chatTab === "global" ? "rgba(255,255,255,0.08)" : "transparent",
+              border: `1px solid ${chatTab === "global" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
+              color: chatTab === "global" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
+              borderRadius: "999px",
+              padding: "0.55rem 0.9rem",
+              cursor: "pointer",
+              fontSize: "0.68rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
+            Global chat
+          </button>
+          <button
+            onClick={() => setChatTab("dm")}
+            style={{
+              background: chatTab === "dm" ? "rgba(255,255,255,0.08)" : "transparent",
+              border: `1px solid ${chatTab === "dm" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
+              color: chatTab === "dm" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
+              borderRadius: "999px",
+              padding: "0.55rem 0.9rem",
+              cursor: "pointer",
+              fontSize: "0.68rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
+            Direct messages
+          </button>
+        </div>
 
-        <section style={{ minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div>
-              <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>Global chat</p>
-              <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://chat in the url bar</p>
-            </div>
-          </div>
-
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-            {loading ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>loading chat…</div>
-            ) : messages.length === 0 ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
-            ) : (
-              messages.map((message, idx) => {
-                const isOwn = message.user_id === user.id;
-                const parsed = parseChatMessageContent(message.content);
-                const messageReactions = reactions[message.id] ?? [];
-                return (
-                  <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: Math.min(idx * 0.03, 0.4) }} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                    <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
-                      <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
-                        {message.username.slice(0, 2)}
-                      </div>
-                      <div style={{ position: "relative" }}>
-                        <div style={{ borderRadius: isOwn ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
-                          <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isOwn ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
-                            {isOwn ? "you" : message.username}
-                          </p>
-                          {parsed.replySnippet && (
-                            <button
-                              onClick={() => {
-                                const el = document.getElementById(`chat-message-${message.id}`);
-                                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                              }}
-                              style={{ display: "block", width: "100%", textAlign: "left", margin: "0 0 0.55rem", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", color: "rgba(255,255,255,0.62)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.67rem", cursor: "pointer" }}
-                            >
-                              <span style={{ display: "block", fontSize: "0.54rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "0.22rem" }}>
-                                replying to {parsed.replyUsername}
-                              </span>
-                              {parsed.replySnippet}
-                            </button>
-                          )}
-                          <p id={`chat-message-${message.id}`} style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>{parsed.body}</p>
-                        </div>
-                        <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                          <button onClick={() => setReplyTarget(message)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>reply</button>
-                          <button onClick={() => setReactionPickerId((prev) => prev === message.id ? null : message.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>react</button>
-                          {recentOwnMessageId === message.id && isOwn && (
-                            <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
-                          )}
-                        </div>
-                        {reactionPickerId === message.id && (
-                          <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
-                            {[
-                              { icon: ThumbsUp, label: "like" },
-                              { icon: Flame, label: "fire" },
-                              { icon: Laugh, label: "laugh" },
-                              { icon: Heart, label: "heart" },
-                            ].map(({ icon: Icon, label }) => (
-                              <button key={label} onClick={() => toggleReaction(message.id, label)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: "0.2rem", color: "rgba(255,255,255,0.5)", display: "inline-flex", alignItems: "center" }}><Icon size={16} /></button>
-                            ))}
-                          </div>
-                        )}
-                        {messageReactions.length > 0 && (
-                          <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                            {messageReactions.map((reaction, index) => {
-                              const Icon = reactionIconMap[reaction] || null;
-                              return Icon ? (
-                                <span key={`${message.id}-${reaction}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", color: "rgba(255,255,255,0.5)" }}>
-                                  <Icon size={14} />
-                                </span>
-                              ) : null;
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })
-            )}
-          </div>
-
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
-            {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem" }}>{error}</p>}
-            {replyTarget && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.7rem", padding: "0.65rem 0.8rem", borderRadius: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: "0 0 0.18rem", fontSize: "0.54rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)" }}>replying to {replyTarget.user_id === user.id ? "yourself" : replyTarget.username}</p>
-                  <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.68rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {parseChatMessageContent(replyTarget.content).body}
-                  </p>
-                </div>
-                <button onClick={() => setReplyTarget(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.38)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", padding: 0 }}>cancel</button>
+        {chatTab === "global" ? (
+          <div style={{ height: "100%", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
+            <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", borderRadius: "18px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+              <div>
+                <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — chat</p>
+                <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Realtime room across devices.</p>
+                <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
+                  Messages sync through Supabase Realtime. Everyone signed into this app sees the same room.
+                </p>
               </div>
-            )}
-            <form onSubmit={sendMessage} style={{ display: "flex", gap: "0.8rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.8rem" }}>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendMessage();
-                  }
-                }}
-                placeholder="Send a message to everyone signed in..."
-                rows={1}
-                style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 180, overflowY: "auto" }}
-              />
-              <motion.button
-                whileHover={{ scale: sending ? 1 : 1.03 }}
-                whileTap={{ scale: sending ? 1 : 0.98 }}
-                type="submit"
-                disabled={sending || !input.trim()}
-                style={{ alignSelf: "stretch", minWidth: 104, background: sending || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: sending || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: sending || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
-              >
-                {sending ? "sending" : "send"}
-              </motion.button>
-            </form>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
+                <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
+                <p style={{ margin: 0, fontSize: "0.9rem", color: "#eef2f7" }}>{profile.username}</p>
+              </div>
+            </aside>
+
+            <section style={{ minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>Global chat</p>
+                  <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://chat in the url bar</p>
+                </div>
+              </div>
+
+              <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+                {loading ? (
+                  <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>loading chat…</div>
+                ) : messages.length === 0 ? (
+                  <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
+                ) : (
+                  messages.map((message, idx) => {
+                    const isOwn = message.user_id === user.id;
+                    const parsed = parseChatMessageContent(message.content);
+                    const messageReactions = reactions[message.id] ?? [];
+                    return (
+                      <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: Math.min(idx * 0.03, 0.4) }} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                        <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
+                            {message.username.slice(0, 2)}
+                          </div>
+                          <div style={{ position: "relative" }}>
+                            <div style={{ borderRadius: isOwn ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
+                              <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isOwn ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
+                                {isOwn ? "you" : message.username}
+                              </p>
+                              {parsed.replySnippet && (
+                                <button
+                                  onClick={() => {
+                                    const el = document.getElementById(`chat-message-${message.id}`);
+                                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                  }}
+                                  style={{ display: "block", width: "100%", textAlign: "left", margin: "0 0 0.55rem", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", color: "rgba(255,255,255,0.62)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.67rem", cursor: "pointer" }}
+                                >
+                                  <span style={{ display: "block", fontSize: "0.54rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "0.22rem" }}>
+                                    replying to {parsed.replyUsername}
+                                  </span>
+                                  {parsed.replySnippet}
+                                </button>
+                              )}
+                              <p id={`chat-message-${message.id}`} style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>{parsed.body}</p>
+                            </div>
+                            <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                              <button onClick={() => setReplyTarget(message)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>reply</button>
+                              <button onClick={() => setReactionPickerId((prev) => prev === message.id ? null : message.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>react</button>
+                              {recentOwnMessageId === message.id && isOwn && (
+                                <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
+                              )}
+                            </div>
+                            {reactionPickerId === message.id && (
+                              <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
+                                {[
+                                  { icon: ThumbsUp, label: "like" },
+                                  { icon: Flame, label: "fire" },
+                                  { icon: Laugh, label: "laugh" },
+                                  { icon: Heart, label: "heart" },
+                                ].map(({ icon: Icon, label }) => (
+                                  <button key={label} onClick={() => toggleReaction(message.id, label)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: "0.2rem", color: "rgba(255,255,255,0.5)", display: "inline-flex", alignItems: "center" }}><Icon size={16} /></button>
+                                ))}
+                              </div>
+                            )}
+                            {messageReactions.length > 0 && (
+                              <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
+                                {messageReactions.map((reaction, index) => {
+                                  const Icon = reactionIconMap[reaction] || null;
+                                  return Icon ? (
+                                    <span key={`${message.id}-${reaction}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", color: "rgba(255,255,255,0.5)" }}>
+                                      <Icon size={14} />
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
+                {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem" }}>{error}</p>}
+                {replyTarget && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.7rem", padding: "0.65rem 0.8rem", borderRadius: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: "0 0 0.18rem", fontSize: "0.54rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)" }}>replying to {replyTarget.user_id === user.id ? "yourself" : replyTarget.username}</p>
+                      <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.68rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {parseChatMessageContent(replyTarget.content).body}
+                      </p>
+                    </div>
+                    <button onClick={() => setReplyTarget(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.38)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", padding: 0 }}>cancel</button>
+                  </div>
+                )}
+                <form onSubmit={sendMessage} style={{ display: "flex", gap: "0.8rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.8rem" }}>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void sendMessage();
+                      }
+                    }}
+                    placeholder="Send a message to everyone signed in..."
+                    rows={1}
+                    style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 180, overflowY: "auto" }}
+                  />
+                  <motion.button
+                    whileHover={{ scale: sending ? 1 : 1.03 }}
+                    whileTap={{ scale: sending ? 1 : 0.98 }}
+                    type="submit"
+                    disabled={sending || !input.trim()}
+                    style={{ alignSelf: "stretch", minWidth: 104, background: sending || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: sending || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: sending || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
+                  >
+                    {sending ? "sending" : "send"}
+                  </motion.button>
+                </form>
+              </div>
+            </section>
           </div>
-        </section>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <DMChat user={user} profile={{ ...profile, avatar_url: undefined }} />
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -3877,6 +3960,29 @@ function SplitHeader({ tab, onSwap, onClose }: { tab: Tab; onSwap: () => void; o
 
 // ─── Browser tab ──────────────────────────────────────────────────────────────
 
+// ─── QrCodeCanvas ─────────────────────────────────────────────────────────────
+
+function QrCodeCanvas({ url, size = 160 }: { url: string; size?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { default: QRCode } = await import("qrcode");
+        if (!cancelled && canvasRef.current) {
+          await QRCode.toCanvas(canvasRef.current, url, { width: size, margin: 1, color: { dark: "#0d0d0d", light: "#ffffff" } });
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [url, size]);
+  return (
+    <div style={{ width: size + 24, height: size + 24, display: "flex", alignItems: "center", justifyContent: "center", background: "#ffffff", borderRadius: "8px", padding: 8 }}>
+      <canvas ref={canvasRef} style={{ width: size, height: size }} />
+    </div>
+  );
+}
+
 function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, inSplit }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
   onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; inSplit?: boolean;
@@ -3946,6 +4052,8 @@ function CollapsedSidebar({
   onTabClose,
   onNewTab,
   verticalTabs,
+  profile,
+  user,
 }: {
   activeUrl: string;
   onNavigate: (url: string) => void;
@@ -3956,6 +4064,8 @@ function CollapsedSidebar({
   onTabClose?: (id: string) => void;
   onNewTab?: () => void;
   verticalTabs?: boolean;
+  profile?: Profile | null;
+  user?: User | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sidebarW = 56;
@@ -3969,10 +4079,8 @@ function CollapsedSidebar({
     hidden?: boolean;
   }> = [
     { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
+    { label: "Profile", url: "unstable://profile", icon: UserIcon },
     { label: "Games", url: "unstable://games", icon: Gamepad },
-    { label: "History", url: "unstable://history", icon: HistoryIcon },
-    { label: "Bookmarks", url: "unstable://bookmarks", icon: Bookmark },
-    { label: "Downloads", url: "unstable://downloads", icon: Download },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
     { label: "Settings", url: "unstable://settings", icon: Settings },
@@ -3987,7 +4095,7 @@ function CollapsedSidebar({
 
   const games = items.find(i => i.url === "unstable://games");
   const settings = items.find(i => i.url === "unstable://settings");
-  const middle = items.filter(i => i.url !== "unstable://games" && i.url !== "unstable://settings");
+  const middle = items.filter(i => i.url !== "unstable://profile" && i.url !== "unstable://settings");
 
   const iconBtn: React.CSSProperties = {
     width: 38, height: 38, borderRadius: 12,
@@ -4025,33 +4133,33 @@ function CollapsedSidebar({
         overflow: "hidden",
       }}
     >
-      {/* TOP: Games (only when horizontal) */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
-        {!verticalTabs && games && !games.hidden && (() => {
-          const active = isActive(games.url);
-          const Icon = games.icon;
-          const s = expanded ? linkBtn : iconBtn;
-          return (
-            <motion.button
-              key={games.url}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => onNavigate(games.url)}
-              data-tooltip={games.label} aria-label={games.label}
-              style={{
-                ...s,
-                background: active ? "#101010" : "none",
-                borderColor: active ? "#1f1f1f" : "transparent",
-                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
-              }}
-              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
-            >
-              <Icon size={18} />
-              {expanded && games.label}
-            </motion.button>
-          );
-        })()}
-      </div>
+      {/* TOP: profile avatar (only when horizontal) */}
+      {!verticalTabs && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={() => onNavigate("unstable://profile")}
+            aria-label="Profile"
+            data-tooltip="Profile"
+            style={{
+              ...iconBtn,
+              background: activeUrl === "unstable://profile" ? "#101010" : "none",
+              borderColor: activeUrl === "unstable://profile" ? "#1f1f1f" : "transparent",
+              width: 38,
+              height: 38,
+              padding: 0,
+            }}
+          >
+            <div style={{ width: 26, height: 26, borderRadius: 0, overflow: "hidden", background: "transparent", border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <UserIcon size={14} style={{ color: "rgba(255,255,255,0.8)" }} />
+              )}
+            </div>
+          </motion.button>
+        </div>
+      )}
 
       {/* MIDDLE: tabs (if verticalTabs) + Home, AI, Chat */}
       {verticalTabs && tabs && onTabActivate && onTabClose && onNewTab ? (
@@ -4167,31 +4275,8 @@ function CollapsedSidebar({
         </div>
       )}
 
-      {/* BOTTOM: Games (if vertical), GitHub, Discord, Settings */}
+      {/* BOTTOM: GitHub, Discord, Settings */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
-        {verticalTabs && games && !games.hidden && (() => {
-          const active = isActive(games.url);
-          const Icon = games.icon;
-          const s = iconBtn;
-          return (
-            <motion.button
-              key={games.url}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => onNavigate(games.url)}
-              data-tooltip={games.label} aria-label={games.label}
-              style={{
-                ...s,
-                background: active ? "#101010" : "none",
-                borderColor: active ? "#1f1f1f" : "transparent",
-                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
-              }}
-              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
-            >
-              <Icon size={18} />
-            </motion.button>
-          );
-        })()}
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
@@ -4287,11 +4372,15 @@ function BrowserApp({
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [qrCopied, setQrCopied] = useState(false);
+  const qrCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
   const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
   const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {}, activateTab: (id: string) => {} });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
+  const tabAbortRefs = useRef<Record<string, AbortController>>({});
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -4403,6 +4492,15 @@ function BrowserApp({
       void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
     }
   }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
+
+  useEffect(() => {
+    function onRetryTransport() {
+      const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
+      void switchBare(n, "auto", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
+    }
+    window.addEventListener("unstable-retry-transport", onRetryTransport);
+    return () => window.removeEventListener("unstable-retry-transport", onRetryTransport);
+  }, [settings]);
 
 
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
@@ -4718,6 +4816,10 @@ function BrowserApp({
     }
     setTabs(prev => prev.map(tab => {
       if (tab.id !== tabId) return tab;
+      // Cancel any in-flight navigation for this tab
+      if (tabAbortRefs.current[tabId]) {
+        tabAbortRefs.current[tabId].abort();
+      }
       const hist = [...tab.history.slice(0, tab.historyIndex + 1), proxyUrl];
       return {
         ...tab,
@@ -4730,6 +4832,7 @@ function BrowserApp({
         lastProxyUrl: proxyUrl,
       };
     }));
+    tabAbortRefs.current[tabId] = new AbortController();
   }
 
   function handleBack() {
@@ -4753,6 +4856,11 @@ function BrowserApp({
   navRefs.current = { handleNavigate, handleNewTab, activateTab: handleTabActivate };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
+    // Cancel in-flight navigation for the closed tab
+    if (tabAbortRefs.current[id]) {
+      tabAbortRefs.current[id].abort();
+      delete tabAbortRefs.current[id];
+    }
     const idx = tabs.findIndex(t => t.id === id);
     const next = tabs.filter(t => t.id !== id); setTabs(next);
     const newActive = activeTabId === id ? next[Math.min(idx, next.length - 1)].id : activeTabId;
@@ -4794,6 +4902,11 @@ function BrowserApp({
       if (id === split.other) { handleSwapSplit(); return; }
       if (id === activeTabId) return;
       setSplit(null);
+    }
+    // Cancel in-flight navigation for the previously active tab
+    if (tabAbortRefs.current[activeTabId]) {
+      tabAbortRefs.current[activeTabId].abort();
+      delete tabAbortRefs.current[activeTabId];
     }
     setActiveTabId(id);
   }
@@ -4871,6 +4984,34 @@ function BrowserApp({
     }
   }
 
+  function handleShareCurrent() {
+    if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
+    const decoded = decodeProxyUrl(activeTab.url);
+    setQrUrl(decoded);
+  }
+
+  const copyQrUrl = async () => {
+    if (!qrUrl) return;
+    try {
+      await navigator.clipboard.writeText(qrUrl);
+      setQrCopied(true);
+      if (qrCopyTimer.current) window.clearTimeout(qrCopyTimer.current);
+      qrCopyTimer.current = setTimeout(() => setQrCopied(false), 2000);
+    } catch {}
+  };
+
+  const saveQrPng = async () => {
+    if (!qrUrl) return;
+    try {
+      const { default: QRCode } = await import("qrcode");
+      const dataUrl = await QRCode.toDataURL(qrUrl, { width: 512, margin: 1, color: { dark: "#0d0d0d", light: "#ffffff" } });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = "unstable-qr.png";
+      a.click();
+    } catch {}
+  };
+
   function handleOpenInNewTab() {
     if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
     if (!isAllowedExternalUrl(activeTab.url)) return;
@@ -4907,12 +5048,13 @@ function BrowserApp({
   }
 
   function toggleDevTools() {
-    const iframe = iframeRef.current;
+    const iframe = iframeRefs.current[activeTabId] ?? iframeRef.current;
     if (!iframe) return;
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-    const win = iframe.contentWindow;
-    if (!win) return;
+    let doc: Document | null = null;
+    try { doc = iframe.contentDocument; } catch {}
+    let win: Window | null = null;
+    try { win = iframe.contentWindow; } catch {}
+    if (!doc || !win) return;
     const id = activeTabId;
     const isOpen = !!devToolsOpen[id];
 
@@ -4930,32 +5072,41 @@ function BrowserApp({
       return;
     }
 
-    fetch("https://cdn.jsdelivr.net/npm/eruda")
+    try {
+      doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], meta[http-equiv="content-security-policy"]').forEach(m => m.remove());
+    } catch {}
+
+    fetch("/eruda.min.js")
       .then(r => r.text())
       .then(code => {
-        const s = doc.createElement("script");
-        s.textContent = code;
-        doc.head.appendChild(s);
         try {
-          (win as any).eruda.init({ useShadowDom: false });
-          (win as any).eruda.show();
-          (win as any).__UNSTABLE_DEVTOOLS__ = true;
-          const nukeLauncher = () => {
+          const s = doc!.createElement("script");
+          s.textContent = code;
+          (doc!.head || doc!.documentElement).appendChild(s);
+        } catch (e1) {
+          try {
+            (win as any).eval(code);
+          } catch (e2) {
             try {
-              doc.querySelectorAll("*").forEach((el: Element) => {
-                const cn = (el.className || "").toString();
-                if (cn.includes("launcher") || cn.includes("Launcher")) {
-                  (el as HTMLElement).style.cssText = "display:none!important";
-                }
-              });
-            } catch {}
-          };
-          nukeLauncher();
-          for (let i = 1; i <= 50; i++) setTimeout(nukeLauncher, i * 50);
-          const obs = new MutationObserver(() => nukeLauncher());
-          obs.observe(doc.body, { childList: true, subtree: true, attributes: true });
-          setTimeout(() => obs.disconnect(), 10000);
-        } catch (e) { console.error("eruda init failed", e); }
+              const blob = new Blob([code], { type: "application/javascript" });
+              const blobUrl = URL.createObjectURL(blob);
+              const s2 = doc!.createElement("script");
+              s2.src = blobUrl;
+              s2.onload = () => URL.revokeObjectURL(blobUrl);
+              s2.onerror = () => URL.revokeObjectURL(blobUrl);
+              (doc!.head || doc!.documentElement).appendChild(s2);
+            } catch (_) {}
+          }
+        }
+        if ((win as any).eruda) {
+          try {
+            (win as any).eruda.init({ useShadowDom: true });
+            (win as any).eruda.show();
+            (win as any).__UNSTABLE_DEVTOOLS__ = true;
+          } catch (e) { console.error("eruda init failed", e); }
+        } else {
+          console.error("eruda not found after injection attempts");
+        }
       })
       .catch(e => console.error("eruda fetch failed", e));
     setDevToolsOpen(prev => ({ ...prev, [id]: true }));
@@ -4983,6 +5134,7 @@ function BrowserApp({
     }
     if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
     if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://profile") return <ProfilePage user={user} profile={profile} onLogout={onLogout} />;
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://games") return <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>Coming soon</div>;
     if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
@@ -4999,6 +5151,9 @@ function BrowserApp({
         allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
         onLoad={() => {
+          // Check if this tab's navigation was cancelled
+          if (tabAbortRefs.current[tab.id]?.signal.aborted) return;
+          
           updateTab(tab.id, { loading: false });
           try {
             const iframe = iframeRefs.current[tab.id];
@@ -5064,7 +5219,7 @@ function BrowserApp({
               if (settings.proxyEngine === "uv") { updateTab(tab.id, { loading: false }); return; }
               const original = decodeProxyUrl(current);
               if (original && original.startsWith("http")) {
-                if (scrController && settings.proxyEngine !== "uv") {
+                if (scrController) {
                   const scramjetUrl = encodeProxyUrl(original, "scramjet", settings);
                   if (scramjetUrl !== current) { updateTab(tab.id, { url: scramjetUrl, loading: true }); return; }
                 }
@@ -5222,8 +5377,16 @@ function BrowserApp({
                 {toolMenuOpen && (
                   <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -4 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
                     style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 2000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
-                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); toggleDevTools(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: devToolsOpen[activeTabId] ? "#e8e8e8" : "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Wrench size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{devToolsOpen[activeTabId] ? "Close DevTools" : "DevTools"}</motion.button>
+                    {(() => {
+                      const hasIframe = !!iframeRefs.current[activeTabId] || !!iframeRef.current;
+                      const dtColor = !hasIframe ? "rgba(255,255,255,0.2)" : devToolsOpen[activeTabId] ? "#e8e8e8" : "rgba(255,255,255,0.75)";
+                      return <motion.button whileHover={hasIframe ? { background: "#1a1a1a" } : {}} onClick={() => { setToolMenuOpen(false); if (hasIframe) toggleDevTools(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: dtColor, fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: hasIframe ? "pointer" : "not-allowed", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Wrench size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{devToolsOpen[activeTabId] ? "Close DevTools" : hasIframe ? "DevTools" : "DevTools (open a web page)"}</motion.button>;
+                    })()}
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleOpenInNewTab(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ExternalLink size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Open in new tab</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://history"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><HistoryIcon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />History</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://bookmarks"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Bookmark size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Bookmarks</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://downloads"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Download size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Downloads</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleShareCurrent(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><QrCode size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Share via QR</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setFullscreen(f => !f); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Maximize size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{fullscreen ? "Exit fullscreen" : "Fullscreen"}</motion.button>
                     <div style={{ height: 1, background: "#222", margin: "0.2rem 0" }} />
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleSplitActive(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Columns2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{split ? "Close split" : "Split current tab"}</motion.button>
@@ -5280,6 +5443,8 @@ function BrowserApp({
             onTabClose={(id) => handleCloseTab(id)}
             onNewTab={handleNewTab}
             verticalTabs={settings.verticalTabs}
+            profile={profile}
+            user={user}
           />
         )}
 
@@ -5364,6 +5529,30 @@ function BrowserApp({
                   style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>deny</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(true); setPendingPerm(null); }}
                   style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>allow</motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {qrUrl && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+            style={{ position: "fixed", inset: 0, zIndex: 999998, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setQrUrl(null)}>
+            <motion.div initial={{ opacity: 0, scale: 0.92, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: 10 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              onClick={e => e.stopPropagation()}
+              style={{ background: "#111", border: "1px solid #333", borderRadius: "8px", padding: "1.5rem", maxWidth: 420, width: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.9rem" }}>
+              <p style={{ margin: 0, color: "#e8e8e8", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.08em", textTransform: "uppercase" }}>Scan to open</p>
+              <QrCodeCanvas url={qrUrl} size={180} />
+              <p style={{ margin: 0, color: "rgba(255,255,255,0.35)", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{qrUrl}</p>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={copyQrUrl}
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>{qrCopied ? "✓ Copied" : "Copy URL"}</motion.button>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={saveQrPng}
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Save PNG</motion.button>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => setQrUrl(null)}
+                  style={{ background: "none", color: "rgba(255,255,255,0.5)", border: "1px solid #333", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Close</motion.button>
               </div>
             </motion.div>
           </motion.div>
@@ -5461,14 +5650,18 @@ export default function App() {
 
       if (showLoading) setAccountLoading(true);
       try {
-        const [nextProfile, nextAuthContext] = await withTimeout(
-          Promise.all([
+        const [nextProfileResult, nextAuthContextResult] = await withTimeout(
+          Promise.allSettled([
             fetchProfile(nextUser.id),
             fetchAuthContext(nextSession!.access_token),
           ]),
           ACCOUNT_BOOT_TIMEOUT_MS,
           "Account sync",
         );
+
+        const nextProfile = nextProfileResult.status === "fulfilled" ? nextProfileResult.value : null;
+        const nextAuthContext = nextAuthContextResult.status === "fulfilled" ? nextAuthContextResult.value : { isBanned: false, banReason: null };
+
         console.log('Account sync completed:', { nextProfile: !!nextProfile, nextAuthContext });
         if (!mounted) return;
 

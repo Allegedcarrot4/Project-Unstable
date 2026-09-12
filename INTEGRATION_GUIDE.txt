@@ -1,0 +1,235 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTEGRATION GUIDE FOR NEW FEATURES
+// Follow these steps to integrate the new components into App.tsx
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// STEP 1: Add imports at the top of App.tsx (around line 1)
+// ─────────────────────────────────────────────────────────────────────────────
+// Add these to your existing imports:
+// 
+// import { ProfilePage } from "./components/ProfilePage";
+// import { DMChat } from "./components/DMChat";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 2: Update Profile interface (around line 200)
+// ─────────────────────────────────────────────────────────────────────────────
+// Change from:
+//   interface Profile {
+//     id: string;
+//     username: string;
+//   }
+//
+// To:
+//   interface Profile {
+//     id: string;
+//     username: string;
+//     bio?: string;
+//     avatar_url?: string;
+//     created_at?: string;
+//   }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 3: Update fetchProfile function (around line 3800)
+// ─────────────────────────────────────────────────────────────────────────────
+// Change from:
+//   async function fetchProfile(userId: string): Promise<Profile | null> {
+//     const { data, error } = await supabase
+//       .from("profiles")
+//       .select("id, username")
+//       .eq("id", userId)
+//       .maybeSingle();
+//
+//     if (error) throw error;
+//     return data;
+//   }
+//
+// To:
+//   async function fetchProfile(userId: string): Promise<Profile | null> {
+//     const { data, error } = await supabase
+//       .from("profiles")
+//       .select("id, username, bio, avatar_url, created_at")
+//       .eq("id", userId)
+//       .maybeSingle();
+//
+//     if (error) throw error;
+//     return data;
+//   }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 4: Update createProfile function (around line 3814)
+// ─────────────────────────────────────────────────────────────────────────────
+// Change from:
+//   async function createProfile(userId: string, username: string): Promise<Profile> {
+//     const trimmed = username.trim();
+//     const { data, error } = await supabase
+//       .from("profiles")
+//       .insert({ id: userId, username: trimmed })
+//       .select("id, username")
+//       .single();
+//
+//     if (error) throw error;
+//     return data;
+//   }
+//
+// To:
+//   async function createProfile(userId: string, username: string): Promise<Profile> {
+//     const trimmed = username.trim();
+//     const { data, error } = await supabase
+//       .from("profiles")
+//       .insert({ id: userId, username: trimmed, bio: "", avatar_url: "", created_at: new Date().toISOString() })
+//       .select("id, username, bio, avatar_url, created_at")
+//       .single();
+//
+//     if (error) throw error;
+//     return data;
+//   }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 5: Add new pages to the main App component (around line 5400)
+// ─────────────────────────────────────────────────────────────────────────────
+// Find the section where pages are rendered (near currentPage switch statement)
+// Add these new routes:
+//
+// else if (currentPage === "profile") {
+//   return <ProfilePage user={user} profile={profile} onLogout={() => { setUser(null); setProfile(null); setSession(null); setCurrentPage("home"); }} />;
+// } else if (currentPage === "dm") {
+//   return <DMChat user={user} profile={profile} />;
+// }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 6: Add navigation buttons to the UI
+// ─────────────────────────────────────────────────────────────────────────────
+// Add these buttons to your navigation bar (next to existing AI/Chat buttons):
+//
+// <motion.button
+//   whileHover={{ scale: 1.05 }}
+//   whileTap={{ scale: 0.95 }}
+//   onClick={() => setCurrentPage("profile")}
+//   style={{
+//     background: currentPage === "profile" ? "var(--t-accent)" : "rgba(255,255,255,0.05)",
+//     color: currentPage === "profile" ? "var(--t-accent-text)" : "rgba(255,255,255,0.5)",
+//     border: "1px solid var(--t-border-light)",
+//     borderRadius: "10px",
+//     padding: "0.5rem 1rem",
+//     fontSize: "0.7rem",
+//     fontFamily: "'Space Grotesk', sans-serif",
+//     cursor: "pointer",
+//     letterSpacing: "0.08em",
+//     textTransform: "uppercase",
+//   }}
+// >
+//   Profile
+// </motion.button>
+//
+// <motion.button
+//   whileHover={{ scale: 1.05 }}
+//   whileTap={{ scale: 0.95 }}
+//   onClick={() => setCurrentPage("dm")}
+//   style={{
+//     background: currentPage === "dm" ? "var(--t-accent)" : "rgba(255,255,255,0.05)",
+//     color: currentPage === "dm" ? "var(--t-accent-text)" : "rgba(255,255,255,0.5)",
+//     border: "1px solid var(--t-border-light)",
+//     borderRadius: "10px",
+//     padding: "0.5rem 1rem",
+//     fontSize: "0.7rem",
+//     fontFamily: "'Space Grotesk', sans-serif",
+//     cursor: "pointer",
+//     letterSpacing: "0.08em",
+//     textTransform: "uppercase",
+//   }}
+// >
+//   Messages
+// </motion.button>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 7: Persist AI Chat Feedback
+// ─────────────────────────────────────────────────────────────────────────────
+// In AIPageInner component, find the feedback section and replace it with:
+//
+// async function saveFeedback(messageId: string, feedbackType: "like" | "dislike" | null) {
+//   try {
+//     if (feedbackType === null) {
+//       // Delete feedback
+//       await supabase
+//         .from("ai_chat_feedback")
+//         .delete()
+//         .eq("message_id", messageId)
+//         .eq("user_id", user.id);
+//     } else {
+//       // Insert or update feedback
+//       await supabase
+//         .from("ai_chat_feedback")
+//         .upsert({
+//           message_id: messageId,
+//           user_id: user.id,
+//           feedback_type: feedbackType,
+//         });
+//     }
+//     setFeedback(prev => ({ ...prev, [messageId]: feedbackType }));
+//   } catch (err) {
+//     console.error("Failed to save feedback:", err);
+//   }
+// }
+//
+// Then update the feedback buttons to call this function instead of just updating local state
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 8: Load existing feedback on page load
+// ─────────────────────────────────────────────────────────────────────────────
+// Add this useEffect in AIPageInner:
+//
+// useEffect(() => {
+//   if (!activeId) return;
+//   let cancelled = false;
+//   async function loadFeedback() {
+//     try {
+//       const { data } = await supabase
+//         .from("ai_chat_feedback")
+//         .select("message_id, feedback_type")
+//         .eq("user_id", user.id);
+//       
+//       if (!cancelled && data) {
+//         const feedbackMap: Record<string, "like" | "dislike"> = {};
+//         data.forEach(f => {
+//           feedbackMap[f.message_id] = f.feedback_type;
+//         });
+//         setFeedback(feedbackMap);
+//       }
+//     } catch (err) {
+//       console.error("Failed to load feedback:", err);
+//     }
+//   }
+//   loadFeedback();
+//   return () => { cancelled = true; };
+// }, [activeId, user.id]);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STEP 9: SUPABASE SETUP (IMPORTANT!)
+// ═════════════════════════════════════════════════════════════════════════════
+// 1. Run the SQL migration in SUPABASE_SETUP.sql:
+//    - Go to SQL Editor in your Supabase console
+//    - Paste the SQL from SUPABASE_SETUP.sql
+//    - Execute all migrations
+//
+// 2. Enable Realtime on these tables:
+//    - Go to Database > Replication
+//    - Enable replication for:
+//      * dm_messages (for live chat)
+//      * dm_conversations (for conversation updates)
+//      * friendships (for friend updates)
+//      * ai_chat_feedback (optional - for feedback sync)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL FEATURES ALREADY IN PLACE
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// VOICE RECORDING (AI Page):
+// - Voice input button already exists in AIPageInner (uses Web Speech API)
+// - To improve it, the mic button with `setListening` state is there
+//
+// VOICE OUTPUT (AI Page):
+// - Read aloud button with SpeechSynthesisUtterance already implemented
+// - Uses speakMessage function with stop functionality
+//
+// These are ready to use once components are integrated!
+// ═════════════════════════════════════════════════════════════════════════════
