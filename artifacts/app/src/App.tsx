@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ComponentType } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense, type ComponentType } from "react";
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
-import { DMChat } from "./components/DMChat";
-import { ProfilePage } from "./components/ProfilePage";
-import NotFound from "./pages/not-found";
+const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
+const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
+const NotFound = lazy(() => import("./pages/not-found"));
 
 import type { CodecType } from "./lib/codec";
 import { makeCodec } from "./lib/codec";
@@ -16,6 +16,21 @@ import { addHistory, getHistory, clearHistory, deleteHistoryEntry, searchHistory
 import { getBookmarks, addBookmark, removeBookmark, searchBookmarks, isBookmarked } from "./lib/bookmarks";
 import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload, downloadFile, retryDownload, cancelDownload, formatBytes, formatSpeed, subscribe, type DownloadEntry } from "./lib/downloads";
 import { loadWidgetConfig, saveWidgetConfig, toggleWidget, getGreeting, QUOTES, type WidgetType, type WidgetConfig, type Quote } from "./lib/widgets";
+import {
+  faviconUrl as _faviconUrl,
+  extractDomain as _extractDomain,
+  stripTrackingParams as _stripTrackingParams,
+  getEffectiveEngine as _getEffectiveEngine,
+  encodeProxyUrl as _encodeProxyUrl,
+  decodeProxyUrl as _decodeProxyUrl,
+  hostnameFromTabUrl as _hostnameFromTabUrl,
+  isGameModeHost as _isGameModeHost,
+  isGameModeTabUrl as _isGameModeTabUrl,
+  getDomainFromProxyUrl as _getDomainFromProxyUrl,
+  barePathForNum as _barePathForNum,
+  normalizeUrl as _normalizeUrl,
+} from "./lib/proxy";
+import type { ScramjetCtrl } from "./lib/proxy";
 
 
 declare global {
@@ -25,13 +40,6 @@ declare global {
     $scramjetLoadController: () => { ScramjetController: new (cfg: any) => ScramjetCtrl };
     $scramjetLoadWorker: () => any;
   }
-}
-
-interface ScramjetCtrl {
-  init(): Promise<void>;
-  encodeUrl(url: string | URL): string;
-  decodeUrl(url: string | URL): string;
-  createFrame(frame?: HTMLIFrameElement): any;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -320,6 +328,8 @@ const SHORTCUT_LABELS: Record<string, string> = {
   closeTab: "Close tab", newTab: "New tab", addShortcut: "Add as shortcut",
 };
 
+const ENIGMA_KEY = "Unstabl";
+
 const DEFAULT_SHORTCUTS: Shortcut[] = [
   { id: "google", name: "Google", url: "https://google.com", favicon: faviconUrl("google.com") },
   { id: "discord", name: "Discord", url: "https://discord.com", favicon: faviconUrl("discord.com") },
@@ -332,13 +342,8 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-function faviconUrl(domain: string) {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-}
-
-function extractDomain(url: string) {
-  try { return new URL(url).hostname; } catch { return ""; }
-}
+function faviconUrl(domain: string) { return _faviconUrl(domain); }
+function extractDomain(url: string) { return _extractDomain(url); }
 
 function aiMessageId() {
   return Math.random().toString(36).slice(2);
@@ -460,8 +465,8 @@ async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
       banReason: data?.banReason ?? null,
     };
   } catch (err) {
-    console.warn("Auth context fetch failed; allowing access temporarily.", err);
-    return { isBanned: false, banReason: null };
+    console.warn("Auth context fetch failed; denying access.", err);
+    return { isBanned: true, banReason: "Unable to verify account status. Please try again." };
   }
 }
 
@@ -504,91 +509,42 @@ async function createProfile(userId: string, username: string): Promise<Profile>
   return data as Profile;
 }
 
-function stripTrackingParams(url: string): string {
-  try {
-    const u = new URL(url);
-    const params = ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid","fbclid","mc_cid","mc_eid","_hsenc","_hsmi","hsCtaTracking"];
-    let changed = false;
-    for (const p of params) { if (u.searchParams.has(p)) { u.searchParams.delete(p); changed = true; } }
-    return changed ? u.toString() : url;
-  } catch { return url; }
-}
+function stripTrackingParams(url: string): string { return _stripTrackingParams(url); }
 
 function getEffectiveEngine(url: string, settings: Settings): ProxyEngine {
-  try {
-    const host = new URL(url).hostname;
-    if (settings.siteEngineOverrides[host]) return settings.siteEngineOverrides[host];
-  } catch {}
-  return settings.proxyEngine;
+  return _getEffectiveEngine(url, settings);
 }
 
 function encodeProxyUrl(url: string, engine: ProxyEngine = "auto", settings?: Settings): string {
-  const cleaned = stripTrackingParams(url);
-  const effEngine = settings ? getEffectiveEngine(cleaned, settings) : engine;
-  const useScramjet = (effEngine === "auto" || effEngine === "scramjet") && scrController !== null;
-  if (useScramjet) {
-    try { return scrController!.encodeUrl(cleaned); } catch { /* fall through */ }
-  }
-  if (effEngine === "scramjet" && !scrController) {
-    throw new Error("Scramjet controller not ready");
-  }
-  if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
-  return UV_PREFIX + encodeURIComponent(cleaned);
+  return _encodeProxyUrl(url, engine, settings, scrController);
 }
 
 function normalizeUrl(input: string, searchEngine?: string): string {
-  const t = input.trim();
-  if (!t) return "";
-  if (t.startsWith("unstable://")) return t;
-  if (t.startsWith("http://") || t.startsWith("https://")) return t;
-  if (t.includes(".") && !t.includes(" ")) return "https://" + t;
-  return searchUrl(t, searchEngine ?? "duckduckgo");
+  return _normalizeUrl(input, searchEngine);
 }
 
 function decodeProxyUrl(url: string): string {
-  try {
-    if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      try { return scrController.decodeUrl(location.origin + url); } catch { }
-      const encoded = url.slice(SCRAMJET_PREFIX.length);
-      return decodeURIComponent(encoded);
-    }
-    if (url.startsWith(UV_PREFIX)) {
-      const enc = url.slice(UV_PREFIX.length);
-      if (window.__uv$config) return window.__uv$config.decodeUrl(enc);
-      return decodeURIComponent(enc);
-    }
-  } catch { }
-  return url;
+  return _decodeProxyUrl(url, scrController);
 }
 
 function hostnameFromTabUrl(tabUrl: string): string | null {
-  if (!tabUrl || tabUrl.startsWith("unstable://")) return null;
-  try {
-    return new URL(decodeProxyUrl(tabUrl)).hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return null;
-  }
+  return _hostnameFromTabUrl(tabUrl, scrController);
 }
 
 function isGameModeHost(hostname: string | null, settings: Settings): boolean {
-  if (!settings.gameModeEnabled || !hostname) return false;
-  return settings.gameModeSites.some((raw) => {
-    const site = raw.trim().toLowerCase().replace(/^www\./, "");
-    if (!site) return false;
-    return hostname === site || hostname.endsWith("." + site);
-  });
+  return _isGameModeHost(hostname, settings.gameModeEnabled, settings.gameModeSites);
 }
 
 function isGameModeTabUrl(tabUrl: string, settings: Settings): boolean {
-  return isGameModeHost(hostnameFromTabUrl(tabUrl), settings);
+  return _isGameModeTabUrl(tabUrl, settings.gameModeEnabled, settings.gameModeSites, scrController);
 }
 
 function getDomainFromProxyUrl(url: string): string {
-  try { return new URL(decodeProxyUrl(url)).hostname; } catch { return ""; }
+  return _getDomainFromProxyUrl(url, scrController);
 }
 
 function barePathForNum(n: number): string {
-  return n === 1 ? "/api/cdn/" : `/api/cdn${n}/`;
+  return _barePathForNum(n);
 }
 
 function buildCombo(e: KeyboardEvent): string {
@@ -655,7 +611,20 @@ function saveSettings(s: Settings) { localStorage.setItem(SETTINGS_KEY, JSON.str
 function normalizePanicUrl(input: string): string {
   const v = (input || "").trim();
   if (!v) return DEFAULT_PANIC_URL;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return v;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
+    try {
+      const parsed = new URL(v);
+      if (parsed.protocol === "javascript:" || parsed.protocol === "data:" || parsed.protocol === "vbscript:") {
+        return DEFAULT_PANIC_URL;
+      }
+      if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(parsed.hostname)) {
+        return DEFAULT_PANIC_URL;
+      }
+      return v;
+    } catch {
+      return DEFAULT_PANIC_URL;
+    }
+  }
   return "https://" + v;
 }
 
@@ -894,7 +863,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
         // Wrap with enigma-style encryption: add an encryption layer via SW messaging
         await bareConn.setTransport(url, args);
         if (navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+          navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
         }
       } else {
         await bareConn.setTransport(url, args);
@@ -946,17 +915,17 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
     const mode = transportMode || "auto";
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       emitStatus({ switching: false, transport: "bare", bare: n });
     };
     const tryDrift = async () => {
       await bareConn.setTransport("/drift/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       emitStatus({ switching: false, transport: "drift", bare: n });
     };
     const tryWisp = async () => {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       emitStatus({ switching: false, transport: "libcurl", bare: n });
     };
     const tryRelay = async () => {
@@ -965,7 +934,7 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
     };
     const tryEpoxy = async () => {
       await bareConn.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: "Unstabl" } });
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       emitStatus({ switching: false, transport: "epoxy", bare: n });
     };
     if (mode === "bare") {
@@ -1536,7 +1505,6 @@ function PrivacyPage() {
       animate={{ opacity: 1 }}
       style={{ height: "100%", overflowY: "auto", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif", padding: "2.5rem 2rem", maxWidth: 560, margin: "0 auto", scrollbarWidth: "thin", scrollbarColor: "#333 #111" }}
     >
-      <style>{`#pp-scroll::-webkit-scrollbar { width: 6px; }#pp-scroll::-webkit-scrollbar-track { background: #111; }#pp-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }#pp-scroll::-webkit-scrollbar-thumb:hover { background: #555; }`}</style>
       <div id="pp-scroll" style={{ height: "100%", overflowY: "auto" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
@@ -1568,8 +1536,29 @@ function PrivacyPage() {
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
+const SETTINGS_INPUT_BASE: React.CSSProperties = {
+  background: "none", border: "1px solid #222", borderRadius: "2px",
+  color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
+  padding: "0.3rem 0.65rem", letterSpacing: "0.04em", outline: "none",
+  transition: "border-color 0.18s ease",
+};
+const SETTINGS_KBD_STYLE: React.CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+  background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: "3px",
+  padding: "0.05rem 0.35rem", color: "rgba(255,255,255,0.55)",
+};
+const SETTINGS_CODE_STYLE: React.CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
+  background: "rgba(255,255,255,0.04)", borderRadius: "3px",
+  padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
+};
+
 function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void }) {
   const [recording, setRecording] = useState<string | null>(null);
+  const settingsRef = useRef(settings);
+  const onSettingsChangeRef = useRef(onSettingsChange);
+  settingsRef.current = settings;
+  onSettingsChangeRef.current = onSettingsChange;
 
   useEffect(() => {
     if (!recording) return;
@@ -1577,30 +1566,17 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       e.preventDefault(); e.stopPropagation();
       const combo = buildCombo(e);
       if (combo && !["Control", "Alt", "Shift", "Meta"].includes(e.key)) {
-        onSettingsChange({ ...settings, shortcuts: { ...settings.shortcuts, [recording as string]: combo } });
+        onSettingsChangeRef.current({ ...settingsRef.current, shortcuts: { ...settingsRef.current.shortcuts, [recording as string]: combo } });
         setRecording(null);
       }
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [recording, settings, onSettingsChange]);
+  }, [recording]);
 
-  const inputBase: React.CSSProperties = {
-    background: "none", border: "1px solid #222", borderRadius: "2px",
-    color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
-    padding: "0.3rem 0.65rem", letterSpacing: "0.04em", outline: "none",
-    transition: "border-color 0.18s ease",
-  };
-  const kbdStyle: React.CSSProperties = {
-    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
-    background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: "3px",
-    padding: "0.05rem 0.35rem", color: "rgba(255,255,255,0.55)",
-  };
-  const codeStyle: React.CSSProperties = {
-    fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: "0.62rem",
-    background: "rgba(255,255,255,0.04)", borderRadius: "3px",
-    padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
-  };
+  const inputBase = SETTINGS_INPUT_BASE;
+  const kbdStyle = SETTINGS_KBD_STYLE;
+  const codeStyle = SETTINGS_CODE_STYLE;
 
   const catIds = ["appearance", "privacy", "gaming", "controls", "advanced"] as const;
   const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", gaming: "Gaming", controls: "Controls", advanced: "Advanced" };
@@ -1632,12 +1608,6 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "2.5rem 2rem", maxWidth: 560 }}>
-        <style>{`
-          #settings-scroll > div > div:last-child::-webkit-scrollbar { width: 6px; }
-          #settings-scroll > div > div:last-child::-webkit-scrollbar-track { background: transparent; }
-          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
-          #settings-scroll > div > div:last-child::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-        `}</style>
 
       <div id="settings-appearance">
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
@@ -2277,7 +2247,17 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
                 reader.onload = () => {
                   try {
                     const imported = JSON.parse(reader.result as string);
-                    onSettingsChange({ ...settings, ...imported });
+                    if (typeof imported !== "object" || imported === null) { alert("Invalid settings file."); return; }
+                    const validKeys = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
+                    const safeImport: Record<string, unknown> = {};
+                    for (const key of validKeys) {
+                      if (key in imported) safeImport[key] = imported[key];
+                    }
+                    if (typeof safeImport.panicUrl === "string") safeImport.panicUrl = normalizePanicUrl(safeImport.panicUrl);
+                    if (typeof safeImport.wispServer === "string" && safeImport.wispServer) {
+                      try { new URL(safeImport.wispServer as string); } catch { delete safeImport.wispServer; }
+                    }
+                    onSettingsChange({ ...settings, ...safeImport } as Settings);
                   } catch { alert("Invalid settings file."); }
                 };
                 reader.readAsText(file);
@@ -2578,7 +2558,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
       });
       if (insertErr) throw insertErr;
 
-      const allMessages = [...messages, userMessage];
+      const allMessages = [...messages, userMessage].slice(-16);
       const content = await sendAiChat(allMessages, mode);
       const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
       setMessages(prev => [...prev, assistantMessage]);
@@ -3149,7 +3129,7 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
         height: "100%",
         overflow: "hidden",
         background:
-          "radial-gradient(circle at top right, rgba(120,170,255,0.1), transparent 24%), radial-gradient(circle at bottom left, rgba(255,255,255,0.05), transparent 22%), #0d0d0d",
+          "radial-gradient(circle at top right, rgba(120,170,255,0.1), transparent 24%), #0d0d0d",
         fontFamily: "'Space Grotesk', sans-serif",
       }}
     >
@@ -3314,6 +3294,7 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
                     }}
                     placeholder="Send a message to everyone signed in..."
                     rows={1}
+                    maxLength={2000}
                     style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 180, overflowY: "auto" }}
                   />
                   <motion.button
@@ -3331,7 +3312,9 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <DMChat user={user} profile={{ ...profile, avatar_url: undefined }} />
+            <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}>
+              <DMChat user={user} profile={{ ...profile, avatar_url: undefined }} />
+            </Suspense>
           </div>
         )}
       </div>
@@ -3659,7 +3642,7 @@ function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean 
   );
 }
 
-function ClockWidget({ showMs }: { showMs?: boolean }) {
+const ClockWidget = memo(function ClockWidget({ showMs }: { showMs?: boolean }) {
   const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
   const [ms, setMs] = useState(0);
   useEffect(() => {
@@ -3679,7 +3662,7 @@ function ClockWidget({ showMs }: { showMs?: boolean }) {
       style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1, display: "flex", alignItems: "baseline", gap: "0.05rem" }}
     >{time}{showMs && <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums" }}>{String(ms).padStart(3, "0")}</span>}</motion.p>
   );
-}
+});
 
 const ENTRY_BTN: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: "0.65rem", cursor: "pointer",
@@ -4141,6 +4124,8 @@ function CollapsedSidebar({
             onClick={() => onNavigate("unstable://profile")}
             aria-label="Profile"
             data-tooltip="Profile"
+            onMouseEnter={e => { if (activeUrl !== "unstable://profile") { e.currentTarget.style.background = "#0f0f0f"; e.currentTarget.style.borderColor = "#1b1b1b"; } }}
+            onMouseLeave={e => { e.currentTarget.style.background = activeUrl === "unstable://profile" ? "#101010" : "none"; e.currentTarget.style.borderColor = activeUrl === "unstable://profile" ? "#1f1f1f" : "transparent"; }}
             style={{
               ...iconBtn,
               background: activeUrl === "unstable://profile" ? "#101010" : "none",
@@ -4152,9 +4137,9 @@ function CollapsedSidebar({
           >
             <div style={{ width: 26, height: 26, borderRadius: 0, overflow: "hidden", background: "transparent", border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <img src={profile.avatar_url} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: activeUrl === "unstable://profile" ? 1 : 0.4 }} />
               ) : (
-                <UserIcon size={14} style={{ color: "rgba(255,255,255,0.8)" }} />
+                <UserIcon size={14} style={{ color: activeUrl === "unstable://profile" ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)" }} />
               )}
             </div>
           </motion.button>
@@ -4354,7 +4339,7 @@ function BrowserApp({
   const pathname = window.location.pathname;
   const isProxyPath = pathname.startsWith("/ham/") || pathname.startsWith("/service/") || pathname.startsWith("/baremux/") || pathname.startsWith("/api/") || pathname.startsWith("/return");
   if (pathname !== "/" && !isProxyPath) {
-    return <NotFound />;
+    return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><NotFound /></Suspense>;
   }
   const initialTabs = useRef(loadTabs()).current;
   const [tabs, setTabs] = useState<Tab[]>(initialTabs.tabs);
@@ -4362,7 +4347,25 @@ function BrowserApp({
   const [urlInput, setUrlInput] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
   const [adblockCount, setAdblockCount] = useState(0);
-  const [split, setSplit] = useState<{ other: string; ratio: number; direction: "horizontal" | "vertical" } | null>(null);
+  const [split, setSplit] = useState<{ other: string; ratio: number; direction: "horizontal" | "vertical" } | null>(() => {
+    try {
+      const raw = localStorage.getItem("unstable_split");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && parsed.other && typeof parsed.ratio === "number") {
+        return parsed;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  useEffect(() => {
+    if (split) {
+      localStorage.setItem("unstable_split", JSON.stringify(split));
+    } else {
+      localStorage.removeItem("unstable_split");
+    }
+  }, [split]);
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const paneARef = useRef<HTMLDivElement>(null);
   const [splitDragging, setSplitDragging] = useState(false);
@@ -4504,8 +4507,14 @@ function BrowserApp({
 
 
   useEffect(() => { applyCloak(settings.cloak); }, [settings.cloak]);
-  useEffect(() => { saveSettings(settings); }, [settings]);
-  useEffect(() => { saveTabs(tabs, activeTabId); }, [tabs, activeTabId]);
+  useEffect(() => {
+    const t = setTimeout(() => saveSettings(settings), 300);
+    return () => clearTimeout(t);
+  }, [settings]);
+  useEffect(() => {
+    const t = setTimeout(() => saveTabs(tabs, activeTabId), 300);
+    return () => clearTimeout(t);
+  }, [tabs, activeTabId]);
 
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
@@ -4603,7 +4612,7 @@ function BrowserApp({
         }
       });
     };
-    msg("ENIGMA", { enabled: settings.transportEncryption, key: "Unstabl" });
+    msg("ENIGMA", { enabled: settings.transportEncryption, key: ENIGMA_KEY });
   }, [settings.transportEncryption]);
 
   // Sync adblock + codec state to service workers
@@ -4703,11 +4712,20 @@ function BrowserApp({
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
+      const combo = buildCombo(e);
+
+      // Ctrl+L / Cmd+L always focuses URL bar (works even in inputs)
+      if (combo === "Ctrl+L" || combo === "Meta+L") {
+        e.preventDefault();
+        urlInputRef.current?.focus();
+        urlInputRef.current?.select();
+        return;
+      }
+
       const el = document.activeElement;
       if (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "range", "color"].includes(el.type)) return;
       if (el instanceof HTMLTextAreaElement) return;
       if ((el as HTMLElement)?.isContentEditable) return;
-      const combo = buildCombo(e);
       if (!combo) return;
       const { tabs, activeTabId, settings, customShortcuts, split } = stateRef.current;
       const s = settings.shortcuts;
@@ -5134,7 +5152,7 @@ function BrowserApp({
     }
     if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
     if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
-    if (tab.url === "unstable://profile") return <ProfilePage user={user} profile={profile} onLogout={onLogout} />;
+    if (tab.url === "unstable://profile") return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><ProfilePage user={user} profile={profile} onLogout={onLogout} /></Suspense>;
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://games") return <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>Coming soon</div>;
     if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
@@ -5563,7 +5581,6 @@ function BrowserApp({
 
       <div id="unstable-tooltip" className={tooltip ? "visible" : ""} style={{ left: tooltip ? tooltip.x : 0, top: tooltip ? tooltip.y : 0, transform: "translateX(-50%) translateY(-100%)" }}>{tooltip?.text ?? ""}</div>
 
-      <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} @keyframes tooltipFade{0%{opacity:0;transform:translateY(-4px)}100%{opacity:1;transform:translateY(0)}} #unstable-tooltip{position:fixed;background:#000000b3;backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:#fff;border-radius:12px;padding:5px 10px;font-size:0.6rem;font-family:'Space Grotesk',sans-serif;white-space:nowrap;box-shadow:0 0 0 1px #484848;pointer-events:none;z-index:99999;opacity:0;transition:opacity .15s ease} #unstable-tooltip.visible{opacity:1} input::placeholder{color:rgba(255,255,255,0.18)} .tab-scroll::-webkit-scrollbar{display:none}`}</style>
     </motion.div>
     </>
   );
@@ -5627,21 +5644,26 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authContext, setAuthContext] = useState<AppAuthContext>({ isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
+  const [errorDismissed, setErrorDismissed] = useState(false);
 
-  console.log('App render state:', { accountLoading, session: !!session, user: !!user, profile: !!profile, accountError });
+  useEffect(() => {
+    if (accountError && !errorDismissed) {
+      const timer = setTimeout(() => { setAccountError(""); setErrorDismissed(false); }, 8000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [accountError, errorDismissed]);
 
   useEffect(() => {
     let mounted = true;
 
     async function syncSession(nextSession: Session | null, showLoading = true) {
-      console.log('syncSession called:', { nextSession: !!nextSession, showLoading });
       if (!mounted) return;
       setSession(nextSession);
       const nextUser = nextSession?.user ?? null;
       setUser(nextUser);
 
       if (!nextUser) {
-        console.log('No user, setting accountLoading to false');
         setProfile(null);
         setAuthContext({ isBanned: false, banReason: null });
         setAccountLoading(false);
@@ -5662,7 +5684,6 @@ export default function App() {
         const nextProfile = nextProfileResult.status === "fulfilled" ? nextProfileResult.value : null;
         const nextAuthContext = nextAuthContextResult.status === "fulfilled" ? nextAuthContextResult.value : { isBanned: false, banReason: null };
 
-        console.log('Account sync completed:', { nextProfile: !!nextProfile, nextAuthContext });
         if (!mounted) return;
 
         if (nextAuthContext.isBanned) {
@@ -5685,22 +5706,18 @@ export default function App() {
         setAuthContext(nextAuthContext);
         setAccountError(nextProfile ? "" : "Account signed in, but no profile was found.");
       } catch (err) {
-        console.error('Account sync error:', err);
         if (!mounted) return;
         setProfile(null);
         setAuthContext({ isBanned: false, banReason: null });
         setAccountError(err instanceof Error ? err.message : "Unable to load account profile.");
       } finally {
-        console.log('syncSession finally, setting accountLoading to false');
         if (mounted) setAccountLoading(false);
       }
     }
 
     async function loadInitialSession() {
-      console.log('loadInitialSession called');
       try {
         const { data } = await withTimeout(supabase.auth.getSession(), ACCOUNT_BOOT_TIMEOUT_MS, "Session restore");
-        console.log('Session loaded:', { session: !!data.session });
         await syncSession(data.session);
       } catch (err) {
         console.error('Session load error:', err);
@@ -5716,7 +5733,6 @@ export default function App() {
     void loadInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      console.log('Auth state changed:', { event: _event, session: !!nextSession });
       void syncSession(nextSession, false);
     });
 
@@ -5751,7 +5767,6 @@ export default function App() {
         ) : (
           <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
             onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
-              console.log('BrowserApp onAuthenticated called');
               setSession(nextSession);
               setUser(nextUser);
               setProfile(nextProfile);
@@ -5761,11 +5776,24 @@ export default function App() {
           />
         )}
       </AnimatePresence>
-      {accountError && (
-        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "rgba(235,120,120,0.9)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.04em", textAlign: "center", maxWidth: 420, padding: "0 1rem" }}>
-          {accountError}
-        </div>
-      )}
+      <AnimatePresence>
+        {accountError && !errorDismissed && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(40,15,15,0.95)", border: "1px solid rgba(235,120,120,0.3)", borderRadius: "6px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.04em", textAlign: "center", maxWidth: 420, padding: "0.6rem 2rem 0.6rem 1rem", color: "rgba(235,120,120,0.9)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)", zIndex: 99999 }}
+          >
+            {accountError}
+            <button
+              onClick={() => { setAccountError(""); setErrorDismissed(true); }}
+              style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "rgba(235,120,120,0.5)", cursor: "pointer", padding: 0, fontSize: "0.9rem", lineHeight: 1, fontFamily: "inherit" }}
+              aria-label="Dismiss"
+            >&#x2715;</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

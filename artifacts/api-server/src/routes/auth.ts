@@ -10,7 +10,11 @@ import {
 } from "../lib/supabase-admin";
 import { logger } from "../lib/logger";
 
-const SALT = crypto.randomBytes(16).toString("hex");
+const SALT = process.env.AUTH_SALT || (() => {
+  const fallback = crypto.randomBytes(16).toString("hex");
+  logger.warn({ salt: "random (not persisted)" }, "AUTH_SALT not set; using ephemeral salt — multi-instance auth will break");
+  return fallback;
+})();
 const expectedHash = (() => {
   const raw = process.env.PASSWORD;
   if (!raw) return null;
@@ -19,16 +23,51 @@ const expectedHash = (() => {
   return crypto.pbkdf2Sync(trimmed, SALT, 100000, 64, "sha512").toString("hex");
 })();
 
+// ─── Auth rate limiter ────────────────────────────────────────────────────────
+const AUTH_RATE_WINDOW_MS = 60_000;
+const AUTH_RATE_MAX = 5;
+const authRateMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkAuthRateLimit(ip: string): { allowed: boolean; remaining: number; resetIn: number } {
+  const now = Date.now();
+  const entry = authRateMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    authRateMap.set(ip, { count: 1, resetAt: now + AUTH_RATE_WINDOW_MS });
+    return { allowed: true, remaining: AUTH_RATE_MAX - 1, resetIn: AUTH_RATE_WINDOW_MS };
+  }
+  if (entry.count >= AUTH_RATE_MAX) {
+    return { allowed: false, remaining: 0, resetIn: entry.resetAt - now };
+  }
+  entry.count++;
+  return { allowed: true, remaining: AUTH_RATE_MAX - entry.count, resetIn: entry.resetAt - now };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of authRateMap) {
+    if (now >= entry.resetAt) authRateMap.delete(ip);
+  }
+}, AUTH_RATE_WINDOW_MS * 2);
+
 const authRoute: FastifyPluginAsync = async (app) => {
   app.get("/auth/password-status", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    reply.header("Pragma", "no-cache");
     return reply.send({ required: Boolean(expectedHash) });
   });
 
   app.post("/auth/check", async (req, reply) => {
     const { password } = (req.body as any) ?? {};
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
 
     if (!expectedHash) {
       return reply.send({ ok: true, required: false });
+    }
+
+    const rateLimit = checkAuthRateLimit(clientIp);
+    if (!rateLimit.allowed) {
+      reply.header("Retry-After", Math.ceil(rateLimit.resetIn / 1000));
+      return reply.status(429).send({ ok: false, error: `Too many attempts. Try again in ${Math.ceil(rateLimit.resetIn / 1000)} seconds.` });
     }
 
     const provided = typeof password === "string" ? password.trim() : "";
@@ -69,8 +108,8 @@ const authRoute: FastifyPluginAsync = async (app) => {
         reason: activeBan ? record?.reason ?? null : null,
       });
     } catch (err) {
-      logger.warn({ err }, "Device-ban check unavailable; allowing sign-in");
-      return reply.send({ banned: false, reason: null, skipped: true });
+      logger.warn({ err }, "Device-ban check unavailable");
+      return reply.status(503).send({ banned: true, reason: "Ban check unavailable. Please try again.", skipped: false });
     }
   });
 
@@ -101,8 +140,8 @@ const authRoute: FastifyPluginAsync = async (app) => {
         banReason: banned ? banRecord?.reason ?? null : null,
       });
     } catch (err) {
-      logger.warn({ err }, "Auth context unavailable; allowing account access");
-      return reply.send({ isBanned: false, banReason: null, skipped: true });
+      logger.warn({ err }, "Auth context unavailable");
+      return reply.status(503).send({ isBanned: true, banReason: "Account check unavailable. Please try again.", skipped: false });
     }
   });
 

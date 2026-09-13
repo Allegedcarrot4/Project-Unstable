@@ -33,11 +33,11 @@ const httpsAgent = new https.Agent({
   timeout: 30000,
 });
 
-export const bare1 = createBareServer("/api/cdn/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare2 = createBareServer("/api/cdn2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare3 = createBareServer("/api/cdn3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare4 = createBareServer("/api/cdn4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
-export const bare5 = createBareServer("/api/cdn5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 100000 } });
+export const bare1 = createBareServer("/api/cdn/",  { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 200 } });
+export const bare2 = createBareServer("/api/cdn2/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 200 } });
+export const bare3 = createBareServer("/api/cdn3/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 200 } });
+export const bare4 = createBareServer("/api/cdn4/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 200 } });
+export const bare5 = createBareServer("/api/cdn5/", { logErrors: false, blockLocal: false, httpAgent, httpsAgent, connectionLimiter: { maxConnectionsPerIP: 200 } });
 export const bares = [bare1, bare2, bare3, bare4, bare5];
 
 type WispHandler = (req: IncomingMessage, socket: any, head?: Buffer) => void;
@@ -161,6 +161,7 @@ await app.register(fastifyStatic, {
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("X-Frame-Options", "SAMEORIGIN");
     reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' blob: data:; connect-src 'self' wss: ws: https:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self';");
   },
 });
 

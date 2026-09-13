@@ -79,6 +79,20 @@ export async function searchBookmarks(q: string): Promise<BookmarkEntry[]> {
 }
 
 export async function isBookmarked(url: string): Promise<boolean> {
-  const all = await getBookmarks();
-  return all.some(e => e.url === url);
+  const userId = await getUserId();
+  if (userId) {
+    try {
+      const { data } = await supabase
+        .from("bookmarks")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("url", url)
+        .maybeSingle();
+      return Boolean(data);
+    } catch { /* fall through */ }
+  }
+  try {
+    const existing = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]") as BookmarkEntry[];
+    return existing.some(e => e.url === url);
+  } catch { return false; }
 }

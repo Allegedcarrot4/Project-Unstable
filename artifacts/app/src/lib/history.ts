@@ -60,9 +60,25 @@ export async function getHistory(limit = 100, offset = 0): Promise<HistoryEntry[
 }
 
 export async function searchHistory(q: string): Promise<HistoryEntry[]> {
-  const all = await getHistory(MAX_LOCAL, 0);
-  const lower = q.toLowerCase();
-  return all.filter(e => e.title.toLowerCase().includes(lower) || e.url.toLowerCase().includes(lower));
+  const userId = await getUserId();
+  if (userId) {
+    try {
+      const escapedQ = q.replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const { data } = await supabase
+        .from("browsing_history")
+        .select("id, url, title, favicon, visited_at")
+        .eq("user_id", userId)
+        .or(`title.ilike.%${escapedQ}%,url.ilike.%${escapedQ}%`)
+        .order("visited_at", { ascending: false })
+        .limit(50);
+      if (data) return data.map((d: any) => ({ id: d.id, url: d.url, title: d.title || d.url, favicon: d.favicon, visitedAt: new Date(d.visited_at).getTime() }));
+    } catch { /* fall through */ }
+  }
+  try {
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]") as HistoryEntry[];
+    const lower = q.toLowerCase();
+    return all.filter(e => e.title.toLowerCase().includes(lower) || e.url.toLowerCase().includes(lower)).slice(0, 50);
+  } catch { return []; }
 }
 
 export async function clearHistory(): Promise<void> {

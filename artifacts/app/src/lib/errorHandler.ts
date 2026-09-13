@@ -145,7 +145,7 @@ export async function checkBackendStatus(): Promise<{
 }> {
   const startTime = performance.now();
   try {
-    const response = await fetch('/api/health', {
+    const response = await fetch('/api/healthz', {
       method: 'GET',
       signal: AbortSignal.timeout(5000),
     });
@@ -167,12 +167,11 @@ export async function checkBackendStatus(): Promise<{
  */
 export async function checkInternetConnectivity(): Promise<boolean> {
   try {
-    const response = await fetch('https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png', {
+    const response = await fetch('/api/healthz', {
       method: 'HEAD',
       signal: AbortSignal.timeout(3000),
-      mode: 'no-cors',
     });
-    return true;
+    return response.ok;
   } catch {
     return false;
   }
