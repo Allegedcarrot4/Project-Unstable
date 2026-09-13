@@ -63,7 +63,7 @@ export async function searchHistory(q: string): Promise<HistoryEntry[]> {
   const userId = await getUserId();
   if (userId) {
     try {
-      const escapedQ = q.replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const escapedQ = q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
       const { data } = await supabase
         .from("browsing_history")
         .select("id, url, title, favicon, visited_at")
