@@ -4,7 +4,6 @@ import fastifyStatic from "@fastify/static";
 import fastifyCors from "@fastify/cors";
 import fastifyFormbody from "@fastify/formbody";
 import { createBareServer } from "@tomphttp/bare-server-node";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -62,21 +61,6 @@ function resolvePkgDist(pkg: string): string {
   const pkgRoot = path.dirname(path.dirname(mainPath));
   return path.join(pkgRoot, "dist");
 }
-
-const staticCandidates = [
-  path.resolve(process.cwd(), "app/dist/public"),
-  path.resolve(__dirname, "../../app/dist/public"),
-  path.resolve(__dirname, "../../artifacts/app/dist/public"),
-];
-
-const staticDir = staticCandidates.find((candidate) => fs.existsSync(candidate));
-
-if (!staticDir) {
-  throw new Error(`Static frontend folder not found; tried: ${staticCandidates.join(", ")}`);
-}
-
-// Cache index.html in memory — read once, serve forever (avoids disk I/O on every SPA fallback)
-const indexHtml = fs.readFileSync(path.join(staticDir, "index.html"), "utf-8");
 
 const app = Fastify({
   logger: false,
@@ -141,30 +125,6 @@ await app.register(fastifyStatic, {
   wildcard: false,
 });
 
-// ─── Frontend static with cache headers ───────────────────────────────────────
-await app.register(fastifyStatic, {
-  root: staticDir,
-  prefix: "/",
-  wildcard: true,
-  preCompressed: true,
-  cacheControl: false,
-  setHeaders(reply, filePath) {
-    if (/\.html?$/i.test(filePath)) {
-      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-    } else {
-      const hashed = /[.\-_][A-Za-z0-9_-]{8,}\.(js|css|woff2?|png|jpe?g|svg|webp|gif)$/.test(filePath);
-      reply.header(
-        "Cache-Control",
-        hashed ? "public, max-age=31536000, immutable" : "public, max-age=3600",
-      );
-    }
-    reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("X-Frame-Options", "SAMEORIGIN");
-    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
-    reply.header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' blob: data:; connect-src 'self' wss: ws: https:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self';");
-  },
-});
-
 // ─── API routes ───────────────────────────────────────────────────────────────
 app.register(router, { prefix: "/api" });
 
@@ -185,20 +145,6 @@ app.get("/return", async (req, reply) => {
   } catch {
     return reply.status(500).send({ error: "request failed" });
   }
-});
-
-// ─── SPA fallback ────────────────────────────────────────────────────────────
-app.setNotFoundHandler((request, reply) => {
-  const url = request.url;
-  if (
-    !url.startsWith("/api") &&
-    !url.startsWith("/service") &&
-    !url.startsWith("/ham") &&
-    !url.startsWith("/baremux")
-  ) {
-    return reply.type("text/html").send(indexHtml);
-  }
-  return reply.status(404).send("Not found");
 });
 
 export default app;

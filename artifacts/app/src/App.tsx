@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
+const PS5GamesPage = lazy(() => import("./components/PS5GamesPage").then(m => ({ default: m.PS5GamesPage })));
 const NotFound = lazy(() => import("./pages/not-found"));
 
 import type { CodecType } from "./lib/codec";
@@ -201,6 +202,7 @@ interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
   muted: boolean;
+  incognito?: boolean;
   /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
   lastProxyUrl?: string;
 }
@@ -705,7 +707,7 @@ function openCloakPopup(decoyUrl: string = "https://www.google.com") {
 
 // ─── Tab factory ─────────────────────────────────────────────────────────────
 
-function makeTab(url = ""): Tab {
+function makeTab(url = "", incognito = false): Tab {
   let title = "New Tab", favicon = "";
   if (url && !url.startsWith("unstable://")) {
     try { const d = new URL(url.startsWith("http") ? url : "https://" + url).hostname; title = d; favicon = faviconUrl(d); } catch { }
@@ -713,7 +715,7 @@ function makeTab(url = ""): Tab {
     title = url.slice("unstable://".length);
     title = title.charAt(0).toUpperCase() + title.slice(1);
   }
-  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false, muted: false };
+  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false, muted: false, incognito };
 }
 
 // ─── Proxy state ──────────────────────────────────────────────────────────────
@@ -2811,13 +2813,14 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
           </div>
 
           {/* Messages */}
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.4rem 1.4rem 1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
             {booting ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>Loading…</p>
               </div>
             ) : messages.length === 0 ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.8rem" }}>
+                <Atom size={32} style={{ color: "rgba(255,255,255,0.12)" }} />
                 <p style={{ margin: 0, color: "rgba(255,255,255,0.2)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>Send a message to start chatting</p>
               </div>
             ) : (
@@ -2826,80 +2829,79 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                   const isUser = message.role === "user";
                   const isEditing = editMessageId === message.id;
                   const isHovered = hoveredMsgId === message.id;
+                  const senderName = isUser ? profile.username : "AI";
                   return (
                     <motion.div
                       key={message.id}
                       layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.015 }}
+                      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ delay: Math.min(index * 0.03, 0.4) }}
                       style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}
                     >
                       <div
-                        style={{ maxWidth: "min(100%, 780px)", width: "100%" }}
+                        style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end", width: "100%" }}
                         onMouseEnter={() => setHoveredMsgId(message.id)}
                         onMouseLeave={() => setHoveredMsgId(null)}
                       >
-                        {isEditing ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "flex-end" }}>
-                            <textarea
-                              ref={editTextareaRef}
-                              value={editingContent}
-                              onChange={e => setEditingContent(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(message.id); }
-                                if (e.key === "Escape") cancelEdit();
-                              }}
-                              style={{ width: "100%", resize: "none", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "14px", color: "#e0e0e0", padding: "0.75rem 0.9rem", fontSize: "0.79rem", lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", outline: "none", minHeight: 80 }}
-                            />
-                            <div style={{ display: "flex", gap: "0.4rem" }}>
-                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => saveEdit(message.id)} style={{ background: "#e8ecf8", border: "none", borderRadius: "8px", color: "#0d0d0d", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", fontWeight: 600 }}>Save</motion.button>
-                              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={cancelEdit} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer" }}>Cancel</motion.button>
+                        {/* Avatar */}
+                        <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: isUser ? "linear-gradient(135deg, rgba(232,236,248,0.12), rgba(232,236,248,0.04))" : "linear-gradient(135deg, rgba(120,170,255,0.12), rgba(120,170,255,0.04))", border: `1px solid ${isUser ? "rgba(232,236,248,0.12)" : "rgba(120,170,255,0.12)"}`, color: isUser ? "rgba(232,236,248,0.8)" : "rgba(120,170,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
+                          {isUser ? senderName.slice(0, 2) : <Atom size={14} />}
+                        </div>
+                        {/* Bubble */}
+                        <div style={{ position: "relative", minWidth: 0, flex: 1 }}>
+                          {isEditing ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "flex-end" }}>
+                              <textarea
+                                ref={editTextareaRef}
+                                value={editingContent}
+                                onChange={e => setEditingContent(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(message.id); }
+                                  if (e.key === "Escape") cancelEdit();
+                                }}
+                                style={{ width: "100%", resize: "none", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "14px", color: "#e0e0e0", padding: "0.75rem 0.9rem", fontSize: "0.79rem", lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", outline: "none", minHeight: 80 }}
+                              />
+                              <div style={{ display: "flex", gap: "0.4rem" }}>
+                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => saveEdit(message.id)} style={{ background: "#e8ecf8", border: "none", borderRadius: "8px", color: "#0d0d0d", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", fontWeight: 600 }}>Save</motion.button>
+                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={cancelEdit} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer" }}>Cancel</motion.button>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              borderRadius: isUser ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
-                              background: isUser ? "rgba(232,236,248,0.1)" : "rgba(255,255,255,0.03)",
-                              border: `1px solid ${isUser ? "rgba(232,236,248,0.15)" : "rgba(255,255,255,0.06)"}`,
-                              padding: "0.85rem 1rem",
-                              position: "relative",
-                            }}
-                          >
-                            <p style={{ margin: 0, color: isUser ? "rgba(232,236,248,0.75)" : "rgba(255,255,255,0.4)", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "0.35rem" }}>
-                              {isUser ? "You" : "AI"}
-                            </p>
-                            <p style={{ margin: 0, color: "#e0e0e0", fontSize: "0.8rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                              {message.content}
-                            </p>
-                            {isHovered && !isEditing && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                style={{ display: "flex", gap: "0.2rem", marginTop: "0.55rem", justifyContent: isUser ? "flex-end" : "space-between", alignItems: "center" }}
-                              >
-                                <div style={{ display: "flex", gap: "0.2rem", alignItems: "center" }}>
-                                  {!isUser && (
-                                    <>
-                                      <ActionButton icon={<Volume2 size={11} />} label={speakingMessageId === message.id ? "stop" : "read"} active={speakingMessageId === message.id} activeColor="rgba(120,170,255,0.8)" onClick={() => speakMessage(message.id, message.content)} />
-                                      <ActionButton icon={<RefreshCw size={11} />} label="redo" onClick={regenerateMessage} />
-                                    </>
-                                  )}
-                                  <ActionButton icon={<Copy size={11} />} label="copy" onClick={() => copyMessage(message.content)} />
-                                  {isUser && <ActionButton icon={<Pencil size={11} />} label="edit" onClick={() => startEdit(message)} />}
-                                </div>
-                                {!isUser && (
-                                  <div style={{ display: "flex", gap: "0.1rem", alignItems: "center" }}>
-                                    <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.2rem" }} />
-                                    <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} />
-                                    <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} />
-                                  </div>
-                                )}
-                              </motion.div>
-                            )}
-                          </div>
-                        )}
+                          ) : (
+                            <div style={{ borderRadius: isUser ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
+                              <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isUser ? "rgba(232,236,248,0.84)" : "rgba(120,170,255,0.6)" }}>
+                                {isUser ? "you" : "AI"}
+                              </p>
+                              <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                {message.content}
+                              </p>
+                            </div>
+                          )}
+                          {/* Hover actions */}
+                          {isHovered && !isEditing && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", justifyContent: isUser ? "flex-end" : "flex-start", alignItems: "center", flexWrap: "wrap" }}
+                            >
+                              {!isUser && (
+                                <>
+                                  <ActionButton icon={<Volume2 size={11} />} label={speakingMessageId === message.id ? "stop" : "read"} active={speakingMessageId === message.id} activeColor="rgba(120,170,255,0.8)" onClick={() => speakMessage(message.id, message.content)} />
+                                  <ActionButton icon={<RefreshCw size={11} />} label="redo" onClick={regenerateMessage} />
+                                </>
+                              )}
+                              <ActionButton icon={<Copy size={11} />} label="copy" onClick={() => copyMessage(message.content)} />
+                              {isUser && <ActionButton icon={<Pencil size={11} />} label="edit" onClick={() => startEdit(message)} />}
+                              {!isUser && (
+                                <>
+                                  <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.1rem" }} />
+                                  <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} />
+                                  <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} />
+                                </>
+                              )}
+                            </motion.div>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   );
@@ -2908,13 +2910,18 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
             )}
 
             {loading && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{ borderRadius: "20px 20px 20px 6px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", padding: "0.85rem 1rem", maxWidth: "min(100%, 780px)" }}>
-                  <p style={{ margin: "0 0 0.35rem", fontSize: "0.56rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>AI</p>
-                  <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", minHeight: 20 }}>
-                    {[0, 1, 2].map((dot) => (
-                      <motion.span key={dot} animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }} transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.5)", display: "block" }} />
-                    ))}
+              <motion.div initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{ display: "flex", gap: "0.7rem", alignItems: "flex-end" }}>
+                  <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(120,170,255,0.12), rgba(120,170,255,0.04))", border: "1px solid rgba(120,170,255,0.12)", color: "rgba(120,170,255,0.8)", fontSize: "0.56rem", fontWeight: 700, flexShrink: 0 }}>
+                    <Atom size={14} />
+                  </div>
+                  <div style={{ borderRadius: "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)", maxWidth: "min(100%, 700px)" }}>
+                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(120,170,255,0.6)" }}>AI</p>
+                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", minHeight: 20 }}>
+                      {[0, 1, 2].map((dot) => (
+                        <motion.span key={dot} animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }} transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.5)", display: "block" }} />
+                      ))}
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -3966,15 +3973,18 @@ function QrCodeCanvas({ url, size = 160 }: { url: string; size?: number }) {
   );
 }
 
-function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, inSplit }: {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, inSplit, thumbnail }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
-  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; inSplit?: boolean;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; inSplit?: boolean; thumbnail?: string;
 }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
   const [ctxOpen, setCtxOpen] = useState(false);
   const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
   const ctxRef = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -3986,12 +3996,16 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
   }, []);
 
+  useEffect(() => {
+    return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); };
+  }, []);
+
   return (
     <motion.div layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12, width: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}
       onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
-      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? "#111" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
-      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "#0f0f0f"; }}
-      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+      onMouseEnter={() => { setHovered(true); if (thumbnail && tab.url && !tab.url.startsWith("unstable://")) { hoverTimerRef.current = setTimeout(() => setShowPreview(true), 500); } }}
+      onMouseLeave={() => { setHovered(false); if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setShowPreview(false); }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? (tab.incognito ? "#14121a" : "#111") : hovered ? "#0f0f0f" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "visible" }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
@@ -4000,6 +4014,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
         }
       </div>
       <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
+      {tab.incognito && <EyeOff size={10} style={{ flexShrink: 0, opacity: 0.5 }} />}
       {tab.muted && <VolumeX size={11} style={{ flexShrink: 0, opacity: 0.55 }} />}
       <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
@@ -4016,6 +4031,20 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onToggleMute?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>{tab.muted ? <VolumeX size={12} style={{ opacity: 0.7, flexShrink: 0 }} /> : <Volume2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />}{tab.muted ? "Unmute tab" : "Mute tab"}</motion.button>}
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ChevronRight size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close tabs to right</motion.button>
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseOthers?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Layers size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close other tabs</motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showPreview && thumbnail && (
+          <motion.div initial={{ opacity: 0, y: 4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.95 }} transition={{ duration: 0.15 }}
+            style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", zIndex: 3000, marginTop: 6, pointerEvents: "none" }}>
+            <div style={{ background: "#111", border: "1px solid #333", borderRadius: "8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)", padding: 4 }}>
+              <img src={thumbnail} alt="" style={{ width: 260, height: 146, display: "block", borderRadius: "4px", objectFit: "cover" }} />
+              <div style={{ padding: "4px 6px", maxWidth: 260 }}>
+                <p style={{ margin: 0, fontSize: "0.62rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tab.title || "Loading…"}</p>
+                <p style={{ margin: "2px 0 0", fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getDomainFromProxyUrl(tab.url) || tab.url}</p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4384,6 +4413,8 @@ function BrowserApp({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const tabAbortRefs = useRef<Record<string, AbortController>>({});
+  const [tabThumbnails, setTabThumbnails] = useState<Record<string, string>>({});
+  const thumbnailTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -4515,6 +4546,33 @@ function BrowserApp({
     const t = setTimeout(() => saveTabs(tabs, activeTabId), 300);
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
+
+  // Capture tab thumbnails periodically
+  useEffect(() => {
+    function captureThumbnails() {
+      const newThumbs: Record<string, string> = {};
+      for (const tab of tabs) {
+        if (!tab.url || tab.url.startsWith("unstable://")) continue;
+        const iframe = iframeRefs.current[tab.id];
+        if (!iframe) continue;
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 280;
+          canvas.height = 160;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) continue;
+          ctx.drawImage(iframe as unknown as CanvasImageSource, 0, 0, 280, 160);
+          newThumbs[tab.id] = canvas.toDataURL("image/jpeg", 0.5);
+        } catch { /* cross-origin or not loaded */ }
+      }
+      if (Object.keys(newThumbs).length > 0) {
+        setTabThumbnails(prev => ({ ...prev, ...newThumbs }));
+      }
+    }
+    thumbnailTimerRef.current = setInterval(captureThumbnails, 5000);
+    captureThumbnails();
+    return () => { if (thumbnailTimerRef.current) clearInterval(thumbnailTimerRef.current); };
+  }, [tabs]);
 
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
@@ -4871,6 +4929,7 @@ function BrowserApp({
     setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
   }
   function handleNewTab() { setSplit(null); const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
+  function handleNewIncognitoTab() { setSplit(null); const tab = makeTab("", true); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
   navRefs.current = { handleNavigate, handleNewTab, activateTab: handleTabActivate };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
@@ -5154,7 +5213,11 @@ function BrowserApp({
     if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
     if (tab.url === "unstable://profile") return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><ProfilePage user={user} profile={profile} onLogout={onLogout} /></Suspense>;
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
-    if (tab.url === "unstable://games") return <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", color: "rgba(255,255,255,0.3)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.85rem" }}>Coming soon</div>;
+    if (tab.url === "unstable://games") return (
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading PlayStation Hub...</div>}>
+        <PS5GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
+      </Suspense>
+    );
     if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://bookmarks") return <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://downloads") return <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />;
@@ -5179,7 +5242,7 @@ function BrowserApp({
               const doc = iframe.contentDocument;
               const title = doc?.title || tab.title;
               const favicon = tab.favicon || undefined;
-              if (title && tab.url && !tab.url.startsWith("unstable://")) {
+              if (title && tab.url && !tab.url.startsWith("unstable://") && !tab.incognito) {
                 const originalUrl = decodeProxyUrl(tab.url);
                 addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
               }
@@ -5279,13 +5342,13 @@ function BrowserApp({
                       tabEls.push(
                         <div key="split-group" style={{ display: "flex", alignItems: "stretch", height: "100%", background: "#151515", border: "1px solid #262626", borderRadius: "6px", margin: "0 2px", overflow: "hidden", flexShrink: 0 }}>
                           {tabs.filter(t => splitTabIds.has(t.id)).map(t => (
-                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} />
+                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} thumbnail={tabThumbnails[t.id]} />
                           ))}
                         </div>
                       );
                       return;
                     }
-                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} />);
+                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} thumbnail={tabThumbnails[tab.id]} />);
                   });
                   return tabEls;
                 })()}
@@ -5296,7 +5359,8 @@ function BrowserApp({
           </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: activeTab?.incognito ? "#14121a" : "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            {activeTab?.incognito && <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0 0.4rem 0 0", borderRight: "1px solid #2a2a2a", marginRight: "0.15rem" }}><EyeOff size={11} style={{ opacity: 0.5 }} /><span style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>incognito</span></div>}
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward">→</motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} data-tooltip="Reload" aria-label="Reload">↺</motion.button>
@@ -5401,6 +5465,7 @@ function BrowserApp({
                       return <motion.button whileHover={hasIframe ? { background: "#1a1a1a" } : {}} onClick={() => { setToolMenuOpen(false); if (hasIframe) toggleDevTools(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: dtColor, fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: hasIframe ? "pointer" : "not-allowed", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Wrench size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{devToolsOpen[activeTabId] ? "Close DevTools" : hasIframe ? "DevTools" : "DevTools (open a web page)"}</motion.button>;
                     })()}
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleOpenInNewTab(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ExternalLink size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Open in new tab</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNewIncognitoTab(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><EyeOff size={12} style={{ opacity: 0.7, flexShrink: 0 }} />New incognito tab</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://history"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><HistoryIcon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />History</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://bookmarks"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Bookmark size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Bookmarks</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://downloads"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Download size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Downloads</motion.button>

@@ -1,0 +1,24 @@
+FROM node:22-slim AS builder
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@latest-10 --activate
+WORKDIR /app
+
+COPY . .
+RUN rm -f pnpm-lock.yaml && pnpm install
+ARG VITE_SUPABASE_URL=
+ARG VITE_SUPABASE_ANON_KEY=
+RUN BASE_PATH=/ NODE_ENV=production \
+    VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+    VITE_SUPABASE_ANON_KEY="$VITE_SUPABASE_ANON_KEY" \
+    pnpm --filter @workspace/app run build
+
+FROM nginx:alpine AS runner
+ENV PORT=7860 \
+    BACKEND_URL=http://api-server:3001 \
+    NGINX_ENVSUBST_FILTER="^(BACKEND_URL|PORT)$"
+
+COPY --from=builder /app/artifacts/app/dist/public/ /usr/share/nginx/html/
+COPY deploy/frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
+
+EXPOSE 7860

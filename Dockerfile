@@ -21,12 +21,7 @@ RUN mkdir -p /app/runtime_node_modules/@mercuryworkshop && \
     wspkg=$(find /app/node_modules/.pnpm -path '*/node_modules/ws' -type d | head -n 1) && \
     cp -aL "$wspkg" /app/runtime_node_modules/ws
 
-# Build the React frontend
-# BASE_PATH=/ because in Docker there is no path prefix
-RUN BASE_PATH=/ PORT=7860 NODE_ENV=production \
-    pnpm --filter @workspace/app run build
-
-# Build the Express API server
+# Build the API server only. The frontend has its own Dockerfile.
 RUN pnpm --filter @workspace/api-server run build
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
@@ -53,10 +48,6 @@ RUN rm -f pnpm-lock.yaml && pnpm install --prod --filter @workspace/api-server
 
 # Ensure bare-as-module3 is available at runtime even if pnpm install misses it
 COPY --from=builder /app/runtime_node_modules ./node_modules
-
-# Vite-built frontend + UV/service-worker public files
-# Vite copies artifacts/app/public/** into the output during build
-COPY --from=builder /app/artifacts/app/dist/public          ./artifacts/app/dist/public
 
 ENV NODE_ENV=production
 

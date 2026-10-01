@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## What this is
-Unstable: a password-protected web proxy (Ultraviolet + Scramjet engines, bare-mux, Wisp). It is **not** a static site — it requires a Node server (`@workspace/api-server`) that serves both the built frontend and the proxy. Cannot be deployed to static hosts (Netlify/Vercel/GitHub Pages).
+Unstable: a password-protected web proxy (Ultraviolet + Scramjet engines, bare-mux, Wisp). Production can run as two web services: a static Nginx frontend (`Dockerfile.frontend`) that proxies `/api/*` and `/return` to the backend, plus the Node API/proxy service (`Dockerfile`). The frontend must support websocket upgrades and SPA fallback for proxy paths; a generic static host without rewrites/websocket support is insufficient.
 
 ## Package manager & workspace
 - Use **pnpm** only. This is a pnpm workspace (`pnpm-workspace.yaml`): packages are `artifacts/*`, `lib/*`, `lib/integrations/*`, `scripts`.
@@ -16,14 +16,15 @@ Unstable: a password-protected web proxy (Ultraviolet + Scramjet engines, bare-m
 - `pnpm dev` — runs app + api-server together via `concurrently`. Dev proxy: Vite (port from `PORT`, default 5173) proxies `/api`, `/service`, `/ham`, `/return` to the API on `:3001`.
 - Manual dev: `pnpm --filter @workspace/app dev` (terminal 1) + `pnpm --filter @workspace/api-server build` then `pnpm --filter @workspace/api-server start` (terminal 2).
 - `pnpm run build` — **runs typecheck first**, then `pnpm -r --if-present run build`. This is the correct verification sequence. Typecheck = `tsc --build` over the `lib/*` projects, then per-package typechecks.
-- `pnpm start` — `node ./artifacts/api-server/dist/index.mjs` (production entrypoint).
+- `pnpm start` — `node ./artifacts/api-server/dist/index.mjs` (backend production entrypoint).
+- `docker build -f Dockerfile .` — build the backend service; `docker build -f Dockerfile.frontend .` — build the Nginx frontend service.
 - `pnpm typecheck` — full repo typecheck (do this before submitting changes).
 - Preview the built app: `pnpm --filter @workspace/app serve`.
 - DB schema push: `pnpm --filter @workspace/db push` (`drizzle-kit`; requires `DATABASE_URL` to be set or it throws). Schema lives in `lib/db/src/schema/index.ts`.
 
 ## Architecture / layout
 - `artifacts/app` — React + Vite frontend (React 19, Tailwind v4, Radix, React Query, Wouter). Entry: `index.html` → `src/main.tsx` → `src/App.tsx`. Vite config reads `PORT` (default 5173) and `BASE_PATH`.
-- `artifacts/api-server` — Fastify + bare server + Wisp. Source in `src/`, bundled by `build.mjs` (esbuild, not tsc) into `dist/index.mjs`. Entry `src/index.ts` imports `dotenv/config` then `./app`. Exit 1 if `PORT` unset/invalid.
+- `artifacts/api-server` — Fastify + bare server + Wisp. Source in `src/`, bundled by `build.mjs` (esbuild, not tsc) into `dist/index.mjs`. Entry `src/index.ts` imports `dotenv/config` then `./app`. Serves backend/proxy routes only; exit 1 if `PORT` unset/invalid.
 - `lib/api-zod`, `lib/api-client-react` — **ship raw `.ts` source** (package `exports` point at `./src/index.ts`); TS resolves them via `customConditions: ["workspace"]` in `tsconfig.base.json`. Do not expect a `dist` build for these.
 - `lib/api-spec` — OpenAPI spec + `orval` codegen (`pnpm --filter @workspace/api-spec codegen`).
 - `lib/db` — Drizzle (Postgres) schema + migrations.

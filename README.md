@@ -29,13 +29,7 @@
 ## Deployment Options
 
 > **Note**
-> Unstable **cannot** be deployed to Netlify, Vercel, GitHub Pages, Stormkit, or any other static hosting platform. It requires a full Node.js server for the proxy to function.
-
-<p>
-  <a href="https://render.com/deploy?repo=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/render.svg" alt="Deploy to Render"></a>&nbsp;
-  <a href="https://railway.com/template/new?template=https://github.com/Allegedcarrot4/Project-Unstable"><img src="https://raw.githubusercontent.com/BinBashBanana/deploy-buttons/main/buttons/remade/railway.svg" alt="Deploy on Railway"></a>&nbsp;
-  <a href="https://app.koyeb.com/services/deploy?type=git&repository=github.com/Allegedcarrot4/Project-Unstable&builder=dockerfile&instance_type=free&ports=7860%3Bhttp%3B%2F&env[PORT]=7860"><img src="https://binbashbanana.github.io/deploy-buttons/buttons/remade/koyeb.svg" alt="Deploy to Koyeb"></a>
-</p>
+> Unstable requires a backend service for its API, bare proxy, and Wisp websocket. It can run as two web services: a frontend container serving the app and forwarding backend routes, plus a backend container running the API and proxy. The frontend must support websocket upgrades and route `/api/*` and `/return` to the backend; the included frontend Docker image does this.
 
 ---
 
@@ -53,7 +47,20 @@
 > npm install -g pnpm
 > ```
 
-### Production
+### Production: Two Services
+
+Build and deploy the backend from the root `Dockerfile`. It listens on `PORT` (typically `7860`). Build and deploy the frontend from `Dockerfile.frontend`, then set its `BACKEND_URL` to the backend's reachable HTTP origin (for example, `https://unstable-api.example.com`). The frontend service listens on `PORT` (default `7860`) and reverse-proxies API, bare, and Wisp websocket traffic. Supabase URL/key overrides are Docker build arguments because Vite embeds them in the frontend bundle.
+
+For a local container build:
+
+```bash
+docker build -t unstable-backend -f Dockerfile .
+docker build -t unstable-frontend -f Dockerfile.frontend .
+```
+
+Pass `--build-arg VITE_SUPABASE_URL=...` and `--build-arg VITE_SUPABASE_ANON_KEY=...` to the frontend build when overriding the built-in Supabase project.
+
+### Backend-Only Local Run
 
 1. Clone the repository:
 
@@ -62,13 +69,15 @@ git clone https://github.com/Allegedcarrot4/Project-Unstable
 cd Project-Unstable
 ```
 
-2. Install dependencies and start the server:
+2. Install dependencies and build the workspace:
 
 ```bash
 pnpm install
 pnpm run build
 pnpm start
 ```
+
+`pnpm start` runs the backend only and does not serve the frontend. For a complete production deployment, run both services described above.
 
 ### Development
 
@@ -109,11 +118,12 @@ Set these in your deployment platform's environment/secrets panel:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | **Yes** | Port the server listens on. Set to `7860` (also match your platform's exposed port). |
+| `BACKEND_URL` | Frontend service | Reachable HTTP origin of the backend service, such as `https://unstable-api.example.com`. |
 | `PASSWORD` | No | Optional password users must enter to access Unstable. If unset, no password screen is shown. |
 | `SESSION_SECRET` | No | Optional but recommended for production session hardening. |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |
-| `VITE_SUPABASE_URL` | No | Supabase project URL. Falls back to built-in default. |
-| `VITE_SUPABASE_ANON_KEY` | No | Supabase anon key. Falls back to built-in default. |
+| `VITE_SUPABASE_URL` | Frontend build arg | Supabase project URL. Falls back to built-in default. |
+| `VITE_SUPABASE_ANON_KEY` | Frontend build arg | Supabase anon key. Falls back to built-in default. |
 
 ---
 
