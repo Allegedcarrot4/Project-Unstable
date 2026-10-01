@@ -4,7 +4,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "start": "node ./artifacts/api-server/dist/index.mjs",
-    "start:frontend": "pnpm --filter @workspace/app run serve",
+    "start:frontend": "node ./scripts/serve-frontend.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:app": "pnpm --filter @workspace/app run build",
     "build:app:stormkit": "pnpm --filter @workspace/app run build",
