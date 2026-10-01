@@ -351,6 +351,14 @@ function aiMessageId() {
   return Math.random().toString(36).slice(2);
 }
 
+// ai_chat_feedback.message_id FKeys to ai_messages(id) (uuid), so only ids that
+// came back from the database may be written. Optimistic/local ids are not uuids.
+const MESSAGE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isPersistedMessageId(id: string) {
+  return MESSAGE_UUID_RE.test(id);
+}
+
 function getDeviceId() {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
@@ -2478,6 +2486,30 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     return () => { cancelled = true; };
   }, [activeId, user.id, starterMessages]);
 
+  // Restore saved like/dislike reactions from ai_chat_feedback
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFeedback() {
+      try {
+        const { data, error: err } = await supabase
+          .from("ai_chat_feedback")
+          .select("message_id, feedback_type")
+          .eq("user_id", user.id);
+        if (err) throw err;
+        if (cancelled) return;
+        const map: Record<string, "like" | "dislike"> = {};
+        for (const row of (data ?? []) as Array<{ message_id: string; feedback_type: "like" | "dislike" }>) {
+          map[row.message_id] = row.feedback_type;
+        }
+        setFeedback(map);
+      } catch (err) {
+        if (!cancelled) console.error("Failed to load feedback:", err);
+      }
+    }
+    loadFeedback();
+    return () => { cancelled = true; };
+  }, [user.id, activeId]);
+
   async function newChat() {
     const { data, error: err } = await supabase
       .from("ai_conversations")
@@ -2555,20 +2587,24 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     setLoading(true);
 
     try {
-      const { error: insertErr } = await supabase.from("ai_messages").insert({
+      const { data: userRow, error: insertErr } = await supabase.from("ai_messages").insert({
         conversation_id: convId, user_id: user.id, role: "user", content: prompt,
-      });
+      }).select("id").single();
       if (insertErr) throw insertErr;
+      // Swap the optimistic id for the persisted uuid so edits, deletes and
+      // feedback target the real row instead of a locally generated placeholder.
+      if (userRow?.id) replaceMessageId(userMessage.id, userRow.id as string);
 
       const allMessages = [...messages, userMessage].slice(-16);
       const content = await sendAiChat(allMessages, mode);
       const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
       setMessages(prev => [...prev, assistantMessage]);
 
-      const { error: aiInsertErr } = await supabase.from("ai_messages").insert({
+      const { data: assistantRow, error: aiInsertErr } = await supabase.from("ai_messages").insert({
         conversation_id: convId, user_id: user.id, role: "assistant", content,
-      });
+      }).select("id").single();
       if (aiInsertErr) throw aiInsertErr;
+      if (assistantRow?.id) replaceMessageId(assistantMessage.id, assistantRow.id as string);
 
       const conv = conversations.find(c => c.id === convId);
       if (conv && conv.title === "New chat") {
@@ -2607,6 +2643,42 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     navigator.clipboard.writeText(content).catch(() => {});
   }
 
+  /** Points the optimistic message at the row that was just persisted. */
+  function replaceMessageId(tempId: string, persistedId: string) {
+    setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, id: persistedId } : m)));
+  }
+
+  /**
+   * Persists like/dislike on an assistant message to ai_chat_feedback.
+   * The UI updates immediately (optimistic) and DB failures are logged only,
+   * so feedback never blocks the chat. Messages that were not persisted yet
+   * (starter text, in-flight replies) are skipped because the column is a uuid FKey.
+   */
+  async function saveFeedback(messageId: string, next: "like" | "dislike" | null) {
+    setFeedback(prev => ({ ...prev, [messageId]: next }));
+    if (!isPersistedMessageId(messageId)) return;
+    try {
+      if (next === null) {
+        const { error } = await supabase
+          .from("ai_chat_feedback")
+          .delete()
+          .eq("message_id", messageId)
+          .eq("user_id", user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("ai_chat_feedback")
+          .upsert(
+            { message_id: messageId, user_id: user.id, feedback_type: next },
+            { onConflict: "message_id,user_id" },
+          );
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Failed to save feedback:", err);
+    }
+  }
+
   function speakMessage(id: string, content: string) {
     if (speakingMessageId === id) {
       window.speechSynthesis.cancel();
@@ -2640,7 +2712,14 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
       const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
       setMessages(prev => [...prev, assistantMessage]);
       if (activeId) {
-        try { await supabase.from("ai_messages").insert({ conversation_id: activeId, user_id: user.id, role: "assistant", content }); } catch {}
+        try {
+          const { data: assistantRow } = await supabase
+            .from("ai_messages")
+            .insert({ conversation_id: activeId, user_id: user.id, role: "assistant", content })
+            .select("id")
+            .single();
+          if (assistantRow?.id) replaceMessageId(assistantMessage.id, assistantRow.id as string);
+        } catch {}
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to regenerate.");
@@ -2895,8 +2974,8 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                               {!isUser && (
                                 <>
                                   <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.1rem" }} />
-                                  <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "like" ? null : "like" }))} />
-                                  <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => setFeedback(prev => ({ ...prev, [message.id]: prev[message.id] === "dislike" ? null : "dislike" }))} />
+                                  <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => void saveFeedback(message.id, feedback[message.id] === "like" ? null : "like")} />
+                                  <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => void saveFeedback(message.id, feedback[message.id] === "dislike" ? null : "dislike")} />
                                 </>
                               )}
                             </motion.div>

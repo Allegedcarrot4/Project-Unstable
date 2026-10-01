@@ -60,6 +60,8 @@ docker build -t unstable-frontend -f Dockerfile.frontend .
 
 Pass `--build-arg VITE_SUPABASE_URL=...` and `--build-arg VITE_SUPABASE_ANON_KEY=...` to the frontend build when overriding the built-in Supabase project.
 
+When running the frontend container, set `BACKEND_URL` to the backend service URL.
+
 ### Backend-Only Local Run
 
 1. Clone the repository:
