@@ -29,7 +29,44 @@
 ## Deployment Options
 
 > **Note**
-> Unstable requires a backend service for its API, bare proxy, and Wisp websocket. It can run as two web services: a frontend container serving the app and forwarding backend routes, plus a backend container running the API and proxy. The frontend must support websocket upgrades and route `/api/*` and `/return` to the backend; the included frontend Docker image does this.
+> Choose a frontend-only service, a backend-only service, or a combined Node service. Frontend-only hosting needs `BACKEND_URL` configured if API and Wisp functionality should connect to a separately hosted backend. Combined hosting starts both processes and proxies backend routes on the same origin.
+
+---
+
+## Platform-Neutral Node Hosting
+
+These commands use Node.js and the existing build scripts; they do not require Docker or a Wasmer-specific config. Install dependencies once, then build only the parts you plan to run:
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+### Frontend Only
+
+Build and start the frontend. Set `BACKEND_URL` to the reachable backend origin when hosting the API separately. It can be omitted if only the static UI is needed.
+
+```bash
+pnpm run build:frontend
+PORT=8080 BACKEND_URL=https://api.example.com node scripts/serve-frontend.mjs
+```
+
+### Backend Only
+
+```bash
+pnpm run build:backend
+PORT=3001 node artifacts/api-server/dist/index.mjs
+```
+
+### Frontend and Backend Together
+
+The combined launcher waits for the backend to listen, then serves the frontend and proxies API, `/return`, and websocket requests to it.
+
+```bash
+pnpm run build:all
+PORT=8080 BACKEND_PORT=3001 node scripts/start-all.mjs
+```
+
+In each mode, configure `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_SUPABASE_PROJECT_ID` in the build environment if you need to override the built-in Supabase project settings. In the combined mode, `PORT` is the frontend's public listener and `BACKEND_PORT` is the internal API listener. In standalone backend mode, `PORT` is the API listener.
 
 ---
 
@@ -64,22 +101,7 @@ When running the frontend container, set `BACKEND_URL` to the backend service UR
 
 ### Backend-Only Local Run
 
-1. Clone the repository:
-
-```bash
-git clone https://github.com/Allegedcarrot4/Project-Unstable
-cd Project-Unstable
-```
-
-2. Install dependencies and build the workspace:
-
-```bash
-pnpm install
-pnpm run build
-pnpm start
-```
-
-`pnpm start` runs the backend only and does not serve the frontend. For a complete production deployment, run both services described above.
+See [Platform-Neutral Node Hosting](#platform-neutral-node-hosting) for the backend-only build and start commands. `pnpm start` remains an alias for the backend entrypoint.
 
 ### Development
 
@@ -119,8 +141,9 @@ Set these in your deployment platform's environment/secrets panel:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PORT` | **Yes** | Port the server listens on. Set to `7860` (also match your platform's exposed port). |
-| `BACKEND_URL` | Frontend service | Reachable HTTP origin of the backend service, such as `https://unstable-api.example.com`. |
+| `PORT` | **Yes** | Public listener port. In combined hosting this is the frontend; in backend-only hosting it is the API. |
+| `BACKEND_PORT` | Combined hosting | Internal API listener port; defaults to `3001`. |
+| `BACKEND_URL` | Frontend-only hosting | Reachable HTTP origin of a separately hosted backend. Combined hosting configures its local backend automatically. |
 | `PASSWORD` | No | Optional password users must enter to access Unstable. If unset, no password screen is shown. |
 | `SESSION_SECRET` | No | Optional but recommended for production session hardening. |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | Required for server-side auth features. |

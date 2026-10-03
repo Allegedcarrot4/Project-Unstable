@@ -6,7 +6,7 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const staticRoot = resolve(fileURLToPath(new URL("../artifacts/app/dist/public", import.meta.url)));
-const backendUrl = new URL(process.env.BACKEND_URL || "https://unstable.bonto.run");
+const backendUrl = process.env.BACKEND_URL ? new URL(process.env.BACKEND_URL) : null;
 const port = Number(process.env.PORT || "8080");
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
