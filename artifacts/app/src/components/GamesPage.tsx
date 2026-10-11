@@ -77,11 +77,11 @@ import {
   type GameCollection
 } from "../lib/gamePersonalization";
 
-interface PS5GamesPageProps {
+interface GamesPageProps {
   onNavigate?: (url: string) => void;
 }
 
-export function PS5GamesPage({ onNavigate }: PS5GamesPageProps) {
+export function GamesPage({ onNavigate }: GamesPageProps) {
   const [activeTab, setActiveTab] = useState<"games" | "media" | "profile">("games");
   const [showGallery, setShowGallery] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -1769,4 +1769,4 @@ export function PS5GamesPage({ onNavigate }: PS5GamesPageProps) {
   );
 }
 
-export default PS5GamesPage;
+export default GamesPage;

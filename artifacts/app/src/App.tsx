@@ -7,7 +7,7 @@ import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsU
 import { ErrorScreen } from "./components/ErrorScreen";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
-const PS5GamesPage = lazy(() => import("./components/PS5GamesPage").then(m => ({ default: m.PS5GamesPage })));
+const GamesPage = lazy(() => import("./components/GamesPage").then(m => ({ default: m.GamesPage })));
 const NotFound = lazy(() => import("./pages/not-found"));
 
 import type { CodecType } from "./lib/codec";
@@ -5409,7 +5409,7 @@ function BrowserApp({
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://games") return (
       <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Unstable Cloud...</div>}>
-        <PS5GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
+        <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
       </Suspense>
     );
     if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
