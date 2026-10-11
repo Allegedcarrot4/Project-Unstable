@@ -4,6 +4,7 @@
   let mappings = {};
   let reverseMappings = {};
   let enabled = false;
+  let fontFaceInjected = false;
 
   async function loadMappings() {
     try {
@@ -14,7 +15,26 @@
       mappings = m;
       reverseMappings = r;
       enabled = true;
+      injectFontFace();
     } catch {}
+  }
+
+  function injectFontFace() {
+    if (fontFaceInjected) return;
+    fontFaceInjected = true;
+    
+    const style = document.createElement("style");
+    style.textContent = `
+      @font-face {
+        font-family: "UnstableObf";
+        src: url("/unstable-obf.woff2") format("woff2"),
+             url("/unstable-obf.ttf") format("truetype");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   function encodeText(text) {

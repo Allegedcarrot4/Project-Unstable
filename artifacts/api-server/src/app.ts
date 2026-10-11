@@ -49,9 +49,18 @@ try {
     dns_servers: ["1.1.1.3", "1.0.0.3"],
     dns_result_order: "ipv4first",
     wisp_motd: "Unstable Node",
+    // MoonBeam-compatible extensions
+    extensions: {
+      // Extension 0x04: MOTD (Message of the Day)
+      motd: "Unstable Node - MoonBeam Compatible",
+      // Extension 0x05: Stream Open Confirmation
+      stream_open_confirmation: true,
+      // Extension 0x01: UDP support
+      udp: true,
+    },
   });
   wispHandler = wisp.routeRequest as WispHandler;
-  logger.info("Wisp protocol enabled at /api/wisp/");
+  logger.info("Wisp protocol enabled at /api/wisp/ (MoonBeam compatible)");
 } catch (err) {
   logger.warn({ err }, "wisp-js not available — Wisp disabled");
 }

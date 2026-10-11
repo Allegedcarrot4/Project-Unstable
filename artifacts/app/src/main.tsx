@@ -5,6 +5,27 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import PasswordGate from "./components/PasswordGate";
 import "./index.css";
 
+// Respond to baremux SharedWorker "getPort" requests to avoid "invalid MessagePort" errors
+if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "getPort" && event.ports?.[0]) {
+      // Create a new MessageChannel and send one port back
+      const channel = new MessageChannel();
+      event.ports[0].postMessage({ type: "port" }, [channel.port1]);
+      console.debug("bare-mux: responded to getPort from service worker");
+    }
+  });
+}
+
+// Also handle direct window messages from baremux (fallback)
+window.addEventListener("message", (event) => {
+  if (event.data?.type === "getPort" && event.ports?.[0]) {
+    // Respond on the SAME port that was sent to us (not a new channel)
+    event.ports[0].postMessage({ type: "port" });
+    console.debug("bare-mux: responded to getPort from window");
+  }
+});
+
 function RootApp() {
   return (
     <ErrorProvider>

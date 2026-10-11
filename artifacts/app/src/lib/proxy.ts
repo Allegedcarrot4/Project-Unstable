@@ -2,9 +2,14 @@
 
 export const UV_PREFIX = "/service/";
 export const SCRAMJET_PREFIX = "/ham/";
+export const NOVA_PREFIX = "/nova/";
+export const MOONBEAM_PREFIX = "/mb/";
 
 export type ProxyEngine = "auto" | "uv" | "scramjet";
-export type TransportMode = "auto" | "wisp" | "bare" | "epoxy" | "drift";
+export type TransportMode = "auto" | "wisp" | "bare" | "epoxy" | "drift" | "nova" | "moonbeam";
+
+// Nova Transport Mode - uses @nightnetwork/nova WASM LibCurl
+// MoonBeam Transport Mode - uses @nightnetwork/moonbeam relay for multiplexed Wisp
 
 // ScrController type for Scramjet integration
 export interface ScramjetCtrl {
@@ -134,4 +139,113 @@ export function normalizeUrl(input: string, searchEngine?: string): string {
   if (t.startsWith("http://") || t.startsWith("https://")) return t;
   if (t.includes(".") && !t.includes(" ")) return "https://" + t;
   return searchUrl(t, searchEngine ?? "duckduckgo");
+}
+
+// Wisp transport encoding/decoding
+export async function encodeWispUrl(url: string): Promise<string> {
+  const cleaned = stripTrackingParams(url);
+  if (window.__wispLibCurl) {
+    try {
+      const encoded = await window.__wispLibCurl.encodeUrl(cleaned);
+      return NOVA_PREFIX + encoded;
+    } catch {}
+  }
+  return NOVA_PREFIX + encodeURIComponent(cleaned);
+}
+
+export async function decodeWispUrl(url: string): Promise<string> {
+  try {
+    if (url.startsWith(NOVA_PREFIX)) {
+      const enc = url.slice(NOVA_PREFIX.length);
+      if (window.__wispLibCurl) return await window.__wispLibCurl.decodeUrl(enc);
+      return decodeURIComponent(enc);
+    }
+  } catch {}
+  return url;
+}
+
+// Wisp Relay transport encoding/decoding
+export async function encodeRelayUrl(url: string, relay?: MessagePort | null): Promise<string> {
+  const cleaned = stripTrackingParams(url);
+  if (relay && window.__wispRelay) {
+    try {
+      const encoded = await window.__wispRelay.encodeUrl(cleaned);
+      return MOONBEAM_PREFIX + encoded;
+    } catch {}
+  }
+  return MOONBEAM_PREFIX + encodeURIComponent(cleaned);
+}
+
+export async function decodeRelayUrl(url: string): Promise<string> {
+  try {
+    if (url.startsWith(MOONBEAM_PREFIX)) {
+      const enc = url.slice(MOONBEAM_PREFIX.length);
+      if (window.__wispRelay) return await window.__wispRelay.decodeUrl(enc);
+      return decodeURIComponent(enc);
+    }
+  } catch {}
+  return url;
+}
+
+// Generic proxy URL encoding that supports all transport modes
+export async function encodeProxyUrlAdvanced(
+  url: string,
+  transport: TransportMode = "auto",
+  settings?: ProxySettings,
+  scrController?: ScramjetCtrl | null,
+  wispLibCurl?: any,
+  wispRelay?: MessagePort | null,
+): Promise<string> {
+  const cleaned = stripTrackingParams(url);
+  
+  switch (transport) {
+    case "drift":
+      if (wispLibCurl) {
+        try { return await wispLibCurl.encodeUrl(cleaned); } catch {}
+      }
+      return NOVA_PREFIX + encodeURIComponent(cleaned);
+      
+    case "wisp":
+      if (wispRelay && window.__wispRelay) {
+        try { return await window.__wispRelay.encodeUrl(cleaned); } catch {}
+      }
+      return MOONBEAM_PREFIX + encodeURIComponent(cleaned);
+      
+    case "auto":
+      // For auto, try scramjet first if available
+      if (scrController != null) {
+        try { return await scrController.encodeUrl(cleaned); } catch { /* falls through */ }
+      }
+      // falls through to default - handle UV
+      if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
+      return UV_PREFIX + encodeURIComponent(cleaned);
+    
+    default:
+      if (window.Ultraviolet && window.__uv$config) return UV_PREFIX + window.__uv$config.encodeUrl(cleaned);
+      return UV_PREFIX + encodeURIComponent(cleaned);
+  }
+}
+
+export async function decodeProxyUrlAdvanced(url: string, scrController?: ScramjetCtrl | null, wispLibCurl?: any, wispRelay?: MessagePort | null): Promise<string> {
+  try {
+    if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
+      try { return await scrController.decodeUrl(location.origin + url); } catch { }
+      const encoded = url.slice(SCRAMJET_PREFIX.length);
+      return decodeURIComponent(encoded);
+    }
+    if (url.startsWith(NOVA_PREFIX) && wispLibCurl) {
+      const enc = url.slice(NOVA_PREFIX.length);
+      return await wispLibCurl.decodeUrl(enc);
+    }
+    if (url.startsWith(MOONBEAM_PREFIX) && wispRelay && window.__wispRelay) {
+      const enc = url.slice(MOONBEAM_PREFIX.length);
+      return await window.__wispRelay.decodeUrl(enc);
+    }
+    if (url.startsWith(UV_PREFIX)) {
+      const enc = url.slice(UV_PREFIX.length);
+      if (window.__uv$config) return window.__uv$config.decodeUrl(enc);
+      return decodeURIComponent(enc);
+    }
+  } catch { }
+  return url;
 }

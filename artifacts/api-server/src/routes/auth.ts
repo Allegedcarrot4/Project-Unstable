@@ -10,6 +10,17 @@ import {
 } from "../lib/supabase-admin";
 import { logger } from "../lib/logger";
 
+function isMissingRelationError(error: unknown): boolean {
+  const err = error as { code?: string; message?: string } | null;
+  const code = err?.code ?? "";
+  const message = (err?.message ?? "").toLowerCase();
+  return code === "42P01" || code === "PGRST205" || message.includes("does not exist") || message.includes("schema cache");
+}
+
+function normalizeUsername(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "") : "";
+}
+
 const SALT = process.env.AUTH_SALT || (() => {
   const fallback = crypto.randomBytes(16).toString("hex");
   logger.warn({ salt: "random (not persisted)" }, "AUTH_SALT not set; using ephemeral salt — multi-instance auth will break");
@@ -99,7 +110,12 @@ const authRoute: FastifyPluginAsync = async (app) => {
         .eq("device_hash", deviceHash)
         .maybeSingle() as any;
 
-      if (error) throw error;
+      if (error) {
+        if (isMissingRelationError(error)) {
+          return reply.send({ banned: false, reason: null, skipped: true });
+        }
+        throw error;
+      }
 
       const record = data as { reason?: string; banned_until?: string | null } | null;
       const activeBan = Boolean(record && (!record.banned_until || new Date(record.banned_until).getTime() > Date.now()));
@@ -109,7 +125,7 @@ const authRoute: FastifyPluginAsync = async (app) => {
       });
     } catch (err) {
       logger.warn({ err }, "Device-ban check unavailable");
-      return reply.status(503).send({ banned: true, reason: "Ban check unavailable. Please try again.", skipped: false });
+      return reply.send({ banned: false, reason: null, skipped: true });
     }
   });
 
@@ -131,7 +147,12 @@ const authRoute: FastifyPluginAsync = async (app) => {
         .eq("user_id", authed.user.id)
         .maybeSingle() as any;
 
-      if (banError) throw banError;
+      if (banError) {
+        if (isMissingRelationError(banError)) {
+          return reply.send({ isBanned: false, banReason: null, skipped: true });
+        }
+        throw banError;
+      }
 
       const banRecord = banRow as { reason?: string; banned_until?: string | null } | null;
       const banned = Boolean(banRecord && (!banRecord.banned_until || new Date(banRecord.banned_until).getTime() > Date.now()));
@@ -141,7 +162,43 @@ const authRoute: FastifyPluginAsync = async (app) => {
       });
     } catch (err) {
       logger.warn({ err }, "Auth context unavailable");
-      return reply.status(503).send({ isBanned: true, banReason: "Account check unavailable. Please try again.", skipped: false });
+      return reply.send({ isBanned: false, banReason: null, skipped: true });
+    }
+  });
+
+  app.post("/auth/resolve-username", async (req, reply) => {
+    try {
+      if (!hasSupabaseAdminConfig()) {
+        return reply.status(404).send({ error: "Account lookup is unavailable." });
+      }
+
+      const username = normalizeUsername((req.body as any)?.username);
+      if (username.length < 3) {
+        return reply.status(400).send({ error: "Enter a valid username." });
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("username", username)
+        .maybeSingle() as any;
+
+      if (profileError) throw profileError;
+      if (!profile?.id) {
+        return reply.status(404).send({ error: "No account found for that username." });
+      }
+
+      const { data, error } = await supabase.auth.admin.getUserById(profile.id);
+      const email = data.user?.email?.trim();
+      if (error || !email) {
+        return reply.status(404).send({ error: "No account found for that username." });
+      }
+
+      return reply.send({ email });
+    } catch (err) {
+      logger.warn({ err }, "Username lookup unavailable");
+      return reply.status(404).send({ error: "No account found for that username." });
     }
   });
 

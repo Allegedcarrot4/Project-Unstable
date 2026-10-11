@@ -200,7 +200,11 @@ function isLocalApiOrNavigationRequest(url) {
   try {
     const u = new URL(url);
     const p = u.pathname;
-    return u.origin === self.location.origin && (
+    // Only intercept same-origin requests
+    if (u.origin !== self.location.origin) {
+      return false;
+    }
+    return (
       u.mode === "navigate" ||
       p.startsWith("/api/") ||
       p.startsWith("/service/") ||
@@ -262,7 +266,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(handleRequest(event));
 });
 
-self.addEventListener("message", (event) => {
+self.addEventListener("message", async (event) => {
   const { type, data } = event.data || {};
   if (type === "ADBLOCK") { adblockEnabled = !!data?.enabled; if (!data?.enabled) adblockCount = 0; }
   if (type === "GET_ADBLOCK_COUNT" && event.ports?.[0]) {
@@ -274,5 +278,15 @@ self.addEventListener("message", (event) => {
     // Re-register the UV config functions
     self.__uv$config.encodeUrl = function(s) { return self.__uv$codecs[data.type].encode(s); };
     self.__uv$config.decodeUrl = function(s) { return self.__uv$codecs[data.type].decode(s); };
+  }
+  // Forward baremux getPort requests to window clients
+  if (type === "getPort" && event.ports?.[0]) {
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clients) {
+      // Forward the port to the window client
+      client.postMessage({ type: "getPort" }, [event.ports[0]]);
+    }
+    // Also respond directly on the port to avoid timeout
+    event.ports[0].postMessage({ type: "port" });
   }
 });

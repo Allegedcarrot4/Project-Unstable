@@ -149,7 +149,7 @@ export function ProfilePage({
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => window.location.reload()}
+              type="button"
               style={{
                 marginTop: "1.2rem",
                 width: "100%",

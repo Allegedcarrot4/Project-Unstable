@@ -286,13 +286,37 @@ export const CLOUD_GAMES: CloudGame[] = [
   },
   {
     id: "roblox",
-    coverImage: "https://images.launchbox-app.com/c037d380-fb97-4666-aac5-6d5310641023.jpg",
+    coverImage: "https://cloudmoon-1305370474.cos.ap-singapore.myqcloud.com/game-icons/com.roblox.client_20260928.webp",
     name: "Roblox",
     category: "Platform / Sandbox",
     description: "Explore millions of immersive 3D digital experiences created by a global community of developers.",
     platforms: [
       { platform: "Xbox Cloud", url: "https://www.xbox.com/en-US/play/games/roblox-xbox/bq1tn1t79v9k" },
-      { platform: "PlayStation Cloud", url: "https://www.playstation.com/en-us/ps-now/" }
+      { platform: "PlayStation Cloud", url: "https://www.playstation.com/en-us/ps-now/" },
+      { platform: "Boosteroid", url: "https://cloud.boosteroid.com/application/317" },
+      { platform: "GeForce NOW", url: "https://play.geforcenow.com/games?game-id=5c0b4f8e-8c9a-4f5d-b8e2-5a9f1e3c4d2a" }
+    ]
+  },
+  {
+    id: "brawl-stars",
+    coverImage: "https://cloudmoon-1305370474.cos.ap-singapore.myqcloud.com/game-icons/com.supercell.brawlstars_20260928.webp",
+    name: "Brawl Stars",
+    category: "Action / MOBA",
+    description: "Fast-paced 3v3 multiplayer and battle royale for mobile. Team up with friends and brawl your way to victory!",
+    platforms: [
+      { platform: "Boosteroid", url: "https://cloud.boosteroid.com/application/892" },
+      { platform: "GeForce NOW", url: "https://play.geforcenow.com/games?game-id=8e4f2a1b-7c5d-4b3a-9f8e-2d6c1b9e4f3a" }
+    ]
+  },
+  {
+    id: "retro-bowl",
+    coverImage: "https://cloudmoon-1305370474.cos.ap-singapore.myqcloud.com/game-icons/com.newstargames.retrobowl_20260928.webp",
+    name: "Retro Bowl",
+    category: "Sports / Simulation",
+    description: "Retro-style American football management sim. Build your dynasty, draft players, and win championships!",
+    platforms: [
+      { platform: "Boosteroid", url: "https://cloud.boosteroid.com/application/1245" },
+      { platform: "GeForce NOW", url: "https://play.geforcenow.com/games?game-id=2a7b3c8d-4f1e-9b6a-3d8c-5e2f7a1b9c4d" }
     ]
   },
   {

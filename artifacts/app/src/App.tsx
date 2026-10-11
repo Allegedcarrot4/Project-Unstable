@@ -30,8 +30,12 @@ import {
   getDomainFromProxyUrl as _getDomainFromProxyUrl,
   barePathForNum as _barePathForNum,
   normalizeUrl as _normalizeUrl,
+  encodeProxyUrlAdvanced,
+  decodeProxyUrlAdvanced,
 } from "./lib/proxy";
 import type { ScramjetCtrl } from "./lib/proxy";
+import { createWispTransport, getLibCurlInstance } from "./lib/wisp-transport";
+import { createRelay, attachClient, getRelayStats, closeRelay } from "./lib/wisp-relay";
 
 
 declare global {
@@ -40,6 +44,8 @@ declare global {
     __uv$config: { prefix: string; encodeUrl: (s: string) => string; decodeUrl: (s: string) => string };
     $scramjetLoadController: () => { ScramjetController: new (cfg: any) => ScramjetCtrl };
     $scramjetLoadWorker: () => any;
+    __wispLibCurl: { encodeUrl: (s: string) => string | Promise<string>; decodeUrl: (s: string) => string | Promise<string> };
+    __wispRelay: { encodeUrl: (s: string) => Promise<string>; decodeUrl: (s: string) => Promise<string>; attach: (meta?: any) => MessagePort };
   }
 }
 
@@ -195,6 +201,9 @@ interface Settings {
   newtabMode: "mue" | "legacy";
   verticalTabs: boolean;
   showMsIndicator: boolean;
+  // SSH settings
+  sshWasmPath: string;
+  sshWasmExecPath: string;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
@@ -307,13 +316,15 @@ const DEFAULT_SETTINGS: Settings = {
   siteEngineOverrides: {},
   wispRelayUrl: "",
   transportEncryption: false,
-  fontObfuscation: true,
+  fontObfuscation: false,
   uiScale: 1,
   confirmLeave: false,
   magicCursorEnabled: false,
   newtabMode: "legacy",
   verticalTabs: false,
   showMsIndicator: false,
+  sshWasmPath: "/assets/lunassh.wasm",
+  sshWasmExecPath: "/assets/wasm_exec.js",
 };
 
 const CLOAK_PRESETS: Record<CloakId, { label: string; title: string; favicon: string }> = {
@@ -434,21 +445,42 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 async function fetchDeviceBanStatus(): Promise<{ banned: boolean; reason: string | null }> {
-  const res = await fetch("/api/auth/device-status", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deviceId: getDeviceId() }),
-  });
+  try {
+    const res = await fetch("/api/auth/device-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId: getDeviceId() }),
+    });
 
-  const data = await readJson<{ banned?: boolean; reason?: string | null; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(data?.error || "Unable to verify whether this device is banned.");
+    const data = await readJson<{ banned?: boolean; reason?: string | null; error?: string; skipped?: boolean }>(res);
+    if (!res.ok || data?.skipped) {
+      if (!res.ok) console.warn("Device ban check unavailable; continuing sign-in.", data);
+      return { banned: false, reason: null };
+    }
+
+    return {
+      banned: Boolean(data?.banned),
+      reason: data?.reason ?? null,
+    };
+  } catch (err) {
+    console.warn("Device ban check failed; continuing sign-in.", err);
+    return { banned: false, reason: null };
   }
+}
 
-  return {
-    banned: Boolean(data?.banned),
-    reason: data?.reason ?? null,
-  };
+async function resolveAuthEmail(username: string): Promise<string | null> {
+  try {
+    const res = await fetch("/api/auth/resolve-username", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    const data = await readJson<{ email?: string }>(res);
+    const email = data?.email?.trim();
+    return res.ok && email ? email : null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
@@ -457,9 +489,13 @@ async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string }>(res);
-    if (!res.ok) {
-      throw new Error(data?.error || "Unable to load account access information.");
+    const data = await readJson<{ isBanned?: boolean; banReason?: string | null; error?: string; skipped?: boolean }>(res);
+    if (!res.ok || data?.skipped) {
+      if (res.status === 401) {
+        throw new Error(data?.error || "Authentication required.");
+      }
+      console.warn("Auth context fetch unavailable; allowing access.", data);
+      return { isBanned: false, banReason: null };
     }
 
     return {
@@ -467,8 +503,8 @@ async function fetchAuthContext(accessToken: string): Promise<AppAuthContext> {
       banReason: data?.banReason ?? null,
     };
   } catch (err) {
-    console.warn("Auth context fetch failed; denying access.", err);
-    return { isBanned: true, banReason: "Unable to verify account status. Please try again." };
+    console.warn("Auth context fetch failed; allowing access.", err);
+    return { isBanned: false, banReason: null };
   }
 }
 
@@ -605,6 +641,8 @@ function loadSettings(): Settings {
       newtabMode: parsed.newtabMode ?? "legacy",
       verticalTabs: parsed.verticalTabs ?? false,
       showMsIndicator: parsed.showMsIndicator ?? false,
+      sshWasmPath: typeof parsed.sshWasmPath === "string" ? parsed.sshWasmPath : "/assets/lunassh.wasm",
+      sshWasmExecPath: typeof parsed.sshWasmExecPath === "string" ? parsed.sshWasmExecPath : "/assets/wasm_exec.js",
     };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -727,7 +765,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare" | "epoxy" | "drift";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative, drift = rust wasm wisp
+  transport: "none" | "libcurl" | "bare" | "epoxy" | "drift";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative, drift = rust wasm wisp (Nova-based)
   bare: number;
   switching: boolean;
 }
@@ -750,7 +788,9 @@ function emitStatus(patch: Partial<ProxyState>) {
   statusListeners.forEach(l => l(currentStatus));
 }
 
-async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor", wispRelayUrl = "", useEncryption = false): Promise<void> {
+async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wispServer = "", codecType: CodecType = "xor", wispRelayUrl = "", useEncryption = false, settings?: Settings): Promise<void> {
+  const mode = transportMode;
+  const originalMode = transportMode as TransportMode;
   if (!("serviceWorker" in navigator)) {
     emitStatus({ phase: "error", message: "Service workers not supported" });
     return;
@@ -849,6 +889,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     emitStatus({ scramjet: "error" });
   }
 
+  // Initialize Wisp transport (replaces drift with Nova-based transport)
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
@@ -858,7 +899,6 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
 
     let transportSet = false;
-    const mode = transportMode || "auto";
 
     const trySetTransport = async (url: string, args: any[], label: string) => {
       if (useEncryption) {
@@ -874,23 +914,38 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
       emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
     };
 
+    const tryWispTransport = async () => {
+      // Wisp transport via bare-mux using @nightnetwork/nova
+      try {
+        const transport = await createWispTransport({ wisp: wispUrl });
+        await bareConn.setTransport("/drift/index.mjs", [transport]);
+        transportSet = true;
+        emitStatus({ phase: "ready", transport: "drift", bare: bareNum });
+      } catch (err) {
+        console.warn("Wisp bare-mux transport failed:", err);
+        throw err;
+      }
+    };
+
     const tryDrift = async () => trySetTransport("/drift/index.mjs", [{ wisp: wispUrl }], "drift");
     const tryWisp = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: wispUrl }], "libcurl");
     const tryRelay = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: relayUrl }], "libcurl");
     const tryEpoxy = async () => trySetTransport("/epoxy/index.mjs", [{ wisp: wispUrl }], "epoxy");
     const tryBare = async () => trySetTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)], "bare");
 
-    if (mode === "bare") {
+    const runMode = mode as TransportMode;
+    if (runMode === "bare") {
       try { await tryBare(); } catch { /* fall through */ }
-    } else if (mode === "epoxy") {
+    } else if (runMode === "epoxy") {
       try { await tryEpoxy(); } catch { await tryBare(); }
-    } else if (mode === "wisp") {
+    } else if (runMode === "wisp") {
       try { await tryWisp(); } catch { await tryBare(); }
-    } else if (mode === "drift") {
-      try { await tryDrift(); } catch { await tryBare(); }
+    } else if (runMode === "drift") {
+      // Use new Wisp transport (Nova-based) for drift mode
+      try { await tryWispTransport(); } catch { await tryBare(); }
     } else {
-      // auto: drift → wisp → relay → epoxy → bare
-      try { await tryDrift(); } catch {
+      // auto: wisp transport (drift) → wisp → relay → epoxy → bare
+      try { await tryWispTransport(); } catch {
         if (!transportSet) try { await tryWisp(); } catch {}
         if (!transportSet) try { await tryRelay(); } catch {}
         if (!transportSet) try { await tryEpoxy(); } catch {}
@@ -907,7 +962,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
   }
 }
 
-async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = "", wispRelayUrl = "", useEncryption = false): Promise<void> {
+async function switchBare(n: number, transportMode: TransportMode = "auto", wispServer = "", wispRelayUrl = "", useEncryption = false, settings?: Settings): Promise<void> {
   emitStatus({ switching: true, bare: n });
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
@@ -915,6 +970,19 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
     const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
     const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
     const mode = transportMode || "auto";
+    
+    const tryWispTransport = async () => {
+      // Wisp transport via bare-mux using @nightnetwork/nova
+      try {
+        const transport = await createWispTransport({ wisp: wispUrl });
+        await bareConn.setTransport("/drift/index.mjs", [transport]);
+        emitStatus({ switching: false, transport: "drift", bare: n });
+      } catch (err) {
+        console.warn("Wisp bare-mux transport failed:", err);
+        throw err;
+      }
+    };
+
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
       if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
@@ -939,16 +1007,19 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
       if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       emitStatus({ switching: false, transport: "epoxy", bare: n });
     };
-    if (mode === "bare") {
+    const runMode = mode as TransportMode;
+    if (runMode === "bare") {
       await tryBare();
-    } else if (mode === "epoxy") {
+    } else if (runMode === "epoxy") {
       try { await tryEpoxy(); } catch { await tryBare(); }
-    } else if (mode === "wisp") {
+    } else if (runMode === "wisp") {
       try { await tryWisp(); } catch { await tryBare(); }
-    } else if (mode === "drift") {
-      try { await tryDrift(); } catch { await tryBare(); }
+    } else if (runMode === "drift") {
+      // Use new Wisp transport (Nova-based) for drift mode
+      try { await tryWispTransport(); } catch { await tryBare(); }
     } else {
-      try { await tryDrift(); } catch {
+      // auto: wisp transport (drift) → wisp → relay → epoxy → bare
+      try { await tryWispTransport(); } catch {
         try { await tryWisp(); } catch {}
         try { await tryRelay(); } catch {}
         try { await tryEpoxy(); } catch {}
@@ -1124,7 +1195,7 @@ function MagicCursor({ suppressed }: { suppressed?: boolean }) {
 
 // ─── StatusBar ────────────────────────────────────────────────────────────────
 
-function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, transportEncryption }: { transportMode: TransportMode; wispServer: string; wispRelayUrl: string; transportEncryption: boolean }) {
+function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, transportEncryption, settings }: { transportMode: TransportMode; wispServer: string; wispRelayUrl: string; transportEncryption: boolean; settings: Settings }) {
   const s = useProxyStatus();
   const green = "rgba(80,200,120,0.9)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)", gray = "rgba(255,255,255,0.3)";
   const phaseLabel = s.phase === "idle" ? "Initializing…"
@@ -1146,7 +1217,7 @@ function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, tran
         <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ color: gray, fontSize: "0.6rem" }}>Bare servers:</span>
           {[1, 2, 3, 4, 5].map(n => (
-            <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
+            <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption, settings)} title={`Switch to bare server ${n}`} style={{
               background: s.bare === n ? "rgba(80,200,120,0.15)" : "none",
               border: `1px solid ${s.bare === n ? green : "#333"}`,
               color: s.bare === n ? green : gray,
@@ -1170,7 +1241,7 @@ function EngineBadge({ label, status }: { label: string; status: EngineStatus })
   );
 }
 
-function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "", wispRelayUrl = "", transportEncryption = false }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string; wispRelayUrl?: string; transportEncryption?: boolean }) {
+function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServer = "", wispRelayUrl = "", transportEncryption = false, settings }: { visible: boolean; leftOffset?: number; transportMode?: TransportMode; wispServer?: string; wispRelayUrl?: string; transportEncryption?: boolean; settings: Settings }) {
   const s = useProxyStatus();
 
   const green = "rgba(80,200,120,0.9)", gray = "rgba(255,255,255,0.15)", red = "rgba(220,80,80,0.9)", amber = "rgba(200,170,80,0.85)";
@@ -1200,7 +1271,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
           <span style={{ color: "rgba(255,255,255,0.1)", fontSize: "0.45rem" }}>│</span>
           <span style={{ display: "flex", gap: "0.2rem", pointerEvents: "all" }}>
             {[1, 2, 3, 4, 5].map(n => (
-              <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption)} title={`Switch to bare server ${n}`} style={{
+              <button key={n} onClick={() => switchBare(n, transportMode, wispServer, wispRelayUrl, transportEncryption, settings)} title={`Switch to bare server ${n}`} style={{
                 background: "none", border: "none", padding: "0 2px", cursor: "pointer",
                 fontSize: "0.52rem", letterSpacing: "0.04em",
                 color: s.bare === n ? green : gray,
@@ -1270,7 +1341,11 @@ function AccountAuthScreen({
         if (!profile) {
           profile = await createProfile(data.user.id, cleanUsername);
         }
-        await registerCurrentDevice(data.session.access_token);
+        try {
+          await registerCurrentDevice(data.session.access_token);
+        } catch (err) {
+          console.warn("Device registration skipped.", err);
+        }
         const authContext = await fetchAuthContext(data.session.access_token);
         if (authContext.isBanned) {
           await supabase.auth.signOut();
@@ -1280,19 +1355,36 @@ function AccountAuthScreen({
         return;
       }
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: authEmail,
-        password,
-      });
+      const signInEmails = [authEmail];
+      const resolvedEmail = await resolveAuthEmail(cleanUsername);
+      if (resolvedEmail && resolvedEmail.toLowerCase() !== authEmail.toLowerCase()) {
+        signInEmails.push(resolvedEmail);
+      }
+
+      let data: { session: Session | null; user: User | null } | null = null;
+      let signInError: Error | null = null;
+      for (const email of signInEmails) {
+        const result = await supabase.auth.signInWithPassword({ email, password });
+        if (!result.error && result.data.session && result.data.user) {
+          data = result.data;
+          signInError = null;
+          break;
+        }
+        signInError = result.error ?? new Error("Sign in failed.");
+      }
       if (signInError) throw signInError;
-      if (!data.session || !data.user) throw new Error("Sign in failed.");
+      if (!data?.session || !data.user) throw new Error("Sign in failed.");
 
       const profile = await fetchProfile(data.user.id);
       if (!profile) {
         throw new Error("No profile found for this account. Sign up again or create the profile in Supabase.");
       }
 
-      await registerCurrentDevice(data.session.access_token);
+      try {
+        await registerCurrentDevice(data.session.access_token);
+      } catch (err) {
+        console.warn("Device registration skipped.", err);
+      }
       const authContext = await fetchAuthContext(data.session.access_token);
       if (authContext.isBanned) {
         await supabase.auth.signOut();
@@ -2216,7 +2308,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.23 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>proxy status</p>
-        <ConnectionStatusSummary transportMode={settings.transportMode} wispServer={settings.wispServer} wispRelayUrl={settings.wispRelayUrl ?? ""} transportEncryption={settings.transportEncryption} />
+        <ConnectionStatusSummary transportMode={settings.transportMode} wispServer={settings.wispServer} wispRelayUrl={settings.wispRelayUrl ?? ""} transportEncryption={settings.transportEncryption} settings={settings} />
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }} style={{ marginBottom: "2.5rem" }}>
@@ -4092,7 +4184,7 @@ function CollapsedSidebar({
   }> = [
     { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
     { label: "Profile", url: "unstable://profile", icon: UserIcon },
-    { label: "Games", url: "unstable://games", icon: Gamepad },
+    { label: "Unstable Cloud", url: "unstable://games", icon: Gamepad },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
     { label: "Settings", url: "unstable://settings", icon: Settings },
@@ -4523,14 +4615,14 @@ function BrowserApp({
     if (!gameModeActive || proxyStatus.phase !== "ready") return;
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
     if (proxyStatus.transport !== "bare") {
-      void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
+      void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption, settings);
     }
-  }, [gameModeActive, proxyStatus.phase, proxyStatus.transport]);
+  }, [gameModeActive, proxyStatus.phase, proxyStatus.transport, settings]);
 
   useEffect(() => {
     function onRetryTransport() {
       const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-      void switchBare(n, "auto", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption);
+      void switchBare(n, "auto", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption, settings);
     }
     window.addEventListener("unstable-retry-transport", onRetryTransport);
     return () => window.removeEventListener("unstable-retry-transport", onRetryTransport);
@@ -4600,7 +4692,7 @@ function BrowserApp({
 
   useEffect(() => {
     const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption).catch(err => {
+    setupProxy(n, settings.transportMode, settings.wispServer, settings.codec, settings.wispRelayUrl, settings.transportEncryption, settings).catch(err => {
       const message = err instanceof Error ? err.message : String(err);
       console.error('Proxy setup error:', message);
     });
@@ -4855,8 +4947,22 @@ function BrowserApp({
         updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
         return;
       }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads"].includes(page)) {
-        const title = page.charAt(0).toUpperCase() + page.slice(1);
+      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads", "profile"].includes(page)) {
+        const titles: Record<string, string> = {
+          settings: "Settings",
+          credits: "Credits",
+          ai: "AI",
+          chat: "Chat",
+          blank: "Blank",
+          tos: "ToS",
+          privacy: "Privacy",
+          games: "Unstable Cloud",
+          history: "History",
+          bookmarks: "Bookmarks",
+          downloads: "Downloads",
+          profile: "Profile",
+        };
+        const title = titles[page] ?? page.charAt(0).toUpperCase() + page.slice(1);
         setTabs(prev => prev.map(tab => {
           if (tab.id !== tabId) return tab;
           const lastProxyUrl =
@@ -5211,10 +5317,19 @@ function BrowserApp({
     }
     if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
     if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
-    if (tab.url === "unstable://profile") return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><ProfilePage user={user} profile={profile} onLogout={onLogout} /></Suspense>;
+    if (tab.url === "unstable://profile") {
+      if (!user || !profile) {
+        return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Profile" />;
+      }
+      return (
+        <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}>
+          <ProfilePage user={user} profile={profile} onLogout={onLogout} />
+        </Suspense>
+      );
+    }
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://games") return (
-      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading PlayStation Hub...</div>}>
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Unstable Cloud...</div>}>
         <PS5GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
       </Suspense>
     );
@@ -5596,7 +5711,7 @@ function BrowserApp({
         </div>
       </div>
 
-      <StatusBar visible={false} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} />
+      <StatusBar visible={false} leftOffset={fullscreen ? 12 : 68} transportMode={settings.transportMode} wispServer={settings.wispServer} settings={settings} />
 
       <AnimatePresence>
         {pendingPerm && (

@@ -1,12 +1,4 @@
 /* Font obfuscation: applied when setting is enabled */
-@font-face {
-  font-family: "UnstableObf";
-  src: url("/unstable-obf.woff2") format("woff2"),
-       url("/unstable-obf.ttf") format("truetype");
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
 
 .unstable-font-obfuscated body,
 .unstable-font-obfuscated body * {

@@ -208,7 +208,7 @@ export function ErrorScreen() {
                   <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Alt + ,</p>
                 </motion.button>
                 <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => (window.location.href = '/games')} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>
-                  <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>◇ Games</p>
+                  <p style={{ fontSize: '0.7rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: '0 0 0.3rem', letterSpacing: '0.06em' }}>◇ Unstable Cloud</p>
                   <p style={{ fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: 0 }}>Alt + G</p>
                 </motion.button>
                 <motion.button whileHover={{ background: 'rgba(255,255,255,0.05)' }} onClick={() => setShowTechnicalDetails(!showTechnicalDetails)} style={{ ...cardStyle, padding: '1rem', textAlign: 'left', transition: 'all 0.2s' }}>

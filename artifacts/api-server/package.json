@@ -13,6 +13,7 @@
     "@fastify/compress": "^9.0.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/formbody": "^8.0.2",
+    "@fastify/middie": "^9.3.5",
     "@fastify/static": "^10.1.1",
     "@mercuryworkshop/bare-as-module3": "^2.2.5",
     "@mercuryworkshop/wisp-js": "^0.4.1",

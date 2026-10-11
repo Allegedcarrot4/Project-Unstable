@@ -21,6 +21,26 @@ const isProd = process.env.NODE_ENV === "production";
 const epoxyDist = path.relative(import.meta.dirname, path.resolve(import.meta.dirname, "node_modules", "@mercuryworkshop", "epoxy-transport", "dist")).replace(/\\/g, "/");
 const driftDist = path.relative(import.meta.dirname, path.resolve(import.meta.dirname, "node_modules", "@allegedcarrot4", "drift")).replace(/\\/g, "/");
 
+// Middleware to prevent SPA fallback for font files
+function fontFallbackMiddleware() {
+  return {
+    name: "font-fallback-prevention",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url || "";
+        if (url.startsWith("/unstable-obf.")) {
+          // Return 404 for missing font files instead of SPA fallback
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "text/plain");
+          res.end("Font not found");
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   envDir: path.resolve(import.meta.dirname, "..", ".."),
@@ -35,7 +55,46 @@ export default defineConfig({
     }),
     ...(isProd ? [javascriptObfuscator({
       include: [/\.js$/],
-      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/, /drift/],
+      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/, /drift/, /\.(woff2?|ttf|wasm)$/],
+      options: {
+        compact: true,
+        controlFlowFlattening: true,
+        controlFlowFlatteningThreshold: 0.75,
+        deadCodeInjection: true,
+        deadCodeInjectionThreshold: 0.4,
+        disableConsoleOutput: true,
+        identifierNamesGenerator: "hexadecimal",
+        renameGlobals: false,
+        rotateStringArray: true,
+        shuffleStringArray: true,
+        splitStrings: true,
+        splitStringsChunkLength: 10,
+        stringArray: true,
+        stringArrayEncoding: ["base64"],
+        stringArrayThreshold: 0.75,
+        transformObjectKeys: true,
+        unicodeEscapeSequence: false,
+      },
+    }),
+    // Pre-compress all JS/CSS/HTML/wasm assets at build time.
+    // Fastify serves the .br/.gz sidecars directly, saving per-request CPU.
+    compression({ algorithm: "brotliCompress", exclude: [/\.(br|gz)$/] }),
+    compression({ algorithm: "gzip", exclude: [/\.(br|gz)$/] }),
+    ] : []),
+  ],
+  plugins: [
+    react(),
+    tailwindcss(),
+    viteStaticCopy({
+      targets: [
+        { src: epoxyDist + "/index.mjs", dest: "epoxy" },
+        { src: driftDist + "/drift_wasm_bg.wasm", dest: "drift" },
+      ],
+    }),
+    fontFallbackMiddleware(),
+    ...(isProd ? [javascriptObfuscator({
+      include: [/\.js$/],
+      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/, /drift/, /\.(woff2?|ttf|wasm)$/],
       options: {
         compact: true,
         controlFlowFlattening: true,

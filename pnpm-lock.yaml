@@ -173,6 +173,9 @@ importers:
       '@fastify/formbody':
         specifier: ^8.0.2
         version: 8.0.2
+      '@fastify/middie':
+        specifier: ^9.3.5
+        version: 9.3.5
       '@fastify/static':
         specifier: ^10.1.1
         version: 10.1.2
@@ -249,6 +252,15 @@ importers:
       '@mercuryworkshop/scramjet':
         specifier: 2.0.2-alpha
         version: 2.0.2-alpha
+      '@nightnetwork/lunassh':
+        specifier: ^1.0.0
+        version: 1.0.0(react@19.1.0)
+      '@nightnetwork/moonbeam':
+        specifier: ^1.1.1
+        version: 1.1.1
+      '@nightnetwork/nova':
+        specifier: ^1.1.0
+        version: 1.1.0
       '@supabase/supabase-js':
         specifier: ^2.105.4
         version: 2.110.8
@@ -781,6 +793,9 @@ packages:
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
 
+  '@bjorn3/browser_wasi_shim@0.3.0':
+    resolution: {integrity: sha512-FlRBYttPRLcWORzBe6g8nmYTafBkOEFeOqMYM4tAHJzFsQy4+xJA94z85a9BCs8S+Uzfh9LrkpII7DXr2iUVFg==}
+
   '@commander-js/extra-typings@15.0.0':
     resolution: {integrity: sha512-yeJlba62xqmkgELUsn7356MEnzLLu/fw2x4lofFqGnXh6YysRdEs2BaLeLtg1+KU0AXvMeqQvTTp+3hBEBK+EA==}
     peerDependencies:
@@ -854,6 +869,9 @@ packages:
 
   '@fastify/merge-json-schemas@0.2.1':
     resolution: {integrity: sha512-OA3KGBCy6KtIvLf8DINC5880o5iBlDX4SxzLQS8HorJAbqluzLRn80UXU0bxZn7UOFhFgpRJDasfwn9nG4FG4A==}
+
+  '@fastify/middie@9.3.5':
+    resolution: {integrity: sha512-oY1Yp/UfwS/qcmSV4PgOEqlTxHytRWSjl5MB07hDhlKfecAwJ4TQ7zBxdX2AWAuq+xbfPXM7EgH7EwOIQ2fSPA==}
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
@@ -969,6 +987,27 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@nightnetwork/lunassh@1.0.0':
+    resolution: {integrity: sha512-6K8EK8y3fC0obh+E1KzG3i2WlUV0sRNf99bebFmwixsV3jQlKouwOub7TnmfkJY3vsnUSqNG0g0mM7Bt1KaI8Q==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@nightnetwork/dusk': ^0.9.0 || ^1.0.0
+      react: '>=18.0.0'
+      vue: '>=3.0.0'
+    peerDependenciesMeta:
+      '@nightnetwork/dusk':
+        optional: true
+      react:
+        optional: true
+      vue:
+        optional: true
+
+  '@nightnetwork/moonbeam@1.1.1':
+    resolution: {integrity: sha512-RhTykkTV0WzE03QjAYdBr7QQn1v6dZAc61a6UnyTfcl7gm5QunlkfuRXGw6BZs/VdevZ+Z4MLvJun9xOU4Ewng==}
+
+  '@nightnetwork/nova@1.1.0':
+    resolution: {integrity: sha512-zxi55SMf3ilmy7hkuzR99sZgzROnTGe5qLIQQGc1fABYEBEb00l28M4MImH9gOJGQAloHGWmcW630t3QhleIOA==}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -1921,6 +1960,15 @@ packages:
     resolution: {integrity: sha512-yRg2pfOCxIs4ZJW3XYYHU/WgtD04FHSnfHlpRT7h7pR77hwkdRG4wxbKe4aq6P0RvXUTBSQpQeadS1SUYUe+KA==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@tcpip/dns@0.2.2':
+    resolution: {integrity: sha512-/JNG7yaSxRji9lzNrN3sfc7n0QV6CX0RmjLQAZ0Xw3lkvpQRtq3dwobOceaaRroodT25U1JxFOa/jc5hOz+DBQ==}
+
+  '@tcpip/wire@0.1.3':
+    resolution: {integrity: sha512-jxo6GLtgUwq0N671uhQPxiElmueI6B/anYE2IXn488i6prmOK+leVqF0B6mXna4biv+KAWOUX0hCweaNfvwtPA==}
+
+  '@tcpip/wire@0.1.4':
+    resolution: {integrity: sha512-sQKEHopVD0AljgMJVkWkHCXtoMGTF+CZRjy+fAbaaC+e3LS9TUcrfK3R7cSf0RvKu46xO8YBvm6hqFCniUTUOQ==}
 
   '@tomphttp/bare-server-node@2.0.6':
     resolution: {integrity: sha512-0/Om5xIokkrV3N2LUxAa0tP0prh9lY/HDIXCTs8V2UR89wpM7Xg25ljO5REFSdIJ/HFS81amgKo83Dmbv9znnQ==}
@@ -3424,6 +3472,9 @@ packages:
     resolution: {integrity: sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==}
     engines: {node: 18 || 20 || >=22}
 
+  path-to-regexp@8.4.2:
+    resolution: {integrity: sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA==}
+
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
@@ -3936,6 +3987,9 @@ packages:
     resolution: {integrity: sha512-XdhtCvlMywwxpCW8YEq3lOXBJpUPTR2OHHcwLPO3HwsJqOHa2Ok/oJ7ruGzp+JrKoRPVCzJwAdEjqLW/vNRPHA==}
     engines: {node: '>=18'}
 
+  tcpip@0.3.6:
+    resolution: {integrity: sha512-u1TWEXA5H6QfweW4K6ltaobJR6lHKDZ2qHrHPiFz97gASvw6e/GiAh/S9z28kMpK94lszbVG1INX0fwgAndQBA==}
+
   thread-stream@3.1.0:
     resolution: {integrity: sha512-OqyPZ9u96VohAyMfJykzmivOrY2wfMSf3C5TtFJVgN+Hm6aj+voFhlK+kZEIv2FBh1X6Xp3DlnCOfEQ3B2J86A==}
 
@@ -4391,6 +4445,8 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
+  '@bjorn3/browser_wasi_shim@0.3.0': {}
+
   '@commander-js/extra-typings@15.0.0(commander@15.0.0)':
     dependencies:
       commander: 15.0.0
@@ -4466,6 +4522,14 @@ snapshots:
   '@fastify/merge-json-schemas@0.2.1':
     dependencies:
       dequal: 2.0.3
+
+  '@fastify/middie@9.3.5':
+    dependencies:
+      '@fastify/error': 4.2.0
+      fastify-plugin: 6.0.0
+      find-my-way: 9.7.0
+      path-to-regexp: 8.4.2
+      reusify: 1.1.0
 
   '@fastify/proxy-addr@5.1.0':
     dependencies:
@@ -4623,6 +4687,17 @@ snapshots:
       '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@nightnetwork/lunassh@1.0.0(react@19.1.0)':
+    optionalDependencies:
+      '@nightnetwork/moonbeam': 1.1.1
+      react: 19.1.0
+
+  '@nightnetwork/moonbeam@1.1.1':
+    dependencies:
+      tcpip: 0.3.6
+
+  '@nightnetwork/nova@1.1.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -5652,6 +5727,14 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.101.4
       react: 19.1.0
+
+  '@tcpip/dns@0.2.2':
+    dependencies:
+      '@tcpip/wire': 0.1.3
+
+  '@tcpip/wire@0.1.3': {}
+
+  '@tcpip/wire@0.1.4': {}
 
   '@tomphttp/bare-server-node@2.0.6(bufferutil@4.1.0)':
     dependencies:
@@ -7077,6 +7160,8 @@ snapshots:
       lru-cache: 11.5.2
       minipass: 7.1.3
 
+  path-to-regexp@8.4.2: {}
+
   pathe@2.0.3: {}
 
   pg-cloudflare@1.4.0:
@@ -7565,6 +7650,12 @@ snapshots:
       minipass: 7.1.3
       minizlib: 3.1.0
       yallist: 5.0.0
+
+  tcpip@0.3.6:
+    dependencies:
+      '@bjorn3/browser_wasi_shim': 0.3.0
+      '@tcpip/dns': 0.2.2
+      '@tcpip/wire': 0.1.4
 
   thread-stream@3.1.0:
     dependencies:
