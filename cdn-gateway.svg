@@ -5,6 +5,13 @@
   Renders the CDN build of the Unstable frontend inside this SVG document, so
   the site is displayed while the address bar keeps the CDN .svg URL.
 
+  Loading (CDN only): a black splash showing "welcome to Unstable CDN" in
+  Space Grotesk fades out after 3 seconds (0.5s fade) once the app has
+  mounted, exactly like the standalone splash animation.
+  Proxy: service workers and the backend cannot run from a CDN origin, so any
+  attempt to open a proxied page (/service/, /ham/, /nova/, /mb/) shows a
+  "Forbidden" screen instead of a broken frame.
+
   Setup
     1. pnpm build:cdn           (writes the frontend to ./cdn with absolute CDN URLs)
     2. commit and push ./cdn and this file
@@ -19,90 +26,141 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="100%"
      height="100%"
-     style="position:fixed;top:0;left:0;background:#0d0d0d;"
+     style="position:fixed;top:0;left:0;background:#000000;"
      role="img"
      aria-label="Unstable">
   <title>Unstable</title>
 
   <foreignObject x="0" y="0" width="100%" height="100%">
     <body xmlns="http://www.w3.org/1999/xhtml"
-          style="margin:0;height:100%;background:#0d0d0d;overflow:hidden;">
+          style="margin:0;height:100%;background:#000000;overflow:hidden;">
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet" />
 
       <style>
         html, body { height: 100%; }
         body {
-          font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-          color: #e8e8f2;
-          background: #0d0d0d;
+          font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          color: #ffffff;
+          background-color: #000000;
         }
         #host {
           position: fixed;
           inset: 0;
           overflow: hidden;
-          background: #0d0d0d;
+          background-color: #000000;
         }
-        #splash {
+
+        /* Splash screen overlay and core animation rule */
+        #splash-screen {
           position: fixed;
-          inset: 0;
-          z-index: 20;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: #000000;
+          color: #ffffff;
           display: flex;
           flex-direction: column;
-          align-items: center;
           justify-content: center;
+          align-items: center;
+          gap: 14px;
+          text-align: center;
+          padding: 24px;
+          box-sizing: border-box;
+          z-index: 9999;
+          transition: opacity 0.5s ease; /* This drives the smooth fade */
+        }
+        #splash-screen h1 {
+          font-size: 2.5rem;
+          font-weight: 700;
+          text-align: center;
+          letter-spacing: -0.05em;
+          margin: 0;
+        }
+        #splash-screen.fade { opacity: 0; }
+        #splash-note {
+          font-size: 0.8rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.55);
+          max-width: 34em;
+          margin: 0;
+        }
+        #splash-note[hidden] { display: none; }
+        #manual {
+          font-size: 0.75rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.75);
+          text-decoration: underline;
+        }
+        #manual[hidden] { display: none; }
+
+        /* Forbidden screen shown when the proxy is used from the CDN build */
+        #forbidden {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: #000000;
+          color: #ffffff;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
           gap: 16px;
           text-align: center;
           padding: 24px;
           box-sizing: border-box;
-          background: #0d0d0d;
+          z-index: 9999999;
         }
-        #splash[hidden] { display: none; }
-        #mark {
-          font-size: 30px;
+        #forbidden[hidden] { display: none; }
+        #forbidden h1 {
+          font-size: 2.5rem;
           font-weight: 700;
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-          color: #b9a8ff;
+          letter-spacing: -0.05em;
           margin: 0;
         }
-        #ring {
-          width: 42px;
-          height: 42px;
-          border-radius: 50%;
-          border: 3px solid rgba(255, 255, 255, 0.14);
-          border-top-color: #8b5cf6;
-          animation: spin 0.9s linear infinite;
-        }
-        #ring[hidden] { display: none; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #status {
-          font-size: 13px;
-          color: #a6a6c0;
-          max-width: 36em;
-          min-height: 1.2em;
+        #forbidden p {
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.55);
+          max-width: 34em;
           margin: 0;
+          line-height: 1.5;
         }
-        #manual {
-          display: inline-block;
-          padding: 9px 22px;
-          border-radius: 999px;
-          background: #6d28d9;
+        #forbidden-back {
+          margin-top: 4px;
+          padding: 0.6rem 1.6rem;
+          font-family: inherit;
+          font-size: 0.75rem;
+          font-weight: 500;
+          letter-spacing: 0.05em;
           color: #ffffff;
-          font-size: 13px;
-          font-weight: 600;
-          text-decoration: none;
+          background: none;
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          border-radius: 2px;
+          cursor: pointer;
         }
-        #manual:hover { background: #7c3aed; }
-        #manual[hidden] { display: none; }
+        #forbidden-back:hover { background: rgba(255, 255, 255, 0.08); }
       </style>
 
       <div id="host"></div>
 
-      <div id="splash">
-        <h1 id="mark">Unstable</h1>
-        <div id="ring"></div>
-        <p id="status">Loading frontend…</p>
-        <a id="manual" href="#" hidden="hidden">Open directly</a>
+      <!-- Splash screen layout (CDN loading animation) -->
+      <div id="splash-screen">
+        <h1>welcome to Unstable CDN</h1>
+        <p id="splash-note" hidden="hidden"></p>
+        <a id="manual" href="#" hidden="hidden">open the build directly</a>
+      </div>
+
+      <!-- Shown when someone tries to browse through the proxy -->
+      <div id="forbidden" hidden="hidden">
+        <h1>Forbidden</h1>
+        <p>The proxy cannot run from the CDN build — service workers and the API are unavailable here.</p>
+        <button id="forbidden-back" type="button">go back</button>
       </div>
 
       <script type="text/javascript"><![CDATA[
@@ -117,25 +175,98 @@
         // When set, /api/* requests made by the rendered page go there;
         // when empty, they are left pointing at the CDN host (and will 404).
         var API_ORIGIN = "";
+
+        // Splash timeline: fade out at 3s, 0.5s fade (matches the standalone
+        // animation). The splash is only dismissed once the app has mounted.
+        var SPLASH_MS = 3000;
+        var FADE_MS = 500;
         // =================================================================
 
         var XHTML = "http://www.w3.org/1999/xhtml";
-        var splash = document.getElementById("splash");
-        var statusEl = document.getElementById("status");
+        var splash = document.getElementById("splash-screen");
+        var note = document.getElementById("splash-note");
         var manual = document.getElementById("manual");
         var host = document.getElementById("host");
-        var ring = document.getElementById("ring");
-
-        function say(text) { statusEl.textContent = text; }
+        var forbidden = document.getElementById("forbidden");
+        var forbiddenBack = document.getElementById("forbidden-back");
 
         var ASSET_BASE = PAGE.replace(/[^/]*$/, "");
+        var splashStart = Date.now();
+        var splashGone = false;
 
         manual.setAttribute("href", PAGE);
 
+        // Load-failure message inside the splash (splash stays up so it is seen).
+        function say(text) {
+          note.textContent = text;
+          note.removeAttribute("hidden");
+        }
+
         function fail(message) {
           say(message);
-          ring.setAttribute("hidden", "hidden");
           manual.removeAttribute("hidden");
+        }
+
+        // The animation timeline: opacity -> 0, then remove after the fade.
+        function hideSplash() {
+          if (splashGone || !document.body.contains(splash)) return;
+          splashGone = true;
+          splash.setAttribute("class", "fade");
+          window.setTimeout(function () { if (splash.parentNode) splash.parentNode.removeChild(splash); }, FADE_MS);
+        }
+
+        function maybeHideSplash() {
+          var elapsed = Date.now() - splashStart;
+          if (elapsed >= SPLASH_MS) hideSplash();
+          else window.setTimeout(hideSplash, SPLASH_MS - elapsed);
+        }
+
+        // ── Forbidden screen ─────────────────────────────────────────────
+        // The proxy lives behind these root-absolute paths; from a CDN origin
+        // they cannot work, so requests to them surface a Forbidden screen.
+        var PROXY_PREFIXES = ["/service/", "/ham/", "/nova/", "/mb/"];
+
+        function pathOf(url) {
+          if (typeof url !== "string" || url === "") return "";
+          if (url.slice(0, 2) === "//") return "";
+          if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+            // Absolute URL: only same-document style proxy paths matter, so
+            // compare against the CDN build directory it would resolve to.
+            try {
+              var resolved = new URL(url, ASSET_BASE).pathname;
+              return resolved.indexOf(ASSET_BASE) === 0 ? resolved.slice(ASSET_BASE.length - 1) : "";
+            } catch (e) { return ""; }
+          }
+          return url;
+        }
+
+        function isProxyRequest(url) {
+          var path = pathOf(url);
+          if (!path) return false;
+          if (path === "/return") return true;
+          for (var i = 0; i < PROXY_PREFIXES.length; i++) {
+            if (path.indexOf(PROXY_PREFIXES[i]) === 0) return true;
+          }
+          return false;
+        }
+
+        function showForbidden() {
+          forbidden.removeAttribute("hidden");
+        }
+
+        forbiddenBack.addEventListener("click", function () {
+          forbidden.setAttribute("hidden", "hidden");
+        });
+
+        // Rewrite a URL used by an element (src/href/…). Proxy targets are
+        // replaced with a Forbidden screen instead of a broken request.
+        function fixElementUrl(value) {
+          var v = String(value);
+          if (isProxyRequest(v)) {
+            showForbidden();
+            return "about:blank";
+          }
+          return fixUrl(v);
         }
 
         // Root-absolute URLs written by the app at runtime ("/sw.js",
@@ -210,11 +341,25 @@
             return xhrOpen.apply(this, [method, fixUrl(url)].concat(rest));
           };
 
+          // Worker constructors also take URLs. Root-absolute paths passed to
+          // them ("/baremux/worker.js" from BareMuxConnection) resolve against
+          // the <base> origin instead of the build directory, which lands on
+          // the CDN host root and is cross-origin — rewrite those too.
+          ["SharedWorker", "Worker"].forEach(function (name) {
+            var Native = window[name];
+            if (typeof Native !== "function") return;
+            var Wrapped = function (scriptURL, options) {
+              return new Native(fixElementUrl(String(scriptURL)), options);
+            };
+            Wrapped.prototype = Native.prototype;
+            window[name] = Wrapped;
+          });
+
           var setAttribute = Element.prototype.setAttribute;
           Element.prototype.setAttribute = function (name, value) {
             var lower = typeof name === "string" ? name.toLowerCase() : "";
             if (lower === "src" || lower === "href" || lower === "action" || lower === "poster" || lower === "data") {
-              value = fixUrl(String(value));
+              value = fixElementUrl(String(value));
             } else if (lower === "srcset") {
               value = fixSrcset(String(value));
             }
@@ -229,7 +374,7 @@
               configurable: true,
               enumerable: desc.enumerable,
               get: desc.get,
-              set: function (value) { desc.set.call(this, fixUrl(String(value))); },
+              set: function (value) { desc.set.call(this, fixElementUrl(String(value))); },
             });
           }
 
@@ -237,7 +382,12 @@
             window.HTMLScriptElement, window.HTMLIFrameElement, window.HTMLImageElement,
             window.HTMLSourceElement, window.HTMLMediaElement, window.HTMLLinkElement,
             window.HTMLFormElement, window.HTMLAnchorElement,
-          ].forEach(function (proto) { patchProperty(proto, "src"); patchProperty(proto, "href"); });
+          ].forEach(function (ctor) {
+            var proto = ctor && ctor.prototype;
+            if (!proto) return;
+            patchProperty(proto, "src");
+            patchProperty(proto, "href");
+          });
         }
 
         function scriptSpec(el) {
@@ -257,8 +407,6 @@
 
         function boot() {
           patchRuntime();
-
-          say("Loading frontend…");
 
           fetch(PAGE, { cache: "no-store" })
             .then(function (res) {
@@ -288,13 +436,13 @@
 
               pending.forEach(runScript);
 
-              // Reveal the app as soon as React mounts; keep the guidance
-              // screen (spinner) until then so a failure is never a blank page.
+              // Fade the splash out once React mounts (honouring the 3s
+              // timeline); never reveal an empty page if the app stalls.
               var startedAt = Date.now();
               (function poll() {
                 var root = document.getElementById("root");
                 if (root && root.hasChildNodes()) {
-                  splash.setAttribute("hidden", "hidden");
+                  maybeHideSplash();
                   return;
                 }
                 if (Date.now() - startedAt > 15000) {

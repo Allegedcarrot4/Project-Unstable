@@ -1,1 +1,0 @@
-import{r as e,y as t}from"./GamesPage-C59Po1vG.js";export{e as createCollection,t as removeGameFromCollection};
