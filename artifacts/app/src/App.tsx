@@ -773,7 +773,7 @@ interface ProxyState {
   message: string;
   uv: EngineStatus;
   scramjet: EngineStatus;
-  transport: "none" | "libcurl" | "bare" | "epoxy" | "drift";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative, drift = rust wasm wisp (Nova-based)
+  transport: "none" | "libcurl" | "bare" | "epoxy" | "drift" | "cdn";  // libcurl = wisp (primary), bare = fallback, epoxy = alternative, drift = rust wasm wisp (Nova-based), cdn = rendered by cdn-gateway.svg (no backend possible)
   bare: number;
   switching: boolean;
 }
@@ -895,6 +895,16 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     emitStatus({ scramjet: "ready" });
   } catch (err) {
     emitStatus({ scramjet: "error" });
+  }
+
+  // cdn-gateway.svg renders this build behind a file CDN: there is no backend
+  // or Wisp endpoint on that origin, so every transport attempt here would
+  // fail ("Failed to fetch dynamically imported module: …/api/baremod/…")
+  // and push the app into its error screen. Skip transport setup entirely —
+  // the gateway shows a "Forbidden" screen when the proxy is actually used.
+  if ((window as unknown as { __cdnGatewayPath?: string }).__cdnGatewayPath) {
+    emitStatus({ phase: "ready", transport: "cdn", bare: bareNum });
+    return;
   }
 
   // Initialize Wisp transport (replaces drift with Nova-based transport)
@@ -1209,7 +1219,7 @@ function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, tran
   const phaseLabel = s.phase === "idle" ? "Initializing…"
     : s.phase === "loading" ? "Starting proxy…"
       : s.switching ? `Switching ws${s.bare}…`
-        : s.phase === "ready" ? (s.transport === "libcurl" ? "Libcurl + Wisp" : s.transport === "drift" ? "Drift (Rust WASM)" : `Bare ws${s.bare}`)
+        : s.phase === "ready" ? (s.transport === "cdn" ? "CDN (no proxy)" : s.transport === "libcurl" ? "Libcurl + Wisp" : s.transport === "drift" ? "Drift (Rust WASM)" : `Bare ws${s.bare}`)
           : s.phase === "error" ? `Error: ${s.message?.slice(0, 60)}`
             : "…";
   const phaseColor = s.phase === "ready" ? green : s.phase === "error" ? red : amber;
@@ -1259,7 +1269,7 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
   const phaseLabel = s.phase === "idle" ? "initializing…"
     : s.phase === "loading" ? "starting proxy…"
       : s.switching ? `switching ws${s.bare}…`
-        : isReady ? (s.transport === "libcurl" ? "libcurl+wisp" : s.transport === "drift" ? "drift" : `bare ws${s.bare}`)
+        : isReady ? (s.transport === "cdn" ? "cdn (no proxy)" : s.transport === "libcurl" ? "libcurl+wisp" : s.transport === "drift" ? "drift" : `bare ws${s.bare}`)
           : isError ? `err: ${s.message.slice(0, 40)}`
             : "…";
   const phaseColor = isReady ? green : isError ? red : amber;
@@ -4784,6 +4794,10 @@ function BrowserApp({
   // Watch proxy phase for errors -> show our error screen
   useEffect(() => {
     if (proxyStatus.phase === "error") {
+      // cdn-gateway.svg: transport failures are expected behind a file CDN
+      // (no backend). The gateway answers proxy use with its own Forbidden
+      // screen instead of this error screen.
+      if ((window as unknown as { __cdnGatewayPath?: string }).__cdnGatewayPath) return;
       void setError(new Error(proxyStatus.message || "Proxy connection failed"), {
         url: "/proxy",
         transport: settings.transportMode,

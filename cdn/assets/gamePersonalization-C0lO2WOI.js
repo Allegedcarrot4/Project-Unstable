@@ -1,1 +1,0 @@
-import{r as e,y as t}from"./GamesPage-ClOuFrIV.js";export{e as createCollection,t as removeGameFromCollection};
