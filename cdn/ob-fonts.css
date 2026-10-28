@@ -1,0 +1,15 @@
+/* Font obfuscation: applied when setting is enabled */
+
+.unstable-font-obfuscated body,
+.unstable-font-obfuscated body * {
+  font-family: "UnstableObf", "Space Grotesk", sans-serif !important;
+}
+
+.unstable-font-obfuscated code,
+.unstable-font-obfuscated pre,
+.unstable-font-obfuscated script,
+.unstable-font-obfuscated style,
+.unstable-font-obfuscated [data-lucide],
+.unstable-font-obfuscated .lucide {
+  font-family: "Space Grotesk", ui-monospace, monospace !important;
+}

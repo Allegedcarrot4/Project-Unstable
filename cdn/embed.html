@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loading…</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #0d0d0d; color: #e8e8e8; font-family: 'Space Grotesk', system-ui, sans-serif; }
+      .wrap { display: flex; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 0.75rem; }
+      .spin { width: 28px; height: 28px; border: 2px solid #222; border-top-color: #e8e8e8; border-radius: 50%; animation: s 0.9s linear infinite; }
+      @keyframes s { to { transform: rotate(360deg); } }
+      p { font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.35); margin: 0; }
+    </style>
+    <script src="/uv.bundle.js"></script>
+    <script src="/uv.config.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="spin"></div>
+      <p>Loading…</p>
+    </div>
+    <script>
+      (function () {
+        var hash = (location.hash || "").replace(/^#/, "").trim();
+        var target = "";
+        try {
+          if (hash) target = new URL(hash, location.origin).toString();
+        } catch (e) {
+          document.body.innerHTML = "<div class='wrap'><p>Invalid URL in #hash</p></div>";
+          return;
+        }
+        if (!target) {
+          document.body.innerHTML = "<div class='wrap'><p>No URL in #hash</p></div>";
+          return;
+        }
+
+        function go() {
+          try {
+            var cfg = self.__uv$config;
+            if (!cfg || !cfg.prefix) throw new Error("uv config missing");
+            var encoded = cfg.encodeUrl(target);
+            window.top.location.replace(cfg.prefix + encoded);
+          } catch (e) {
+            document.body.innerHTML = "<div class='wrap'><p>" + (e && e.message ? e.message : "Embed error") + "</p></div>";
+          }
+        }
+
+        if (!("serviceWorker" in navigator)) { go(); return; }
+
+        navigator.serviceWorker.getRegistration("/")
+          .then(function (reg) {
+            if (reg && reg.active) { go(); return; }
+            return navigator.serviceWorker.register("/sw.js", { scope: "/" })
+              .then(function (r) {
+                if (r.active) { go(); return; }
+                var sw = r.installing || r.waiting;
+                if (!sw) { go(); return; }
+                sw.addEventListener("statechange", function () {
+                  if (sw.state === "activated") go();
+                });
+              });
+          })
+          .catch(function () { go(); });
+
+        setTimeout(go, 2000);
+      })();
+    </script>
+  </body>
+</html>

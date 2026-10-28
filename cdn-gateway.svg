@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Unstable CDN gateway
+  ====================
+  Renders the CDN build of the Unstable frontend inside this SVG document, so
+  the site is displayed while the address bar keeps the CDN .svg URL.
+
+  Setup
+    1. pnpm build:cdn           (writes the frontend to ./cdn with absolute CDN URLs)
+    2. commit and push ./cdn and this file
+    3. open  https://cdn.jsdelivr.net/gh/Allegedcarrot4/Project-Unstable@main/cdn-gateway.svg
+
+  Optional CONFIG below:
+    PAGE       - the built index.html the gateway renders (must be fetchable
+                 with CORS; file CDNs such as jsDelivr send Access-Control-Allow-Origin: *)
+    API_ORIGIN - your real backend origin; when set, /api/* requests from the
+                 rendered page are sent there instead of the CDN host
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="100%"
+     height="100%"
+     style="position:fixed;top:0;left:0;background:#0d0d0d;"
+     role="img"
+     aria-label="Unstable">
+  <title>Unstable</title>
+
+  <foreignObject x="0" y="0" width="100%" height="100%">
+    <body xmlns="http://www.w3.org/1999/xhtml"
+          style="margin:0;height:100%;background:#0d0d0d;overflow:hidden;">
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+      <style>
+        html, body { height: 100%; }
+        body {
+          font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          color: #e8e8f2;
+          background: #0d0d0d;
+        }
+        #host {
+          position: fixed;
+          inset: 0;
+          overflow: hidden;
+          background: #0d0d0d;
+        }
+        #splash {
+          position: fixed;
+          inset: 0;
+          z-index: 20;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          text-align: center;
+          padding: 24px;
+          box-sizing: border-box;
+          background: #0d0d0d;
+        }
+        #splash[hidden] { display: none; }
+        #mark {
+          font-size: 30px;
+          font-weight: 700;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: #b9a8ff;
+          margin: 0;
+        }
+        #ring {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          border: 3px solid rgba(255, 255, 255, 0.14);
+          border-top-color: #8b5cf6;
+          animation: spin 0.9s linear infinite;
+        }
+        #ring[hidden] { display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #status {
+          font-size: 13px;
+          color: #a6a6c0;
+          max-width: 36em;
+          min-height: 1.2em;
+          margin: 0;
+        }
+        #manual {
+          display: inline-block;
+          padding: 9px 22px;
+          border-radius: 999px;
+          background: #6d28d9;
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 600;
+          text-decoration: none;
+        }
+        #manual:hover { background: #7c3aed; }
+        #manual[hidden] { display: none; }
+      </style>
+
+      <div id="host"></div>
+
+      <div id="splash">
+        <h1 id="mark">Unstable</h1>
+        <div id="ring"></div>
+        <p id="status">Loading frontend…</p>
+        <a id="manual" href="#" hidden="hidden">Open directly</a>
+      </div>
+
+      <script type="text/javascript"><![CDATA[
+      (function () {
+        "use strict";
+
+        // ============================ CONFIG ============================
+        // Built index.html the gateway renders (run `pnpm build:cdn` to produce ./cdn).
+        var PAGE = "https://cdn.jsdelivr.net/gh/Allegedcarrot4/Project-Unstable@main/cdn/index.html";
+
+        // Optional real backend origin, e.g. "https://unstable-api.example.com".
+        // When set, /api/* requests made by the rendered page go there;
+        // when empty, they are left pointing at the CDN host (and will 404).
+        var API_ORIGIN = "";
+        // =================================================================
+
+        var XHTML = "http://www.w3.org/1999/xhtml";
+        var splash = document.getElementById("splash");
+        var statusEl = document.getElementById("status");
+        var manual = document.getElementById("manual");
+        var host = document.getElementById("host");
+        var ring = document.getElementById("ring");
+
+        function say(text) { statusEl.textContent = text; }
+
+        var ASSET_BASE = PAGE.replace(/[^/]*$/, "");
+
+        manual.setAttribute("href", PAGE);
+
+        function fail(message) {
+          say(message);
+          ring.setAttribute("hidden", "hidden");
+          manual.removeAttribute("hidden");
+        }
+
+        // Root-absolute URLs written by the app at runtime ("/sw.js",
+        // "/eggs/...", "/mue/index.html", "/api/...") would otherwise resolve
+        // against the CDN host root. Rewrite them to the build directory.
+        function fixUrl(url) {
+          if (typeof url !== "string" || url === "") return url;
+          if (url.slice(0, 2) === "//") return url;
+          if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+          if (url.charAt(0) !== "/") return url;
+          if (url.slice(0, 5) === "/api/" && API_ORIGIN) {
+            return API_ORIGIN.replace(/\/+$/, "") + url;
+          }
+          return ASSET_BASE + url.slice(1);
+        }
+
+        function fixSrcset(value) {
+          if (value.indexOf("data:") !== -1) return value;
+          return value.split(",").map(function (candidate) {
+            var parts = candidate.trim().split(/\s+/);
+            if (parts[0]) parts[0] = fixUrl(parts[0]);
+            return parts.join(" ");
+          }).join(", ");
+        }
+
+        function patchRuntime() {
+          // This is an XML document, so document.createElement() would produce
+          // null-namespace elements: they do not render like HTML and scripts
+          // never execute. Everything the app creates goes through the XHTML
+          // namespace instead, exactly as it would in a normal HTML document.
+          Document.prototype.createElement = function (name) {
+            return this.createElementNS(XHTML, String(name).toLowerCase());
+          };
+
+          // Relative URLs resolve against the build directory.
+          var base = document.createElementNS(XHTML, "base");
+          base.setAttribute("href", ASSET_BASE);
+          document.documentElement.appendChild(base);
+
+          // An SVG document has no head/body children, but app code expects them.
+          var head = document.createElementNS(XHTML, "head");
+          document.documentElement.insertBefore(head, document.documentElement.firstChild);
+          if (!document.head) {
+            Object.defineProperty(document, "head", { value: head, configurable: true });
+          }
+          if (!document.body) {
+            Object.defineProperty(document, "body", { value: document.getElementsByTagName("body")[0], configurable: true });
+          }
+
+          // The address bar shows this document's URL (…/cdn-gateway.svg), but
+          // the app gates its home screen on pathname === "/". Tell it to
+          // render as if it were served from the root.
+          try { window.__cdnGatewayPath = "/"; } catch (err) { /* non-writable window */ }
+
+          var nativeFetch = window.fetch;
+          if (nativeFetch) {
+            window.fetch = function (input, init) {
+              try {
+                if (typeof input === "string") input = fixUrl(input);
+                else if (input && typeof input.url === "string") {
+                  var fixed = fixUrl(input.url);
+                  if (fixed !== input.url) input = new Request(fixed, input);
+                }
+              } catch (err) { /* keep the original input */ }
+              return nativeFetch.call(this, input, init);
+            };
+          }
+
+          var xhrOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function (method, url) {
+            var rest = Array.prototype.slice.call(arguments, 2);
+            return xhrOpen.apply(this, [method, fixUrl(url)].concat(rest));
+          };
+
+          var setAttribute = Element.prototype.setAttribute;
+          Element.prototype.setAttribute = function (name, value) {
+            var lower = typeof name === "string" ? name.toLowerCase() : "";
+            if (lower === "src" || lower === "href" || lower === "action" || lower === "poster" || lower === "data") {
+              value = fixUrl(String(value));
+            } else if (lower === "srcset") {
+              value = fixSrcset(String(value));
+            }
+            return setAttribute.call(this, name, value);
+          };
+
+          function patchProperty(proto, prop) {
+            if (!proto) return;
+            var desc = Object.getOwnPropertyDescriptor(proto, prop);
+            if (!desc || !desc.set) return;
+            Object.defineProperty(proto, prop, {
+              configurable: true,
+              enumerable: desc.enumerable,
+              get: desc.get,
+              set: function (value) { desc.set.call(this, fixUrl(String(value))); },
+            });
+          }
+
+          [
+            window.HTMLScriptElement, window.HTMLIFrameElement, window.HTMLImageElement,
+            window.HTMLSourceElement, window.HTMLMediaElement, window.HTMLLinkElement,
+            window.HTMLFormElement, window.HTMLAnchorElement,
+          ].forEach(function (proto) { patchProperty(proto, "src"); patchProperty(proto, "href"); });
+        }
+
+        function scriptSpec(el) {
+          var attrs = [];
+          for (var i = 0; i < el.attributes.length; i++) {
+            attrs.push([el.attributes[i].name, el.attributes[i].value]);
+          }
+          return { attrs: attrs, text: el.textContent };
+        }
+
+        function runScript(spec) {
+          var s = document.createElementNS(XHTML, "script");
+          for (var i = 0; i < spec.attrs.length; i++) s.setAttribute(spec.attrs[i][0], spec.attrs[i][1]);
+          if (spec.text) s.textContent = spec.text;
+          (document.head || document.documentElement).appendChild(s);
+        }
+
+        function boot() {
+          patchRuntime();
+
+          say("Loading frontend…");
+
+          fetch(PAGE, { cache: "no-store" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.text();
+            })
+            .then(function (html) {
+              var doc = new DOMParser().parseFromString(html, "text/html");
+              if (!doc.body) throw new Error("unparsable index.html");
+
+              var title = doc.head && doc.head.querySelector("title");
+              if (title && title.textContent) document.title = title.textContent;
+
+              var pending = [];
+              var i;
+
+              for (i = 0; i < doc.head.children.length; i++) {
+                var headEl = doc.head.children[i];
+                if (headEl.tagName === "SCRIPT") pending.push(scriptSpec(headEl));
+                else host.appendChild(document.importNode(headEl, true));
+              }
+              for (i = 0; i < doc.body.childNodes.length; i++) {
+                var bodyEl = doc.body.childNodes[i];
+                if (bodyEl.nodeName === "SCRIPT") pending.push(scriptSpec(bodyEl));
+                else host.appendChild(document.importNode(bodyEl, true));
+              }
+
+              pending.forEach(runScript);
+
+              // Reveal the app as soon as React mounts; keep the guidance
+              // screen (spinner) until then so a failure is never a blank page.
+              var startedAt = Date.now();
+              (function poll() {
+                var root = document.getElementById("root");
+                if (root && root.hasChildNodes()) {
+                  splash.setAttribute("hidden", "hidden");
+                  return;
+                }
+                if (Date.now() - startedAt > 15000) {
+                  fail("The frontend loaded but did not render. Open the build directly instead.");
+                  return;
+                }
+                window.setTimeout(poll, 150);
+              })();
+            })
+            .catch(function (err) {
+              fail("Could not load the build from PAGE (" + err.message + "). Run pnpm build:cdn, push ./cdn, then reload.");
+            });
+        }
+
+        boot();
+      })();
+      ]]></script>
+    </body>
+  </foreignObject>
+</svg>

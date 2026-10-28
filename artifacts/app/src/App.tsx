@@ -4536,7 +4536,11 @@ function BrowserApp({
   authContext: AppAuthContext;
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
 }) {
-  const pathname = window.location.pathname;
+  // cdn-gateway.svg renders this build inside an SVG document whose real URL
+  // is "*.svg", not "/". The gateway injects __cdnGatewayPath = "/" so the app
+  // renders the home UI instead of the 404 page while the address bar keeps
+  // the CDN .svg URL. Normal deployments fall back to the real pathname.
+  const pathname = (window as unknown as { __cdnGatewayPath?: string }).__cdnGatewayPath || window.location.pathname;
   const isProxyPath = pathname.startsWith("/ham/") || pathname.startsWith("/service/") || pathname.startsWith("/baremux/") || pathname.startsWith("/api/") || pathname.startsWith("/return");
   if (pathname !== "/" && !isProxyPath) {
     return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><NotFound /></Suspense>;

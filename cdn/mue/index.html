@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/mue/assets/32x32-XYtjkDPE.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/mue/assets/16x16-pOqqsgQB.png" />
+    <title>New Tab</title>
+    <script>if (typeof chrome === 'undefined' || !chrome.search) { window.chrome = window.chrome || {}; chrome.search = { query: () => {} }; }</script>
+    <script>
+document.documentElement.classList.add('dark');
+localStorage.setItem('theme', 'dark');
+localStorage.setItem('quote', 'false');
+localStorage.setItem('quicklinksenabled', 'true');
+localStorage.setItem('seconds', 'true');
+localStorage.setItem('backgroundType', 'api');
+localStorage.setItem('backgroundAPI', 'unsplash');
+localStorage.setItem('background', 'true');
+if (!localStorage.getItem('quicklinks')) {
+  localStorage.setItem('quicklinks', JSON.stringify([
+    { name: 'Google',     url: 'https://www.google.com' },
+    { name: 'Discord',    url: 'https://discord.com' },
+    { name: 'YouTube',    url: 'https://www.youtube.com' },
+    { name: 'GitHub',     url: 'https://github.com' },
+    { name: 'Spotify',    url: 'https://open.spotify.com' },
+    { name: 'Twitch',     url: 'https://www.twitch.tv' },
+  ]));
+}
+    </script>
+    <script>
+(function(){
+  var params = new URLSearchParams(location.search);
+  var searchUrl = params.get('searchUrl') || 'https://www.google.com/search?q=';
+  var _href = location.href;
+  setInterval(function() {
+    if (location.href !== _href) {
+      var oldUrl = _href.replace(/#.*$/, '');
+      var newUrl = location.href.replace(/#.*$/, '');
+      _href = location.href;
+      if (oldUrl === newUrl) return;
+      var page = location.href;
+      try { if (new URL(page).origin === location.origin) return; } catch(e) {}
+      window.parent.postMessage({ type: 'unstable-navigate', action: 'navigate', page: page }, '*');
+    }
+  }, 200);
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'set-search-engine' && e.data.searchUrl) {
+      searchUrl = e.data.searchUrl;
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      var input = e.target.closest('input');
+      if (input && input.closest('.searchBar, .searchMain, .searchComponents')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var q = input.value.trim();
+        if (q) window.parent.postMessage({ type: 'unstable-navigate', action: 'navigate', page: searchUrl + encodeURIComponent(q) }, '*');
+      }
+    }
+  }, true);
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a');
+    if (a && a.href && /^https?:\/\//.test(a.href) && !a.href.startsWith(location.origin)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.parent.postMessage({ type: 'unstable-navigate', action: 'navigate', page: a.href }, '*');
+    }
+  }, true);
+})();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
+    <style>body, #root, * { font-family: 'Space Grotesk', sans-serif !important; }</style>
+    <script type="module" crossorigin src="/mue/assets/index-9_Z40fsu.js"></script>
+    <link rel="stylesheet" crossorigin href="/mue/assets/index-M7lSe13T.css">
+  </head>
+
+  <body>
+    <noscript>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Lexend+Deca:wght@400&display=swap');
+
+        * {
+          font-family: 'Lexend Deca', sans-serif;
+          overflow: hidden;
+        }
+
+        .criticalError {
+          display: grid;
+          place-items: center;
+          width: 100vw;
+          height: 100vh;
+        }
+
+        .criticalError .criticalError-actions {
+          display: flex;
+          flex-flow: row;
+          gap: 20px;
+        }
+
+        .criticalError a {
+          border: 0;
+          border-radius: 12px;
+          padding: 10px 30px 10px 30px;
+          font-size: 1rem;
+          display: flex;
+          align-items: center;
+          flex-flow: row;
+          justify-content: center;
+          gap: 20px;
+          transition: 0.5s;
+          cursor: pointer;
+          text-decoration: none;
+        }
+
+        @media (prefers-color-scheme: dark) {
+          * {
+            background-color: #000000;
+          }
+
+          .criticalError .criticalError-message {
+            color: #fff;
+          }
+
+          .criticalError p {
+            color: rgba(255, 255, 255, 0.7529411765);
+          }
+
+          .criticalError a {
+            background: #0e1013;
+            box-shadow: 0 0 0 1px #484848;
+            color: #fff;
+          }
+
+          .criticalError a:hover {
+            background: #1e1e1e;
+          }
+        }
+
+        @media (prefers-color-scheme: light) {
+          body {
+            background-color: #fff;
+          }
+
+          .criticalError .criticalError-message {
+            color: #000;
+          }
+
+          .criticalError p {
+            color: rgba(0, 0, 0, 0.7529411765);
+          }
+
+          .criticalError a {
+            background: #fdfdfd;
+            box-shadow: 0 0 0 1px #484848;
+            color: #000;
+          }
+
+          .criticalError a:hover {
+            background: #f5f5f5;
+          }
+        }
+      </style>
+      <div class="criticalError">
+        <div class="criticalError-message">
+          <h1>JavaScript is required</h1>
+          <p>The new tab could not be loaded. Please enable JavaScript and refresh the page.</p>
+          <div class="criticalError-actions">
+            <a href="https://github.com/mue/mue/issues/new/choose" target="_blank" rel="noreferrer"
+              >Report Issue</a
+            >
+            <a href="https://discord.gg/zv8C9F8" target="_blank" rel="noreferrer"
+              >Support Discord</a
+            >
+          </div>
+        </div>
+      </div>
+    </noscript>
+    <div id="root"></div>
+  </body>
+</html>

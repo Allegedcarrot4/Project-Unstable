@@ -10,6 +10,7 @@
     "build:app:stormkit": "pnpm --filter @workspace/app run build",
     "build:api-server": "pnpm --filter @workspace/api-server run build",
     "build:frontend": "pnpm run build:app",
+    "build:cdn": "node scripts/build-cdn.mjs",
     "build:backend": "pnpm run build:api-server",
     "build:all": "pnpm run build:frontend && pnpm run build:backend",
     "start:backend": "node ./artifacts/api-server/dist/index.mjs",
