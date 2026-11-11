@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
@@ -36,6 +36,7 @@ import {
 import type { ScramjetCtrl } from "./lib/proxy";
 import { createWispTransport, getLibCurlInstance } from "./lib/wisp-transport";
 import { createRelay, attachClient, getRelayStats, closeRelay } from "./lib/wisp-relay";
+import { detectSecurly } from "./lib/securly";
 
 
 declare global {
@@ -5573,8 +5574,8 @@ function BrowserApp({
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.55rem", background: activeTab?.incognito ? "#14121a" : "var(--t-bg)", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             {activeTab?.incognito && <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0 0.4rem 0 0", borderRight: "1px solid #2a2a2a", marginRight: "0.15rem" }}><EyeOff size={11} style={{ opacity: 0.5 }} /><span style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>incognito</span></div>}
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back">←</motion.button>
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward">→</motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleBack} disabled={!canBack} style={canBack ? btn : btnOff} {...hov(canBack)} data-tooltip="Back" aria-label="Back"><ArrowLeft size={16} /></motion.button>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleForward} disabled={!canForward} style={canForward ? btn : btnOff} {...hov(canForward)} data-tooltip="Forward" aria-label="Forward"><ArrowRight size={16} /></motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleReload} style={btn} {...hov(true)} data-tooltip="Reload" aria-label="Reload">↺</motion.button>
             {settings.adblockEnabled && adblockCount > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", padding: "0 0.2rem", color: "rgba(255,255,255,0.3)", fontSize: "0.55rem", flexShrink: 0 }}>
@@ -5922,6 +5923,30 @@ export default function App() {
   const [authContext, setAuthContext] = useState<AppAuthContext>({ isBanned: false, banReason: null });
   const [accountError, setAccountError] = useState("");
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [filterNotice, setFilterNotice] = useState(false);
+
+  // Securly detection: probe the extension's web-accessible assets at boot
+  // and surface a one-time notice when it is installed.
+  useEffect(() => {
+    let cancelled = false;
+    let seen = false;
+    try { seen = localStorage.getItem("unstable_filter_notice_seen") === "1"; } catch { /* storage unavailable */ }
+    if (seen) return;
+    void detectSecurly().then((detected) => {
+      if (!cancelled && detected) setFilterNotice(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Auto-hide the notice; it is marked seen either way so it never repeats.
+  useEffect(() => {
+    if (!filterNotice) return;
+    const timer = setTimeout(() => {
+      setFilterNotice(false);
+      try { localStorage.setItem("unstable_filter_notice_seen", "1"); } catch { /* ignore */ }
+    }, 14000);
+    return () => clearTimeout(timer);
+  }, [filterNotice]);
 
   useEffect(() => {
     if (accountError && !errorDismissed) {
@@ -6066,6 +6091,26 @@ export default function App() {
             <button
               onClick={() => { setAccountError(""); setErrorDismissed(true); }}
               style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "rgba(235,120,120,0.5)", cursor: "pointer", padding: 0, fontSize: "0.9rem", lineHeight: 1, fontFamily: "inherit" }}
+              aria-label="Dismiss"
+            >&#x2715;</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {filterNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            role="status"
+            style={{ position: "fixed", bottom: 20, right: 20, background: "rgba(17,17,17,0.96)", border: "1px solid #2a2a2a", borderRadius: "6px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.02em", maxWidth: 340, padding: "0.7rem 2.2rem 0.7rem 1rem", color: "rgba(255,255,255,0.85)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", zIndex: 99999, lineHeight: 1.5 }}
+          >
+            <div style={{ fontWeight: 700, color: "#fff", marginBottom: 2, letterSpacing: "0.04em" }}>Content filter detected</div>
+            <div style={{ color: "rgba(255,255,255,0.55)" }}>Securly is installed in this browser — your school may be monitoring this device.</div>
+            <button
+              onClick={() => { setFilterNotice(false); try { localStorage.setItem("unstable_filter_notice_seen", "1"); } catch { /* ignore */ } }}
+              style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", padding: 0, fontSize: "0.9rem", lineHeight: 1, fontFamily: "inherit" }}
               aria-label="Dismiss"
             >&#x2715;</button>
           </motion.div>

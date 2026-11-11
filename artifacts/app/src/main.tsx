@@ -5,25 +5,41 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import PasswordGate from "./components/PasswordGate";
 import "./index.css";
 
-// Respond to baremux SharedWorker "getPort" requests to avoid "invalid MessagePort" errors
+// Respond to baremux SharedWorker "getPort" requests.
+//
+// The bare-mux requester (running inside a service worker) resolves its
+// promise with *whatever data* arrives on the port it sent us, then calls
+// `MessagePort.prototype.postMessage` on that value. We therefore MUST
+// transfer back a real bare-mux SharedWorker MessagePort — replying with a
+// plain object like `{ type: "port" }` throws `TypeError: Illegal invocation`,
+// every client rejects, and the SW fails with
+// "All clients returned an invalid MessagePort".
+const BAREMUX_WORKER_PATH = "/baremux/worker.js";
+const BAREMUX_WORKER_NAME = "bare-mux-worker";
+
+function respondWithBareMuxPort(port: MessagePort) {
+  try {
+    const worker = new SharedWorker(BAREMUX_WORKER_PATH, BAREMUX_WORKER_NAME);
+    port.postMessage(worker.port, [worker.port]);
+    console.debug("bare-mux: responded to getPort with SharedWorker port");
+  } catch (err) {
+    console.warn("bare-mux: failed to provide SharedWorker port", err);
+  }
+}
+
 if (typeof navigator !== "undefined" && navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type === "getPort" && event.ports?.[0]) {
-      // Create a new MessageChannel and send one port back
-      const channel = new MessageChannel();
-      event.ports[0].postMessage({ type: "port" }, [channel.port1]);
-      console.debug("bare-mux: responded to getPort from service worker");
-    }
+    if (event.data?.type !== "getPort") return;
+    const port = event.ports?.[0] ?? event.data?.port;
+    if (port) respondWithBareMuxPort(port);
   });
 }
 
-// Also handle direct window messages from baremux (fallback)
+// Fallback for direct window messages from baremux
 window.addEventListener("message", (event) => {
-  if (event.data?.type === "getPort" && event.ports?.[0]) {
-    // Respond on the SAME port that was sent to us (not a new channel)
-    event.ports[0].postMessage({ type: "port" });
-    console.debug("bare-mux: responded to getPort from window");
-  }
+  if (event.data?.type !== "getPort") return;
+  const port = event.ports?.[0] ?? event.data?.port;
+  if (port) respondWithBareMuxPort(port);
 });
 
 function RootApp() {

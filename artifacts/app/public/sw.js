@@ -279,14 +279,28 @@ self.addEventListener("message", async (event) => {
     self.__uv$config.encodeUrl = function(s) { return self.__uv$codecs[data.type].encode(s); };
     self.__uv$config.decodeUrl = function(s) { return self.__uv$codecs[data.type].decode(s); };
   }
-  // Forward baremux getPort requests to window clients
+  // bare-mux getPort: the requester expects a real bare-mux SharedWorker
+  // MessagePort transferred back on the port it sent (not a plain object —
+  // that yields "Illegal invocation" / "invalid MessagePort").
   if (type === "getPort" && event.ports?.[0]) {
-    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const client of clients) {
-      // Forward the port to the window client
-      client.postMessage({ type: "getPort" }, [event.ports[0]]);
+    const replyPort = event.ports[0];
+    let answered = false;
+    try {
+      const worker = new SharedWorker("/baremux/worker.js", "bare-mux-worker");
+      replyPort.postMessage(worker.port, [worker.port]);
+      answered = true;
+    } catch (err) {
+      // SharedWorker is not available in some service worker contexts —
+      // fall through and forward to a window client instead.
     }
-    // Also respond directly on the port to avoid timeout
-    event.ports[0].postMessage({ type: "port" });
+    if (!answered) {
+      // Forward to exactly ONE window (a port can only be transferred once).
+      // The window's getPort responder replies on it with a SharedWorker port.
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const target = clients[0];
+      if (target) {
+        target.postMessage({ type: "getPort", port: replyPort }, [replyPort]);
+      }
+    }
   }
 });
