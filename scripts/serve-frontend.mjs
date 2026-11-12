@@ -59,7 +59,16 @@ function proxyHttpRequest(request, response) {
     return;
   }
 
-  const target = new URL(request.url, backendUrl);
+  let incomingUrl;
+  try {
+    incomingUrl = new URL(request.url, "http://localhost");
+  } catch {
+    response.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+    response.end("Invalid request URL");
+    return;
+  }
+
+  const target = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, backendUrl.origin);
   const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
   const upstream = transport(target, {
     method: request.method,
