@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
@@ -202,19 +202,45 @@ interface Settings {
   newtabMode: "mue" | "legacy";
   verticalTabs: boolean;
   showMsIndicator: boolean;
+  /** External sites pinned to the sidebar. Spotify is the only default. */
+  sidebarSites: SidebarSite[];
+  /** When true, pinned tabs also appear in the sidebar. */
+  pinnedTabsToSidebar: boolean;
   // SSH settings
   sshWasmPath: string;
   sshWasmExecPath: string;
 }
 interface Shortcut { id: string; name: string; url: string; favicon: string; }
 
+/** A website that can be pinned to the sidebar. `icon` is an optional preset id. */
+interface SidebarSite {
+  id: string;
+  name: string;
+  url: string;
+  icon?: string;
+}
+
 interface Tab {
   id: string; title: string; url: string; favicon: string;
   history: string[]; historyIndex: number; loading: boolean;
   muted: boolean;
   incognito?: boolean;
+  /** Pinned tabs can be surfaced in the sidebar (see pinnedTabsToSidebar). */
+  pinned?: boolean;
   /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
   lastProxyUrl?: string;
+}
+
+/** Playback state reported by inject.js for a tab's proxied page. */
+interface MediaState {
+  playing: boolean;
+  hasMedia: boolean;
+  title: string;
+  artist: string;
+  album: string;
+  artwork: string;
+  currentTime: number;
+  duration: number;
 }
 
 interface AIMessage {
@@ -300,6 +326,20 @@ function searchUrl(query: string, engine: string) {
   const e = SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo;
   return e.url + encodeURIComponent(query);
 }
+
+// Premade sidebar sites offered in Settings. Spotify is the only one enabled by
+// default; everything else is opt-in.
+const SIDEBAR_SITE_PRESETS: SidebarSite[] = [
+  { id: "spotify", name: "Spotify", url: "https://open.spotify.com", icon: "spotify" },
+  { id: "discord", name: "Discord", url: "https://discord.com/app" },
+  { id: "tiktok", name: "TikTok", url: "https://www.tiktok.com" },
+  { id: "snapchat", name: "Snapchat", url: "https://web.snapchat.com" },
+  { id: "youtube", name: "YouTube", url: "https://www.youtube.com" },
+  { id: "instagram", name: "Instagram", url: "https://www.instagram.com" },
+];
+
+const DEFAULT_SIDEBAR_SITES: SidebarSite[] = [SIDEBAR_SITE_PRESETS[0]];
+
 const DEFAULT_SETTINGS: Settings = {
   cloak: "none",
   shortcuts: DEFAULT_KEY_SHORTCUTS,
@@ -324,6 +364,8 @@ const DEFAULT_SETTINGS: Settings = {
   newtabMode: "legacy",
   verticalTabs: false,
   showMsIndicator: false,
+  sidebarSites: [...DEFAULT_SIDEBAR_SITES],
+  pinnedTabsToSidebar: true,
   sshWasmPath: "/assets/lunassh.wasm",
   sshWasmExecPath: "/assets/wasm_exec.js",
 };
@@ -650,6 +692,16 @@ function loadSettings(): Settings {
       newtabMode: parsed.newtabMode ?? "legacy",
       verticalTabs: parsed.verticalTabs ?? false,
       showMsIndicator: parsed.showMsIndicator ?? false,
+      sidebarSites: Array.isArray(parsed.sidebarSites)
+        ? parsed.sidebarSites
+            .filter((s: unknown): s is SidebarSite => {
+              if (!s || typeof s !== "object") return false;
+              const site = s as Record<string, unknown>;
+              return typeof site.id === "string" && typeof site.name === "string" && typeof site.url === "string";
+            })
+            .map((s: SidebarSite) => ({ id: s.id, name: s.name, url: s.url, icon: typeof s.icon === "string" ? s.icon : undefined }))
+        : [...DEFAULT_SIDEBAR_SITES],
+      pinnedTabsToSidebar: parsed.pinnedTabsToSidebar ?? true,
       sshWasmPath: typeof parsed.sshWasmPath === "string" ? parsed.sshWasmPath : "/assets/lunassh.wasm",
       sshWasmExecPath: typeof parsed.sshWasmExecPath === "string" ? parsed.sshWasmExecPath : "/assets/wasm_exec.js",
     };
@@ -1093,6 +1145,109 @@ function GameModeToast({ visible, host }: { visible: boolean; host?: string | nu
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+// ─── Floating music controller ────────────────────────────────────────────────
+// Pops up when inject.js reports audio playing in any tab. Can be dismissed
+// (dismissal persists in localStorage) and reopened via the small pill button.
+
+const MEDIA_DISMISS_KEY = "unstable_media_controller_dismissed";
+
+function formatMediaTime(sec: number): string {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function MediaController({
+  state,
+  tabId,
+  onCommand,
+  onDismiss,
+}: {
+  state: MediaState;
+  tabId: string;
+  onCommand: (action: "toggle" | "next" | "prev") => void;
+  onDismiss: () => void;
+}) {
+  const progress = state.duration > 0 ? Math.min(1, state.currentTime / state.duration) : 0;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={{ type: "spring", stiffness: 320, damping: 28 }}
+      data-tab={tabId}
+      style={{
+        position: "fixed",
+        bottom: 16,
+        right: 16,
+        zIndex: 1000001,
+        width: 300,
+        padding: "0.7rem 0.8rem 0.6rem",
+        background: "radial-gradient(circle 140px at 30% 0%, rgba(255,255,255,0.09), rgba(255,255,255,0.02) 75%), linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
+        border: "1px solid rgba(255,255,255,0.18)",
+        borderRadius: "8px",
+        fontFamily: "'Space Grotesk', sans-serif",
+        color: "#e8e8e8",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.10), 0 12px 32px rgba(0,0,0,0.5)",
+        backdropFilter: "blur(16px) saturate(1.1)",
+        WebkitBackdropFilter: "blur(16px) saturate(1.1)",
+      }}
+    >
+      <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
+        {/* Artwork */}
+        <div style={{ width: 42, height: 42, borderRadius: "4px", flexShrink: 0, overflow: "hidden", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {state.artwork ? (
+            <img src={state.artwork} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+          ) : (
+            <Music size={16} style={{ color: "rgba(255,255,255,0.35)" }} />
+          )}
+        </div>
+        {/* Track info */}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {state.title || "Unknown title"}
+          </div>
+          <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "1px" }}>
+            {state.artist || (state.album || "Unknown artist")}
+          </div>
+        </div>
+        {/* Dismiss */}
+        <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={onDismiss} aria-label="Close player"
+          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.35)", cursor: "pointer", padding: "0.2rem", display: "flex", flexShrink: 0 }}>
+          <X size={14} />
+        </motion.button>
+      </div>
+
+      {/* Progress */}
+      <div style={{ height: "3px", borderRadius: "2px", background: "rgba(255,255,255,0.10)", margin: "0.55rem 0 0.45rem", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${progress * 100}%`, background: "rgba(255,255,255,0.55)", borderRadius: "2px", transition: "width 0.9s linear" }} />
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0.15rem" }}>
+        <span style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", fontVariantNumeric: "tabular-nums" }}>
+          {formatMediaTime(state.currentTime)} / {formatMediaTime(state.duration)}
+        </span>
+        <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+          <motion.button whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }} onClick={() => onCommand("prev")} aria-label="Previous track"
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.55)", cursor: "pointer", padding: "0.25rem", display: "flex" }}>
+            <SkipBack size={15} />
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }} onClick={() => onCommand("toggle")} aria-label={state.playing ? "Pause" : "Play"}
+            style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.18)", color: "#e8e8e8", cursor: "pointer", padding: "0.35rem", borderRadius: "50%", display: "flex", width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
+            {state.playing ? <Pause size={13} /> : <Play size={13} />}
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }} onClick={() => onCommand("next")} aria-label="Next track"
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.55)", cursor: "pointer", padding: "0.25rem", display: "flex" }}>
+            <SkipForward size={15} />
+          </motion.button>
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -1668,6 +1823,9 @@ const SETTINGS_CODE_STYLE: React.CSSProperties = {
 
 function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void }) {
   const [recording, setRecording] = useState<string | null>(null);
+  const [customSiteName, setCustomSiteName] = useState("");
+  const [customSiteUrl, setCustomSiteUrl] = useState("");
+  const [siteError, setSiteError] = useState("");
   const settingsRef = useRef(settings);
   const onSettingsChangeRef = useRef(onSettingsChange);
   settingsRef.current = settings;
@@ -1690,6 +1848,29 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
   const inputBase = SETTINGS_INPUT_BASE;
   const kbdStyle = SETTINGS_KBD_STYLE;
   const codeStyle = SETTINGS_CODE_STYLE;
+
+  function removeSidebarSite(id: string) {
+    onSettingsChange({ ...settings, sidebarSites: settings.sidebarSites.filter(s => s.id !== id) });
+  }
+  function addPresetSite(preset: SidebarSite) {
+    if (settings.sidebarSites.some(s => s.id === preset.id || s.url === preset.url)) return;
+    onSettingsChange({ ...settings, sidebarSites: [...settings.sidebarSites, { ...preset }] });
+  }
+  function addCustomSite() {
+    const rawName = customSiteName.trim();
+    let rawUrl = customSiteUrl.trim();
+    if (!rawUrl) { setSiteError("Enter a website URL."); return; }
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(rawUrl)) rawUrl = "https://" + rawUrl;
+    let host = "";
+    try { host = new URL(rawUrl).hostname; } catch { setSiteError("That doesn't look like a valid URL."); return; }
+    if (!host) { setSiteError("That doesn't look like a valid URL."); return; }
+    const name = rawName || host.replace(/^www\./i, "");
+    const id = `site-${Date.now().toString(36)}`;
+    onSettingsChange({ ...settings, sidebarSites: [...settings.sidebarSites, { id, name, url: rawUrl }] });
+    setCustomSiteName("");
+    setCustomSiteUrl("");
+    setSiteError("");
+  }
 
   const catIds = ["appearance", "privacy", "gaming", "controls", "advanced"] as const;
   const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", gaming: "Gaming", controls: "Controls", advanced: "Advanced" };
@@ -1838,6 +2019,112 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
             >{opt.label}</motion.button>
           ))}
         </div>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: "1.5rem" }}>pinned tabs</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Choose where pinned tabs appear. Right-click any tab and choose “Pin tab”.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {[{ id: true, label: "Sidebar" }, { id: false, label: "Tab bar only" }].map(opt => (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              key={String(opt.id)}
+              onClick={() => onSettingsChange({ ...settings, pinnedTabsToSidebar: opt.id })}
+              style={{
+                flex: 1,
+                background: settings.pinnedTabsToSidebar === opt.id ? "var(--t-bg-card)" : "none",
+                border: "1px solid", borderColor: settings.pinnedTabsToSidebar === opt.id ? "var(--t-border-light)" : "var(--t-border)",
+                color: settings.pinnedTabsToSidebar === opt.id ? "var(--t-text)" : "var(--t-text-muted)",
+                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", textTransform: "uppercase",
+                transition: "background 0.15s, border-color 0.15s, color 0.15s",
+              }}
+            >{opt.label}</motion.button>
+          ))}
+        </div>
+      </motion.section>
+
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: "2.5rem" }}>
+        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t-text-muted)", marginBottom: "0.85rem", marginTop: 0 }}>sidebar sites</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--t-text-muted)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+          Pin websites to the sidebar. Spotify is included by default — remove it or add more below. Sites open through the proxy inside Unstable.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "1.1rem" }}>
+          {settings.sidebarSites.length === 0 && (
+            <p style={{ margin: 0, fontSize: "0.66rem", color: "var(--t-text-muted)" }}>No sites pinned to the sidebar.</p>
+          )}
+          {settings.sidebarSites.map(site => (
+            <div key={site.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.7rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "2px" }}>
+              <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--t-text)" }}>
+                <SidebarSiteIcon site={site} size={16} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: "0.7rem", color: "var(--t-text)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.02em" }}>{site.name}</p>
+                <p style={{ margin: "0.1rem 0 0", fontSize: "0.6rem", color: "var(--t-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{site.url}</p>
+              </div>
+              <motion.button whileHover={{ scale: 1.12 }} whileTap={{ scale: 0.9 }} onClick={() => removeSidebarSite(site.id)} aria-label={`Remove ${site.name}`} title="Remove from sidebar" style={{ background: "none", border: "none", color: "var(--t-text-muted)", cursor: "pointer", padding: "0.2rem", display: "flex" }}>
+                <X size={13} />
+              </motion.button>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ fontSize: "0.55rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--t-text-muted)", margin: "0 0 0.55rem" }}>add a site</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.9rem" }}>
+          {SIDEBAR_SITE_PRESETS.filter(preset => !settings.sidebarSites.some(s => s.id === preset.id || s.url === preset.url)).map(preset => (
+            <motion.button
+              key={preset.id}
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => addPresetSite(preset)}
+              style={{
+                display: "flex", alignItems: "center", gap: "0.45rem",
+                background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-secondary)",
+                padding: "0.4rem 0.75rem", fontSize: "0.66rem", fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.04em", borderRadius: "2px", cursor: "pointer", transition: "all 0.15s",
+              }}
+            >
+              <SidebarSiteIcon site={preset} size={13} />
+              {preset.name}
+              <Plus size={11} style={{ opacity: 0.5 }} />
+            </motion.button>
+          ))}
+          {SIDEBAR_SITE_PRESETS.every(preset => settings.sidebarSites.some(s => s.id === preset.id || s.url === preset.url)) && (
+            <p style={{ margin: 0, fontSize: "0.64rem", color: "var(--t-text-muted)", alignSelf: "center" }}>All premade sites added.</p>
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>
+          <input
+            value={customSiteName}
+            onChange={e => { setCustomSiteName(e.target.value); setSiteError(""); }}
+            placeholder="Name (optional)"
+            style={{ ...inputBase, flex: "0 1 160px" }}
+          />
+          <input
+            value={customSiteUrl}
+            onChange={e => { setCustomSiteUrl(e.target.value); setSiteError(""); }}
+            onKeyDown={e => { if (e.key === "Enter") addCustomSite(); }}
+            placeholder="any website — e.g. example.com"
+            style={{ ...inputBase, flex: "1 1 220px" }}
+          />
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={addCustomSite}
+            style={{
+              display: "flex", alignItems: "center", gap: "0.4rem",
+              background: "var(--t-bg-card)", border: "1px solid var(--t-border-light)", color: "var(--t-text)",
+              padding: "0.4rem 0.85rem", fontSize: "0.66rem", fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "0.06em", textTransform: "uppercase", borderRadius: "2px", cursor: "pointer",
+            }}
+          >
+            <Plus size={12} /> add
+          </motion.button>
+        </div>
+        {siteError && <p style={{ margin: "0.5rem 0 0", fontSize: "0.64rem", color: "rgba(235,120,120,0.9)" }}>{siteError}</p>}
       </motion.section>
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }} style={{ marginBottom: "2.5rem" }}>
@@ -2628,8 +2915,10 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   }
 
   async function deleteChat(id: string) {
-    await supabase.from("ai_messages").delete().eq("conversation_id", id).eq("user_id", user.id);
-    await supabase.from("ai_conversations").delete().eq("id", id).eq("user_id", user.id);
+    const { error: messageError } = await supabase.from("ai_messages").delete().eq("conversation_id", id).eq("user_id", user.id);
+    if (messageError) { setError(messageError.message); return; }
+    const { error: conversationError } = await supabase.from("ai_conversations").delete().eq("id", id).eq("user_id", user.id);
+    if (conversationError) { setError(conversationError.message); return; }
     setConversations(prev => prev.filter(c => c.id !== id));
     if (activeId === id) {
       const next = conversations.find(c => c.id !== id);
@@ -2640,7 +2929,8 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
 
   async function updateConversationTitle(id: string, title: string) {
     setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
-    await supabase.from("ai_conversations").update({ title }).eq("id", id).eq("user_id", user.id);
+    const { error: updateError } = await supabase.from("ai_conversations").update({ title }).eq("id", id).eq("user_id", user.id);
+    if (updateError) setError(updateError.message);
   }
 
   async function generateTitle(convId: string, userPrompt: string, aiResponse: string) {
@@ -2728,7 +3018,8 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: newContent } : m));
     setEditMessageId(null);
     setEditingContent("");
-    await supabase.from("ai_messages").update({ content: newContent }).eq("id", messageId).eq("user_id", user.id);
+    const { error: updateError } = await supabase.from("ai_messages").update({ content: newContent }).eq("id", messageId).eq("user_id", user.id);
+    if (updateError) setError(updateError.message);
   }
 
   function startEdit(msg: AIMessage) {
@@ -2836,7 +3127,7 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
 
   function ActionButton({ icon, label, active, activeColor, onClick }: { icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void }) {
     return (
-      <button onClick={onClick} style={{ background: active ? "rgba(120,170,255,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(120,170,255,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "6px", color: active ? activeColor || "rgba(120,170,255,0.8)" : "rgba(255,255,255,0.4)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.45rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+      <button onClick={onClick} style={{ background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.06)"}`, borderRadius: "6px", color: active ? activeColor || "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.4)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.45rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
         {icon}{label}
       </button>
     );
@@ -3174,6 +3465,11 @@ function ChatPage({ user, profile, session, onAuthenticated }: { user: User | nu
   return <ChatPageInner user={user} profile={profile} session={session} />;
 }
 
+function formatChatTime(timestamp: string) {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "sending…" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function ChatPageInner({ user, profile, session }: { user: User; profile: Profile; session: Session }) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
@@ -3426,6 +3722,9 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
                                 <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
                               )}
                             </div>
+                            <p style={{ margin: "0.3rem 0 0", fontSize: "0.54rem", color: "rgba(255,255,255,0.28)", textAlign: isOwn ? "right" : "left", letterSpacing: "0.04em" }}>
+                              {formatChatTime(message.created_at)}
+                            </p>
                             {reactionPickerId === message.id && (
                               <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
                                 {[
@@ -4155,9 +4454,9 @@ function QrCodeCanvas({ url, size = 160 }: { url: string; size?: number }) {
   );
 }
 
-function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, inSplit, thumbnail }: {
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, onTogglePin, inSplit, thumbnail }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
-  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; inSplit?: boolean; thumbnail?: string;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; onTogglePin?: () => void; inSplit?: boolean; thumbnail?: string;
 }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
@@ -4183,11 +4482,11 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
   }, []);
 
   return (
-    <motion.div layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12, width: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}
+    <motion.div layout="position" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8, width: 0, paddingLeft: 0, paddingRight: 0, borderRightWidth: 0 }} transition={{ duration: 0.18, ease: "easeInOut" }}
       onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
       onMouseEnter={() => { setHovered(true); if (thumbnail && tab.url && !tab.url.startsWith("unstable://")) { hoverTimerRef.current = setTimeout(() => setShowPreview(true), 500); } }}
       onMouseLeave={() => { setHovered(false); if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setShowPreview(false); }}
-      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? (tab.incognito ? "#14121a" : "#111") : hovered ? "#0f0f0f" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "visible" }}
+      style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? (tab.incognito ? "#14121a" : "#111") : hovered ? "#0f0f0f" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
@@ -4197,6 +4496,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
       </div>
       <motion.span layout style={{ flex: 1, fontSize: "0.7rem", color: isActive ? "#e0e0e0" : "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</motion.span>
       {tab.incognito && <EyeOff size={10} style={{ flexShrink: 0, opacity: 0.5 }} />}
+      {tab.pinned && <Pin size={10} style={{ flexShrink: 0, opacity: 0.55 }} />}
       {tab.muted && <VolumeX size={11} style={{ flexShrink: 0, opacity: 0.55 }} />}
       <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
@@ -4209,6 +4509,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><X size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close tab</motion.button>
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onRefresh?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><RefreshCw size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Refresh tab</motion.button>}
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onDuplicate?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Copy size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Duplicate tab</motion.button>}
+            <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onTogglePin?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Pin size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{tab.pinned ? "Unpin tab" : "Pin tab"}</motion.button>
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onSplit?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Columns2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{inSplit ? "Close split" : "Split view"}</motion.button>}
             {tab.url && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onToggleMute?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>{tab.muted ? <VolumeX size={12} style={{ opacity: 0.7, flexShrink: 0 }} /> : <Volume2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />}{tab.muted ? "Unmute tab" : "Mute tab"}</motion.button>}
             <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setCtxOpen(false); onCloseRight?.(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ChevronRight size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Close tabs to right</motion.button>
@@ -4236,6 +4537,29 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
 
 // ─── Browser app ──────────────────────────────────────────────────────────────
 
+/** Renders a sidebar site's brand mark (real Spotify glyph) or its favicon. */
+function SidebarSiteIcon({ site, size = 18 }: { site: SidebarSite; size?: number }) {
+  if (site.icon === "spotify") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+      </svg>
+    );
+  }
+  let domain = "";
+  try { domain = new URL(site.url).hostname; } catch { /* ignore */ }
+  return (
+    <img
+      src={domain ? faviconUrl(domain) : "/favicon.svg"}
+      alt=""
+      width={size}
+      height={size}
+      style={{ borderRadius: 4, objectFit: "contain", flexShrink: 0 }}
+      onError={e => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }}
+    />
+  );
+}
+
 function CollapsedSidebar({
   activeUrl,
   onNavigate,
@@ -4246,8 +4570,9 @@ function CollapsedSidebar({
   onTabClose,
   onNewTab,
   verticalTabs,
-  profile,
-  user,
+  onOpenLink,
+  sidebarSites,
+  pinnedTabsToSidebar,
 }: {
   activeUrl: string;
   onNavigate: (url: string) => void;
@@ -4258,25 +4583,38 @@ function CollapsedSidebar({
   onTabClose?: (id: string) => void;
   onNewTab?: () => void;
   verticalTabs?: boolean;
-  profile?: Profile | null;
-  user?: User | null;
+  /** Opens an external link through the proxy in a new in-app tab. */
+  onOpenLink?: (url: string) => void;
+  /** External sites pinned to the sidebar. */
+  sidebarSites?: SidebarSite[];
+  /** Surface pinned tabs in the sidebar. */
+  pinnedTabsToSidebar?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sidebarW = 56;
 
   useEffect(() => { setExpanded(false); }, [verticalTabs]);
 
+  const siteItems = (sidebarSites ?? []).map((site) => ({
+    label: site.name,
+    url: site.url,
+    external: true,
+    icon: ((props: { size?: number }) => <SidebarSiteIcon site={site} size={props.size} />) as ComponentType<{ size?: number; className?: string }>,
+  }));
+
   const items: Array<{
     label: string;
     url: string;
     icon: ComponentType<{ size?: number; className?: string }>;
     hidden?: boolean;
+    external?: boolean;
   }> = [
     { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
     { label: "Profile", url: "unstable://profile", icon: UserIcon },
-    { label: "Unstable Cloud", url: "unstable://games", icon: Gamepad },
+    { label: "Games", url: "unstable://games", icon: Gamepad },
     { label: "AI", url: "unstable://ai", icon: Atom },
     { label: "Chat", url: "unstable://chat", icon: MessageCircle },
+    ...siteItems,
     { label: "Settings", url: "unstable://settings", icon: Settings },
   ];
 
@@ -4290,6 +4628,7 @@ function CollapsedSidebar({
   const games = items.find(i => i.url === "unstable://games");
   const settings = items.find(i => i.url === "unstable://settings");
   const middle = items.filter(i => i.url !== "unstable://profile" && i.url !== "unstable://settings");
+  const pinnedTabs = pinnedTabsToSidebar ? (tabs ?? []).filter(t => t.pinned) : [];
 
   const iconBtn: React.CSSProperties = {
     width: 38, height: 38, borderRadius: 12,
@@ -4327,7 +4666,7 @@ function CollapsedSidebar({
         overflow: "hidden",
       }}
     >
-      {/* TOP: profile avatar (only when horizontal) */}
+      {/* TOP: profile uses the same subdued treatment as every other sidebar action. */}
       {!verticalTabs && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
           <motion.button
@@ -4346,13 +4685,7 @@ function CollapsedSidebar({
               padding: 0,
             }}
           >
-            <div style={{ width: 26, height: 26, borderRadius: 0, overflow: "hidden", background: "transparent", border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: activeUrl === "unstable://profile" ? 1 : 0.4 }} />
-              ) : (
-                <UserIcon size={14} style={{ color: activeUrl === "unstable://profile" ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)" }} />
-              )}
-            </div>
+            <UserIcon size={18} />
           </motion.button>
         </div>
       )}
@@ -4418,14 +4751,15 @@ function CollapsedSidebar({
           </div>
           {/* Middle nav items (Home, AI, Chat) */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: expanded ? "stretch" : "center", gap: "0.55rem", padding: expanded ? "0 0.4rem" : 0 }}>
-            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon, external }) => {
               const active = isActive(url);
               const s = expanded ? linkBtn : iconBtn;
+              const brandColor = url.includes("open.spotify.com") ? "#1DB954" : null;
               return (
                 <motion.button
                   key={url}
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => onNavigate(url)}
+                  onClick={() => (external ? onOpenLink?.(url) : onNavigate(url))}
                   data-tooltip={label} aria-label={label}
                   style={{
                     ...s,
@@ -4433,7 +4767,7 @@ function CollapsedSidebar({
                     borderColor: active ? "#1f1f1f" : "transparent",
                     color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
                   }}
-                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = brandColor ?? "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
                   onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
                 >
                   <Icon size={18} />
@@ -4446,13 +4780,45 @@ function CollapsedSidebar({
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
-            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon }) => {
+            {pinnedTabs.length > 0 && (
+              <>
+                {pinnedTabs.map(tab => {
+                  const active = tab.id === activeTabId;
+                  const label = tab.title || getDomainFromProxyUrl(tab.url) || "Pinned tab";
+                  return (
+                    <motion.button
+                      key={`pin-${tab.id}`}
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => onTabActivate?.(tab.id)}
+                      data-tooltip={label} aria-label={label}
+                      style={{
+                        ...iconBtn,
+                        background: active ? "#101010" : "none",
+                        borderColor: active ? "#1f1f1f" : "transparent",
+                        color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+                      }}
+                      onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+                    >
+                      {tab.loading
+                        ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 13, height: 13, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
+                        : tab.favicon
+                          ? <img src={tab.favicon} alt="" width={16} height={16} style={{ borderRadius: 4, objectFit: "contain" }} onError={e => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
+                          : <Globe size={15} strokeWidth={1.5} />}
+                    </motion.button>
+                  );
+                })}
+                <div style={{ width: 22, height: 1, background: "rgba(255,255,255,0.08)", margin: "0.05rem 0" }} />
+              </>
+            )}
+            {middle.filter(i => !i.hidden).map(({ label, url, icon: Icon, external }) => {
               const active = isActive(url);
+              const brandColor = url.includes("open.spotify.com") ? "#1DB954" : null;
               return (
                 <motion.button
                   key={url}
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => onNavigate(url)}
+                  onClick={() => (external ? onOpenLink?.(url) : onNavigate(url))}
                   data-tooltip={label} aria-label={label}
                   style={{
                     ...iconBtn,
@@ -4460,7 +4826,7 @@ function CollapsedSidebar({
                     borderColor: active ? "#1f1f1f" : "transparent",
                     color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
                   }}
-                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = brandColor ?? "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
                   onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
                 >
                   <Icon size={18} />
@@ -4475,7 +4841,7 @@ function CollapsedSidebar({
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
         <motion.button
           whileTap={{ scale: 0.96 }}
-          onClick={() => window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank")}
+          onClick={() => (onOpenLink ? onOpenLink("https://github.com/Allegedcarrot4/Project-Unstable") : window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank"))}
           data-tooltip="GitHub" aria-label="GitHub"
           style={{
             ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
@@ -4490,7 +4856,7 @@ function CollapsedSidebar({
         </motion.button>
         <motion.button
           whileTap={{ scale: 0.96 }}
-          onClick={() => window.open("https://discord.gg/yD9NkcsKcw", "_blank")}
+          onClick={() => (onOpenLink ? onOpenLink("https://discord.gg/yD9NkcsKcw") : window.open("https://discord.gg/yD9NkcsKcw", "_blank"))}
           data-tooltip="Discord" aria-label="Discord"
           style={{
             ...(expanded ? { ...linkBtn, padding: "0.5rem 0.7rem", gap: "0.55rem" } : iconBtn),
@@ -4532,6 +4898,245 @@ function CollapsedSidebar({
   );
 }
 
+// ─── First-run welcome ────────────────────────────────────────────────────────
+
+const WELCOME_KEY = "unstable_welcome_complete";
+
+interface WelcomeChoices {
+  account: "signin" | "guest";
+  searchEngine: string;
+  newtabMode: "mue" | "legacy";
+  verticalTabs: boolean;
+  pinnedTabsToSidebar: boolean;
+}
+
+const welcomePrimaryBtn: React.CSSProperties = {
+  background: "#e8e8e8",
+  color: "#0b0b0b",
+  border: "1px solid #e8e8e8",
+  padding: "0.65rem 1.3rem",
+  fontSize: "0.68rem",
+  fontFamily: "'Space Grotesk', sans-serif",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  fontWeight: 600,
+  cursor: "pointer",
+  borderRadius: "2px",
+};
+
+const welcomeSecondaryBtn: React.CSSProperties = {
+  background: "rgba(255,255,255,0.04)",
+  color: "rgba(255,255,255,0.7)",
+  border: "1px solid rgba(255,255,255,0.14)",
+  padding: "0.65rem 1.3rem",
+  fontSize: "0.68rem",
+  fontFamily: "'Space Grotesk', sans-serif",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  cursor: "pointer",
+  borderRadius: "2px",
+};
+
+const welcomeLabel: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.58rem",
+  letterSpacing: "0.2em",
+  textTransform: "uppercase",
+  color: "rgba(255,255,255,0.32)",
+  fontWeight: 600,
+};
+
+function WelcomeOption({ label, description, active, onClick, icon }: { label: string; description: string; active: boolean; onClick: () => void; icon?: string }) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        minWidth: 150,
+        textAlign: "left",
+        padding: "0.75rem 0.85rem",
+        borderRadius: "8px",
+        cursor: "pointer",
+        background: active ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.02)",
+        border: "1px solid",
+        borderColor: active ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.07)",
+        transition: "background 0.15s, border-color 0.15s",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+        {icon && <img src={icon} alt="" width={15} height={15} style={{ borderRadius: 3, opacity: active ? 1 : 0.65 }} />}
+        <p style={{ margin: 0, fontSize: "0.74rem", color: active ? "#ececec" : "rgba(255,255,255,0.6)", fontWeight: 500, letterSpacing: "0.02em" }}>{label}</p>
+      </div>
+      <p style={{ margin: "0.22rem 0 0", fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", lineHeight: 1.45 }}>{description}</p>
+    </motion.button>
+  );
+}
+
+function WelcomeFlow({ open, user, onComplete }: {
+  open: boolean;
+  user: User | null;
+  onComplete: (choices: WelcomeChoices | null) => void;
+}) {
+  const [step, setStep] = useState<"welcome" | "setup">("welcome");
+  const [setupStep, setSetupStep] = useState(0);
+  const [account, setAccount] = useState<"signin" | "guest">(user ? "signin" : "guest");
+  const [searchEngine, setSearchEngine] = useState("duckduckgo");
+  const [newtabMode, setNewtabMode] = useState<"mue" | "legacy">("legacy");
+  const [verticalTabs, setVerticalTabs] = useState(false);
+  const [pinnedTabsToSidebar, setPinnedTabsToSidebar] = useState(true);
+
+  const setupSteps = ["account", "search engine", "home screen", "tab layout", "pinned tabs"] as const;
+  const completeSetupChoice = (applyChoice: () => void) => {
+    applyChoice();
+    if (setupStep < setupSteps.length - 1) {
+      window.setTimeout(() => setSetupStep(current => current + 1), 180);
+    } else {
+      window.setTimeout(() => onComplete({ account, searchEngine, newtabMode, verticalTabs, pinnedTabsToSidebar }), 180);
+    }
+  };
+
+  const screen = setupSteps[setupStep];
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25 }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000000,
+            background: "#050505",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "'Space Grotesk', sans-serif",
+            padding: "1.5rem",
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)", backgroundSize: "64px 64px", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: "12%", left: "50%", transform: "translateX(-50%)", width: 560, height: 560, borderRadius: "50%", background: "radial-gradient(circle, rgba(150,170,255,0.10), transparent 65%)", filter: "blur(12px)", pointerEvents: "none" }} />
+
+          <motion.div
+            key={`${step}-${setupStep}`}
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+            style={{
+              position: "relative",
+              width: "100%",
+              maxWidth: 560,
+              background: "linear-gradient(180deg, rgba(16,16,16,0.98), rgba(8,8,8,0.99))",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "18px",
+              padding: "2rem",
+              boxShadow: "0 30px 90px rgba(0,0,0,0.6)",
+              margin: "auto",
+            }}
+          >
+            <div style={{ marginBottom: "1.7rem" }}>
+              <p style={{ ...welcomeLabel }}>{step === "welcome" ? "welcome" : `setup · ${setupStep + 1} of ${setupSteps.length}`}</p>
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.6rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" }}>
+                owner · Allegedcarrot4
+              </p>
+            </div>
+
+            {step === "welcome" ? (
+              <>
+                <h1 style={{ margin: "0 0 0.7rem", fontSize: "2rem", fontWeight: 600, letterSpacing: "-0.02em", color: "#ececec", lineHeight: 1.15 }}>
+                  Welcome to Unstable
+                </h1>
+                <p style={{ margin: "0 0 0.6rem", fontSize: "0.86rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.65 }}>
+                  A private browser with a built-in proxy. Browse, chat, and play — all inside one window.
+                </p>
+                <p style={{ margin: "0 0 2rem", fontSize: "0.76rem", color: "rgba(255,255,255,0.32)", lineHeight: 1.6 }}>
+                  Unstable is owned and maintained by{" "}
+                  <span style={{ color: "rgba(255,255,255,0.78)", fontWeight: 600 }}>Allegedcarrot4</span>.
+                </p>
+                <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setSetupStep(0); setStep("setup"); }} style={welcomePrimaryBtn}>
+                    set up
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => onComplete(null)} style={welcomeSecondaryBtn}>
+                    skip setup
+                  </motion.button>
+                </div>
+                <p style={{ margin: "1rem 0 0", fontSize: "0.62rem", color: "rgba(255,255,255,0.24)", lineHeight: 1.5 }}>
+                  Skipping uses the default settings. You can change everything later in Settings.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 style={{ margin: "0 0 0.65rem", fontSize: "1.55rem", fontWeight: 600, letterSpacing: "-0.01em", color: "#ececec" }}>
+                  {screen === "account" && "Choose how to continue"}
+                  {screen === "search engine" && "Choose your search engine"}
+                  {screen === "home screen" && "Choose your home screen"}
+                  {screen === "tab layout" && "Choose your tab layout"}
+                  {screen === "pinned tabs" && "Choose where pinned tabs live"}
+                </h1>
+                <p style={{ margin: "0 0 1.4rem", fontSize: "0.76rem", color: "rgba(255,255,255,0.42)", lineHeight: 1.55 }}>
+                  Select an option to continue. You can change this later in Settings.
+                </p>
+
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", minHeight: 106 }}>
+                  {screen === "account" && <>
+                    <WelcomeOption label="Sign in" description="Sync your profile, friends and chat." active={account === "signin"} onClick={() => completeSetupChoice(() => setAccount("signin"))} />
+                    <WelcomeOption label="Continue as guest" description="Stay local. You can sign in later." active={account === "guest"} onClick={() => completeSetupChoice(() => setAccount("guest"))} />
+                  </>}
+                  {screen === "search engine" && <>
+                    {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
+                      <WelcomeOption key={id} label={engine.name} description={id === "duckduckgo" ? "Private search by default." : "Use this for searches from the address bar."} active={searchEngine === id} onClick={() => completeSetupChoice(() => setSearchEngine(id))} icon={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} />
+                    ))}
+                  </>}
+                  {screen === "home screen" && <>
+                    <WelcomeOption label="Mue tabs" description="A cleaner, widget-driven home." active={newtabMode === "mue"} onClick={() => completeSetupChoice(() => setNewtabMode("mue"))} />
+                    <WelcomeOption label="Legacy" description="The classic Unstable new tab." active={newtabMode === "legacy"} onClick={() => completeSetupChoice(() => setNewtabMode("legacy"))} />
+                  </>}
+                  {screen === "tab layout" && <>
+                    <WelcomeOption label="Horizontal" description="Tabs across the top." active={!verticalTabs} onClick={() => completeSetupChoice(() => setVerticalTabs(false))} />
+                    <WelcomeOption label="Vertical (beta)" description="Tabs down the side." active={verticalTabs} onClick={() => completeSetupChoice(() => setVerticalTabs(true))} />
+                  </>}
+                  {screen === "pinned tabs" && <>
+                    <WelcomeOption label="Show in sidebar" description="Pinned tabs appear on the sidebar." active={pinnedTabsToSidebar} onClick={() => completeSetupChoice(() => setPinnedTabsToSidebar(true))} />
+                    <WelcomeOption label="Tab bar only" description="Keep pinned tabs in the tab bar." active={!pinnedTabsToSidebar} onClick={() => completeSetupChoice(() => setPinnedTabsToSidebar(false))} />
+                  </>}
+                </div>
+
+                <div style={{ display: "flex", gap: "0.6rem", justifyContent: "flex-end", marginTop: "1.9rem" }}>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setupStep === 0 ? setStep("welcome") : setSetupStep(current => current - 1)} style={welcomeSecondaryBtn}>
+                    back
+                  </motion.button>
+                </div>
+
+                <div aria-label={`Setup progress: ${setupStep + 1} of ${setupSteps.length}`} style={{ display: "flex", gap: "0.35rem", marginTop: "1.45rem" }}>
+                  {setupSteps.map((item, index) => (
+                    <div key={item} style={{ height: 3, flex: 1, overflow: "hidden", borderRadius: 999, background: "rgba(255,255,255,0.16)" }}>
+                      <motion.div
+                        initial={false}
+                        animate={{ width: index <= setupStep ? "100%" : "0%", backgroundColor: index < setupStep ? "#f2f2f2" : "rgba(255,255,255,0.52)" }}
+                        transition={{ duration: 0.28, ease: "easeOut" }}
+                        style={{ height: "100%", borderRadius: "inherit" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function BrowserApp({
   onLogout,
   session,
@@ -4559,6 +5164,12 @@ function BrowserApp({
   const initialTabs = useRef(loadTabs()).current;
   const [tabs, setTabs] = useState<Tab[]>(initialTabs.tabs);
   const [activeTabId, setActiveTabId] = useState<string>(initialTabs.activeId || initialTabs.tabs[0].id);
+  // Session restore: proxy tabs saved from a previous visit are held back until
+  // the proxy engine is ready AND the user confirms they want them reloaded.
+  const restoredProxyIds = useRef<string[]>(
+    initialTabs.tabs.filter(t => t.url && (t.url.startsWith(SCRAMJET_PREFIX) || t.url.startsWith(UV_PREFIX))).map(t => t.id),
+  ).current;
+  const [restorePending, setRestorePending] = useState<boolean>(() => restoredProxyIds.length > 0);
   const [urlInput, setUrlInput] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
   const [adblockCount, setAdblockCount] = useState(0);
@@ -4586,6 +5197,9 @@ function BrowserApp({
   const [splitDragging, setSplitDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [welcomeOpen, setWelcomeOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem(WELCOME_KEY) !== "1"; } catch { return true; }
+  });
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
@@ -4595,7 +5209,10 @@ function BrowserApp({
   const qrCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [pendingPerm, setPendingPerm] = useState<{ id: string; permission: string; origin: string } | null>(null);
   const pendingPermResolve = useRef<((allowed: boolean) => void) | null>(null);
-  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {}, activateTab: (id: string) => {} });
+  // Media (music controller) state per tab, fed by inject.js postMessage
+  const [mediaByTab, setMediaByTab] = useState<Record<string, MediaState>>({});
+  const [mediaDismissed, setMediaDismissed] = useState<boolean>(() => localStorage.getItem(MEDIA_DISMISS_KEY) === "1");
+  const navRefs = useRef({ handleNavigate: (url: string, tabId?: string) => {}, handleNewTab: () => {}, activateTab: (id: string) => {}, handleOpenLink: (url: string) => {} });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const tabAbortRefs = useRef<Record<string, AbortController>>({});
@@ -4607,17 +5224,14 @@ function BrowserApp({
   const [suggestIndex, setSuggestIndex] = useState(-1);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const suggestListRef = useRef<HTMLDivElement>(null);
-  const [urlEngineOpen, setUrlEngineOpen] = useState(false);
-  const urlEngineRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const tooltipTimer = useRef<number | null>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (urlEngineRef.current && !urlEngineRef.current.contains(e.target as Node)) setUrlEngineOpen(false);
       if (toolMenuRef.current && !toolMenuRef.current.contains(e.target as Node)) setToolMenuOpen(false);
     }
-    function handleBlur() { setToolMenuOpen(false); setUrlEngineOpen(false); }
+    function handleBlur() { setToolMenuOpen(false); }
     document.addEventListener("mousedown", handleClick);
     window.addEventListener("blur", handleBlur);
     return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
@@ -4698,6 +5312,43 @@ function BrowserApp({
         const url = e.data.url;
         const filename = e.data.filename || "download";
         void downloadFile(url, filename);
+        return;
+      }
+      // Links / window.open() calls from proxied pages that try to escape into
+      // a real browser tab are re-routed to a new in-app tab instead.
+      if (e.data?.type === "unstable-open-url" && e.data?.url) {
+        const url = String(e.data.url);
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+          try { if (new URL(url).origin === location.origin) return; } catch { /* ignore */ }
+          navRefs.current.handleOpenLink(url);
+        }
+        return;
+      }
+      if (e.data?.type === "unstable-media-state") {
+        // Attribute the report to the tab whose iframe sent it
+        let tabId = activeTabId;
+        try {
+          for (const [id, el] of Object.entries(iframeRefs.current)) {
+            if (el && el.contentWindow === e.source) { tabId = id; break; }
+          }
+        } catch { /* fall back to active tab */ }
+        const d = e.data as Partial<MediaState> & { type: string };
+        const next: MediaState = {
+          playing: Boolean(d.playing),
+          hasMedia: Boolean(d.hasMedia),
+          title: typeof d.title === "string" ? d.title : "",
+          artist: typeof d.artist === "string" ? d.artist : "",
+          album: typeof d.album === "string" ? d.album : "",
+          artwork: typeof d.artwork === "string" ? d.artwork : "",
+          currentTime: typeof d.currentTime === "number" ? d.currentTime : 0,
+          duration: typeof d.duration === "number" ? d.duration : 0,
+        };
+        setMediaByTab(prev => {
+          // Ignore the "idle" heartbeat from a tab we've never seen media on
+          if (!next.hasMedia && !next.playing && !prev[tabId]) return prev;
+          if (JSON.stringify(prev[tabId]) === JSON.stringify(next)) return prev;
+          return { ...prev, [tabId]: next };
+        });
         return;
       }
     }
@@ -5054,7 +5705,7 @@ function BrowserApp({
           blank: "Blank",
           tos: "ToS",
           privacy: "Privacy",
-          games: "Unstable Cloud",
+          games: "Games",
           history: "History",
           bookmarks: "Bookmarks",
           downloads: "Downloads",
@@ -5129,12 +5780,63 @@ function BrowserApp({
   }
   function handleReload() {
     if (!iframeRef.current) return;
-    const src = iframeRef.current.src; iframeRef.current.src = "";
-    setTimeout(() => { if (iframeRef.current) iframeRef.current.src = src; updateTab(activeTabId, { loading: true }); }, 50);
+    // Do one deliberate navigation. Clearing src first caused proxied sites
+    // (especially YouTube) to bootstrap multiple times before the real page.
+    iframeRef.current.src = iframeRef.current.src;
+    updateTab(activeTabId, { loading: true });
   }
   function handleNewTab() { setSplit(null); const tab = makeTab(); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
+  /** Opens an external link through the proxy in a brand-new in-app tab. */
+  function handleOpenLink(url: string) {
+    const normalized = normalizeUrl(url, settings.searchEngine);
+    if (!normalized) return;
+    let domain = "";
+    try { domain = new URL(normalized).hostname.replace(/^www./i, "").toLowerCase(); } catch { /* ignore */ }
+    let proxyUrl: string;
+    try {
+      proxyUrl = encodeProxyUrl(normalized, getEffectiveEngine(normalized, settings), settings);
+    } catch { return; }
+    setSplit(null);
+    const tab: Tab = {
+      ...makeTab(normalized),
+      url: proxyUrl,
+      title: domain || normalized,
+      favicon: domain ? faviconUrl(domain) : "",
+      history: [proxyUrl],
+      historyIndex: 0,
+      loading: true,
+      lastProxyUrl: proxyUrl,
+    };
+    setTabs(prev => [...prev, tab]);
+    setActiveTabId(tab.id);
+    tabAbortRefs.current[tab.id] = new AbortController();
+  }
   function handleNewIncognitoTab() { setSplit(null); const tab = makeTab("", true); setTabs(prev => [...prev, tab]); setActiveTabId(tab.id); }
-  navRefs.current = { handleNavigate, handleNewTab, activateTab: handleTabActivate };
+  function completeWelcome(choices: WelcomeChoices | null) {
+    try { localStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ }
+    if (choices) {
+      setSettings(prev => ({
+        ...prev,
+        searchEngine: choices.searchEngine,
+        newtabMode: choices.newtabMode,
+        verticalTabs: choices.verticalTabs,
+        pinnedTabsToSidebar: choices.pinnedTabsToSidebar,
+      }));
+      if (choices.account === "signin" && !user) {
+        window.setTimeout(() => handleNavigate("unstable://profile"), 120);
+      }
+    } else {
+      // "Skip setup" deliberately restores the shipped defaults.
+      setSettings(prev => ({
+        ...prev,
+        newtabMode: DEFAULT_SETTINGS.newtabMode,
+        verticalTabs: DEFAULT_SETTINGS.verticalTabs,
+        pinnedTabsToSidebar: DEFAULT_SETTINGS.pinnedTabsToSidebar,
+      }));
+    }
+    setWelcomeOpen(false);
+  }
+  navRefs.current = { handleNavigate, handleNewTab, activateTab: handleTabActivate, handleOpenLink };
   function handleCloseTab(id: string) {
     if (tabs.length === 1) { setTabs([makeTab()]); return; }
     // Cancel in-flight navigation for the closed tab
@@ -5144,6 +5846,7 @@ function BrowserApp({
     }
     const idx = tabs.findIndex(t => t.id === id);
     const next = tabs.filter(t => t.id !== id); setTabs(next);
+    setMediaByTab(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
     const newActive = activeTabId === id ? next[Math.min(idx, next.length - 1)].id : activeTabId;
     if (activeTabId === id) setActiveTabId(newActive);
     if (split?.other === id) { setSplit(null); return; }
@@ -5152,8 +5855,8 @@ function BrowserApp({
   function handleRefreshTab(id: string) {
     const iframe = iframeRefs.current[id];
     if (!iframe) return;
-    const src = iframe.src; iframe.src = "";
-    setTimeout(() => { iframe.src = src; setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: true } : t)); }, 50);
+    iframe.src = iframe.src;
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: true } : t));
   }
   function handleDuplicateTab(id: string) {
     const tab = tabs.find(t => t.id === id);
@@ -5177,6 +5880,9 @@ function BrowserApp({
   }
   function handleToggleMute(id: string) {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, muted: !t.muted } : t));
+  }
+  function handleTogglePin(id: string) {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
   }
   function handleTabActivate(id: string) {
     if (split) {
@@ -5427,7 +6133,7 @@ function BrowserApp({
     }
     if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://games") return (
-      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Unstable Cloud...</div>}>
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Games...</div>}>
         <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
       </Suspense>
     );
@@ -5438,6 +6144,26 @@ function BrowserApp({
     if (tab.url === "unstable://tos") return <ToSPage />;
     if (tab.url === "unstable://privacy") return <PrivacyPage />;
     if (tab.url === "unstable://blank") return <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />;
+    // Restored-from-session proxy tabs: hold the iframe until the user opts in
+    // and the proxy engine is actually ready, otherwise the frame 404s on a
+    // cold /ham/ or /service/ path before the service worker controls it.
+    if (tab.url.startsWith(SCRAMJET_PREFIX) || tab.url.startsWith(UV_PREFIX)) {
+      const held = restoredProxyIds.includes(tab.id) && (restorePending || proxyStatus.phase !== "ready");
+      if (held) {
+        const decoded = decodeProxyUrl(tab.url);
+        return (
+          <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", background: "var(--t-bg, #0d0d0d)", fontFamily: "'Space Grotesk', sans-serif" }}>
+            <div style={{ padding: "0.5rem 0.9rem", border: "1px solid rgba(255,255,255,0.14)", borderRadius: "8px", background: "rgba(255,255,255,0.04)", fontSize: "0.6rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)" }}>
+              {restorePending ? "restore waiting" : "proxy starting"}
+            </div>
+            <p style={{ margin: 0, fontSize: "0.8rem", color: "#e8e8e8", maxWidth: "70%", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decoded}</p>
+            <p style={{ margin: 0, fontSize: "0.65rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>
+              {restorePending ? "Confirm the restore prompt to load this tab" : "Waiting for the proxy engine…"}
+            </p>
+          </div>
+        );
+      }
+    }
     return (
       <iframe ref={(el) => { if (el) { iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; (el as HTMLIFrameElement & { muted: boolean }).muted = tab.muted; } }}
         src={tab.url}
@@ -5526,12 +6252,87 @@ function BrowserApp({
         }}
       />
     );
-  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController]);
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase]);
+
+  // ─── Floating music controller wiring ──────────────────────────────────────
+  const activeMedia = useMemo(() => {
+    const entries = Object.entries(mediaByTab);
+    if (entries.length === 0) return null;
+    const active = mediaByTab[activeTabId];
+    if (active && (active.playing || active.hasMedia)) {
+      return { tabId: activeTabId, state: active };
+    }
+    const playing = entries.find(([, m]) => m.playing);
+    if (playing) return { tabId: playing[0], state: playing[1] };
+    return null;
+  }, [mediaByTab, activeTabId]);
+  const anyMedia = Object.values(mediaByTab).some(m => m.hasMedia || m.playing);
+
+  function sendMediaCommand(tabId: string, action: "toggle" | "next" | "prev") {
+    const el = iframeRefs.current[tabId];
+    try { el?.contentWindow?.postMessage({ type: "unstable-media-control", action }, "*"); } catch { /* ignore */ }
+  }
+  function dismissMediaController() {
+    localStorage.setItem(MEDIA_DISMISS_KEY, "1");
+    setMediaDismissed(true);
+  }
+  function reopenMediaController() {
+    localStorage.removeItem(MEDIA_DISMISS_KEY);
+    setMediaDismissed(false);
+  }
 
   return (
     <>
       {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
       <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
+      <AnimatePresence>
+        {activeMedia && !mediaDismissed && (
+          <MediaController
+            key={activeMedia.tabId}
+            state={activeMedia.state}
+            tabId={activeMedia.tabId}
+            onCommand={a => sendMediaCommand(activeMedia.tabId, a)}
+            onDismiss={dismissMediaController}
+          />
+        )}
+        {mediaDismissed && anyMedia && (
+          <motion.button
+            key="media-reopen"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2 }}
+            onClick={reopenMediaController}
+            aria-label="Open music player"
+            data-tooltip="Music player"
+            style={{
+              position: "fixed",
+              bottom: 16,
+              right: 16,
+              zIndex: 1000001,
+              display: "flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              padding: "0.5rem 0.75rem",
+              background: "radial-gradient(circle 100px at 50% 50%, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 72%), linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: "8px",
+              color: "#e8e8e8",
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: "0.66rem",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.10), 0 10px 28px rgba(0,0,0,0.45)",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+            }}
+          >
+            <Music size={13} style={{ color: "rgba(255,255,255,0.6)" }} />
+            player
+          </motion.button>
+        )}
+      </AnimatePresence>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -5555,13 +6356,13 @@ function BrowserApp({
                       tabEls.push(
                         <div key="split-group" style={{ display: "flex", alignItems: "stretch", height: "100%", background: "#151515", border: "1px solid #262626", borderRadius: "6px", margin: "0 2px", overflow: "hidden", flexShrink: 0 }}>
                           {tabs.filter(t => splitTabIds.has(t.id)).map(t => (
-                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} thumbnail={tabThumbnails[t.id]} />
+                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} onTogglePin={() => handleTogglePin(t.id)} thumbnail={tabThumbnails[t.id]} />
                           ))}
                         </div>
                       );
                       return;
                     }
-                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} thumbnail={tabThumbnails[tab.id]} />);
+                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} onTogglePin={() => handleTogglePin(tab.id)} thumbnail={tabThumbnails[tab.id]} />);
                   });
                   return tabEls;
                 })()}
@@ -5586,29 +6387,6 @@ function BrowserApp({
             <div style={{ width: 1, height: 16, background: "#1e1e1e", margin: "0 0.15rem", flexShrink: 0 }} />
             <div style={{ position: "relative", flex: 1, display: "flex" }}>
               <form onSubmit={handleUrlSubmit} style={{ flex: 1, display: "flex", alignItems: "center" }}>
-              <div ref={urlEngineRef} style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center" }}>
-                <button type="button" onClick={() => { setUrlEngineOpen(!urlEngineOpen); setShowSuggestions(false); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", height: 26, width: 26, padding: 0, borderRadius: "2px", transition: "background 0.1s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#1a1a1a"}
-                  onMouseLeave={e => e.currentTarget.style.background = "none"}
-                  data-tooltip={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`} aria-label={`Search: ${SEARCH_ENGINES[settings.searchEngine]?.name ?? "DuckDuckGo"}`}>
-                  <img src={`https://www.google.com/s2/favicons?domain=${new URL(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com").hostname}&sz=32`} alt="" width={16} height={16} style={{ borderRadius: "2px", flexShrink: 0, opacity: 0.6 }} />
-                </button>
-                <AnimatePresence>
-                  {urlEngineOpen && (
-                    <motion.div initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                      style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 1000, background: "#111", border: "1px solid #222", borderRadius: "6px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 160 }}>
-                      {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
-                        <motion.button key={id} type="button" whileHover={{ background: "#1a1a1a" }} onClick={() => { setSettings({ ...settings, searchEngine: id }); setUrlEngineOpen(false); }}
-                          style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: id === settings.searchEngine ? "#1a1a1a" : "transparent", border: "none", color: id === settings.searchEngine ? "#e8e8e8" : "rgba(255,255,255,0.55)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}>
-                          <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
-                          {engine.name}
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
               <div style={{ position: "relative", flex: 1 }}>
                 <input ref={urlInputRef} value={urlInput} onChange={e => { setUrlInput(e.target.value); setSuggestIndex(-1); }}
                     onFocus={e => { e.target.select(); e.target.style.borderColor = "#444"; }}
@@ -5739,8 +6517,9 @@ function BrowserApp({
             onTabClose={(id) => handleCloseTab(id)}
             onNewTab={handleNewTab}
             verticalTabs={settings.verticalTabs}
-            profile={profile}
-            user={user}
+            onOpenLink={handleOpenLink}
+            sidebarSites={settings.sidebarSites}
+            pinnedTabsToSidebar={settings.pinnedTabsToSidebar}
           />
         )}
 
@@ -5831,6 +6610,45 @@ function BrowserApp({
         )}
       </AnimatePresence>
 
+      {/* Non-blocking session restore prompt. Browsing remains usable while the
+          saved proxy pages wait for the user's choice. */}
+      <AnimatePresence>
+        {restorePending && restoredProxyIds.length > 0 && (
+          <motion.div initial={{ opacity: 0, x: 18, y: 18 }} animate={{ opacity: 1, x: 0, y: 0 }} exit={{ opacity: 0, x: 18, y: 18 }} transition={{ type: "spring", stiffness: 400, damping: 28 }}
+            style={{ position: "fixed", right: 18, bottom: 18, zIndex: 999999, background: "linear-gradient(180deg, #171717, #101010)", border: "1px solid #383838", borderRadius: "12px", padding: "1rem", maxWidth: 360, width: "calc(100vw - 36px)", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}>
+              <p style={{ margin: "0 0 0.35rem", fontSize: "0.6rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", fontWeight: 600 }}>session restore</p>
+              <p style={{ color: "#e8e8e8", margin: "0 0 0.75rem", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                Restore <strong>{restoredProxyIds.length}</strong> saved {restoredProxyIds.length === 1 ? "tab" : "tabs"} from your last visit?
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", maxHeight: 112, overflow: "auto", marginBottom: "0.85rem" }}>
+                {restoredProxyIds.map(id => {
+                  const t = tabs.find(x => x.id === id);
+                  if (!t) return null;
+                  const decoded = t.url ? decodeProxyUrl(t.url) : "";
+                  return (
+                    <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "4px" }}>
+                      {t.favicon ? <img src={t.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0 }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : null}
+                      <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decoded || t.title}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    // Decline: drop the saved proxy URLs, keep the tabs as fresh new tabs
+                    setTabs(prev => prev.map(t => restoredProxyIds.includes(t.id) ? { ...t, url: "", title: "New Tab", favicon: "", history: [], historyIndex: -1, loading: false } : t));
+                    setRestorePending(false);
+                  }}
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>no thanks</motion.button>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                  onClick={() => { setRestorePending(false); }}
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>restore</motion.button>
+              </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {qrUrl && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
@@ -5856,6 +6674,8 @@ function BrowserApp({
       </AnimatePresence>
 
       <ErrorScreen />
+
+      <WelcomeFlow open={welcomeOpen} user={user} onComplete={completeWelcome} />
 
       <div id="unstable-tooltip" className={tooltip ? "visible" : ""} style={{ left: tooltip ? tooltip.x : 0, top: tooltip ? tooltip.y : 0, transform: "translateX(-50%) translateY(-100%)" }}>{tooltip?.text ?? ""}</div>
 

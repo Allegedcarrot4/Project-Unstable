@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, MessageSquare, UserPlus, Search, User, Menu, X } from "lucide-react";
 import { supabase } from "../supabase";
+
+function formatSentTime(timestamp: string) {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "sending…" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
 import type { User as AuthUser } from "@supabase/supabase-js";
 
 interface ExtendedProfile {
@@ -696,7 +701,7 @@ export function DMChat({
                               <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.content}</p>
                             </div>
                             <p style={{ margin: "0.3rem 0 0", fontSize: "0.54rem", color: "rgba(255,255,255,0.28)", textAlign: isOwnMessage ? "right" : "left" }}>
-                              {new Date(msg.created_at).toLocaleTimeString()}
+                              {formatSentTime(msg.created_at)}
                             </p>
                           </div>
                         </div>

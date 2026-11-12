@@ -88,8 +88,13 @@ export function encodeProxyUrl(
 
 export function decodeProxyUrl(url: string, scrController?: ScramjetCtrl | null): string {
   try {
-    if (url.startsWith(SCRAMJET_PREFIX) && scrController) {
-      try { return scrController.decodeUrl(location.origin + url); } catch { }
+    if (url.startsWith(SCRAMJET_PREFIX)) {
+      if (scrController) {
+        try { return scrController.decodeUrl(location.origin + url); } catch { }
+      }
+      // Controller not ready yet (e.g. session restore on first paint) — the
+      // default scramjet codec is plain encodeURIComponent, so decode directly
+      // instead of leaking the raw /ham/... path into the URL bar.
       const encoded = url.slice(SCRAMJET_PREFIX.length);
       return decodeURIComponent(encoded);
     }

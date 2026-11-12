@@ -167,5 +167,186 @@
         filename: a.download || a.href.split("/").pop() || "download",
       }, "*");
     }, true);
+
+    // ─── 7. Media Session Bridge (music controller) ─────────────────────────
+    // Tracks <audio>/<video> playback + navigator.mediaSession metadata and
+    // reports it to the Unstable UI so the floating controller can appear.
+    // The UI sends back { type: "unstable-media-control", action } messages.
+    try {
+      let currentMedia = null;
+      let lastPayload = "";
+      let tickTimer = null;
+
+      function collectMediaState() {
+        const md = navigator.mediaSession && navigator.mediaSession.metadata;
+        let title = "", artist = "", album = "", artwork = "";
+        if (md) {
+          title = md.title || "";
+          artist = md.artist || "";
+          album = md.album || "";
+          try {
+            if (md.artwork && md.artwork.length) {
+              // Prefer the largest declared artwork size
+              let best = md.artwork[0];
+              for (const a of md.artwork) {
+                const s = parseInt(String(a.sizes || "0"), 10) || 0;
+                const bs = parseInt(String(best.sizes || "0"), 10) || 0;
+                if (s > bs) best = a;
+              }
+              artwork = best.src || "";
+            }
+          } catch { /* ignore */ }
+        }
+        if (!title) title = document.title || "";
+        const el = currentMedia;
+        const state = {
+          type: "unstable-media-state",
+          playing: Boolean(el && !el.paused && !el.ended),
+          hasMedia: Boolean(el),
+          title,
+          artist,
+          album,
+          artwork,
+          currentTime: el && isFinite(el.currentTime) ? el.currentTime : 0,
+          duration: el && isFinite(el.duration) ? el.duration : 0,
+        };
+        return state;
+      }
+
+      function postMediaState(force) {
+        const state = collectMediaState();
+        const payload = JSON.stringify(state);
+        // Skip identical heartbeat posts (progress ticks are the only churn)
+        if (!force && payload === lastPayload) return;
+        lastPayload = payload;
+        try { PARENT.postMessage(state, "*"); } catch { /* ignore */ }
+      }
+
+      function startTick() {
+        if (tickTimer) return;
+        tickTimer = setInterval(() => {
+          if (currentMedia && !currentMedia.paused) postMediaState(false);
+        }, 1000);
+      }
+      function stopTick() {
+        if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+      }
+
+      function trackMedia(el) {
+        if (!el || (el.tagName !== "AUDIO" && el.tagName !== "VIDEO")) return;
+        currentMedia = el;
+        postMediaState(true);
+        if (!el.paused) startTick();
+      }
+
+      document.addEventListener("play", (e) => trackMedia(e.target), true);
+      document.addEventListener("pause", (e) => {
+        if (e.target === currentMedia) { stopTick(); postMediaState(true); }
+      }, true);
+      document.addEventListener("ended", (e) => {
+        if (e.target === currentMedia) { stopTick(); postMediaState(true); }
+      }, true);
+      document.addEventListener("emptied", (e) => {
+        if (e.target === currentMedia) { stopTick(); postMediaState(true); }
+      }, true);
+      // MediaSession metadata often lands slightly after the play event
+      document.addEventListener("loadedmetadata", (e) => {
+        if (e.target === currentMedia || !currentMedia) trackMedia(e.target);
+      }, true);
+
+      // Commands from the Unstable UI controller
+      window.addEventListener("message", (e) => {
+        if (e.data && e.data.type === "unstable-media-control" && e.source === PARENT) {
+          const action = e.data.action;
+          if (action === "toggle" || action === "play" || action === "pause") {
+            if (!currentMedia) return;
+            const shouldPlay = action === "play" || (action === "toggle" && currentMedia.paused);
+            if (shouldPlay) {
+              const p = currentMedia.play();
+              if (p && p.catch) p.catch(() => {});
+            } else {
+              currentMedia.pause();
+            }
+            postMediaState(true);
+            if (!currentMedia.paused) startTick(); else stopTick();
+            return;
+          }
+          if (action === "next" || action === "prev") {
+            const key = action === "next" ? "MediaNextTrack" : "MediaPrevTrack";
+            try {
+              document.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+              window.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+            } catch { /* ignore */ }
+            // Sites with visible controls (YouTube, SoundCloud, Spotify…)
+            const selectors = action === "next"
+              ? '[data-testid="control-button-skip-forward"], .ytp-next-button, [aria-label="Next"], [aria-label="Next track"], [title="Next"]'
+              : '[data-testid="control-button-skip-previous"], .ytp-prev-button, [aria-label="Previous"], [aria-label="Previous track"], [title="Previous"]';
+            try {
+              const btn = document.querySelector(selectors);
+              if (btn && typeof btn.click === "function") btn.click();
+            } catch { /* ignore */ }
+          }
+        }
+      });
+    } catch (e) { console.warn("[unstable-inject] media bridge error:", e); }
+
+    // ─── 8. New-tab / window.open containment ────────────────────────────
+    // Proxied pages sometimes call window.open() or use target="_blank" to
+    // escape into a real browser tab (e.g. Google's "next steps" page). Any
+    // such navigation is reported to the Unstable UI, which opens the URL as
+    // a new in-app tab instead.
+    try {
+      function absoluteUrl(url) {
+        try { return new URL(String(url), location.href).href; } catch { return String(url || ""); }
+      }
+      function forwardToApp(url) {
+        const abs = absoluteUrl(url);
+        if (!/^https?:\/\//i.test(abs)) return false;
+        try { PARENT.postMessage({ type: "unstable-open-url", url: abs }, "*"); } catch { /* ignore */ }
+        return true;
+      }
+
+      const origWindowOpen = window.open;
+      window.open = function(url) {
+        if (url && forwardToApp(url)) {
+          // Return a stub so callers that read .closed/.focus() don't throw.
+          try {
+            return { closed: false, focus: function() {}, blur: function() {}, close: function() {}, postMessage: function() {}, location: { href: absoluteUrl(url) } };
+          } catch { return null; }
+        }
+        return origWindowOpen.apply(this, arguments);
+      };
+
+      // Links that ask the browser for a new window/tab.
+      document.addEventListener("click", function(e) {
+        if (e.defaultPrevented || e.button !== 0) return;
+        const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+        if (!a || a.hasAttribute("download")) return;
+        const target = (a.getAttribute("target") || "").toLowerCase();
+        if (!target || target === "_self" || target === "_top" || target === "_parent") return;
+        if (forwardToApp(a.href)) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+
+      // Programmatic anchor clicks (element.click()) with a new-tab target.
+      const origAnchorClick = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function() {
+        const target = (this.getAttribute("target") || "").toLowerCase();
+        if (target && target !== "_self" && target !== "_top" && target !== "_parent" && this.href) {
+          if (forwardToApp(this.href)) return;
+        }
+        return origAnchorClick.apply(this, arguments);
+      };
+
+      // Forms that target a new window stay inside the iframe.
+      document.addEventListener("submit", function(e) {
+        const form = e.target;
+        if (!form || !form.target) return;
+        const t = String(form.target).toLowerCase();
+        if (t && t !== "_self") form.target = "_self";
+      }, true);
+    } catch (e) { console.warn("[unstable-inject] containment error:", e); }
   } catch (e) { console.warn("[unstable-inject] error:", e); }
 })();
