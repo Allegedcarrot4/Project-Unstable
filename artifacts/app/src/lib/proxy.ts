@@ -116,19 +116,6 @@ export function hostnameFromTabUrl(tabUrl: string, scrController?: ScramjetCtrl 
   }
 }
 
-export function isGameModeHost(hostname: string | null, gameModeEnabled: boolean, gameModeSites: string[]): boolean {
-  if (!gameModeEnabled || !hostname) return false;
-  return gameModeSites.some((raw) => {
-    const site = raw.trim().toLowerCase().replace(/^www\./, "");
-    if (!site) return false;
-    return hostname === site || hostname.endsWith("." + site);
-  });
-}
-
-export function isGameModeTabUrl(tabUrl: string, gameModeEnabled: boolean, gameModeSites: string[], scrController?: ScramjetCtrl | null): boolean {
-  return isGameModeHost(hostnameFromTabUrl(tabUrl, scrController), gameModeEnabled, gameModeSites);
-}
-
 export function getDomainFromProxyUrl(url: string, scrController?: ScramjetCtrl | null): string {
   try { return new URL(decodeProxyUrl(url, scrController)).hostname; } catch { return ""; }
 }

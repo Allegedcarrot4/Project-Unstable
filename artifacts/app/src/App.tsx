@@ -25,8 +25,6 @@ import {
   encodeProxyUrl as _encodeProxyUrl,
   decodeProxyUrl as _decodeProxyUrl,
   hostnameFromTabUrl as _hostnameFromTabUrl,
-  isGameModeHost as _isGameModeHost,
-  isGameModeTabUrl as _isGameModeTabUrl,
   getDomainFromProxyUrl as _getDomainFromProxyUrl,
   barePathForNum as _barePathForNum,
   normalizeUrl as _normalizeUrl,
@@ -37,6 +35,13 @@ import type { ScramjetCtrl } from "./lib/proxy";
 import { createWispTransport, getLibCurlInstance } from "./lib/wisp-transport";
 import { createRelay, attachClient, getRelayStats, closeRelay } from "./lib/wisp-relay";
 import { detectSecurly } from "./lib/securly";
+import {
+  detectDeployment,
+  getDeploymentMode,
+  subscribeDeployment,
+  resolveWispUrls,
+  type DeploymentMode,
+} from "./lib/deployment";
 
 
 declare global {
@@ -185,8 +190,6 @@ interface Settings {
   transportMode: TransportMode;
   theme: ThemeId;
   wallpaper: string;
-  gameModeEnabled: boolean;
-  gameModeSites: string[];
   panicUrl: string;
   wispServer: string;
   searchEngine: string;
@@ -229,6 +232,12 @@ interface Tab {
   pinned?: boolean;
   /** Last proxied page before opening an unstable:// section (games, settings, etc.) */
   lastProxyUrl?: string;
+  /**
+   * Live URL reported by the proxied page (redirects, SPA navigation). Used for
+   * the address bar, title and favicon only — `url` stays the iframe src so a
+   * redirect never re-mounts the frame.
+   */
+  currentUrl?: string;
 }
 
 /** Playback state reported by inject.js for a tab's proxied page. */
@@ -301,14 +310,6 @@ const DEFAULT_KEY_SHORTCUTS: KeyShortcuts = {
   tab6: "Alt+6", tab7: "Alt+7", tab8: "Alt+8", tab9: "Alt+9",
   closeTab: "Alt+W", newTab: "Alt+T", addShortcut: "Alt+D",
 };
-const DEFAULT_GAME_MODE_SITES = [
-  "smashkarts.io",
-  "krunker.io",
-  "1v1.lol",
-  "shellshock.io",
-  "agar.io",
-];
-
 const DEFAULT_PANIC_URL = "https://google.com";
 
 const SEARCH_ENGINES: Record<string, { name: string; url: string }> = {
@@ -347,8 +348,6 @@ const DEFAULT_SETTINGS: Settings = {
   transportMode: "wisp",
   theme: "dark",
   wallpaper: "",
-  gameModeEnabled: true,
-  gameModeSites: [...DEFAULT_GAME_MODE_SITES],
   panicUrl: DEFAULT_PANIC_URL,
   wispServer: "",
   searchEngine: "duckduckgo",
@@ -620,14 +619,6 @@ function hostnameFromTabUrl(tabUrl: string): string | null {
   return _hostnameFromTabUrl(tabUrl, scrController);
 }
 
-function isGameModeHost(hostname: string | null, settings: Settings): boolean {
-  return _isGameModeHost(hostname, settings.gameModeEnabled, settings.gameModeSites);
-}
-
-function isGameModeTabUrl(tabUrl: string, settings: Settings): boolean {
-  return _isGameModeTabUrl(tabUrl, settings.gameModeEnabled, settings.gameModeSites, scrController);
-}
-
 function getDomainFromProxyUrl(url: string): string {
   return _getDomainFromProxyUrl(url, scrController);
 }
@@ -673,10 +664,6 @@ function loadSettings(): Settings {
       transportMode: (parsed.transportMode ?? "wisp") as TransportMode,
       theme: (parsed.theme ?? "dark") as ThemeId,
       wallpaper: (parsed.wallpaper ?? "") as string,
-      gameModeEnabled: parsed.gameModeEnabled ?? true,
-      gameModeSites: Array.isArray(parsed.gameModeSites) && parsed.gameModeSites.length
-        ? parsed.gameModeSites
-        : [...DEFAULT_GAME_MODE_SITES],
       panicUrl: typeof parsed.panicUrl === "string" && parsed.panicUrl.trim() ? parsed.panicUrl : DEFAULT_PANIC_URL,
       wispServer: typeof parsed.wispServer === "string" ? parsed.wispServer : "",
       searchEngine: parsed.searchEngine ?? "duckduckgo",
@@ -814,7 +801,7 @@ function makeTab(url = "", incognito = false): Tab {
     title = url.slice("unstable://".length);
     title = title.charAt(0).toUpperCase() + title.slice(1);
   }
-  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false, muted: false, incognito };
+  return { id: Math.random().toString(36).slice(2), title, url, favicon, history: url ? [url] : [], historyIndex: url ? 0 : -1, loading: false, muted: false, incognito, currentUrl: url };
 }
 
 // ─── Proxy state ──────────────────────────────────────────────────────────────
@@ -857,6 +844,11 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     return;
   }
   emitStatus({ phase: "loading" });
+
+  // Resolve deployment mode before choosing transports: frontend-only builds
+  // must use the public Wisp relay list instead of the bundled `/api/wisp/`.
+  const deployment = await detectDeployment();
+  const isFrontendOnly = deployment === "frontend";
 
   try {
     if (!swRegistered) {
@@ -966,61 +958,86 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
 
     const origin = location.origin;
-    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const wispUrls = resolveWispUrls(wispServer, deployment);
     const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
 
     let transportSet = false;
 
-    const trySetTransport = async (url: string, args: any[], label: string) => {
-      if (useEncryption) {
-        // Wrap with enigma-style encryption: add an encryption layer via SW messaging
-        await bareConn.setTransport(url, args);
-        if (navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
-        }
-      } else {
-        await bareConn.setTransport(url, args);
+    const applyEncryption = () => {
+      if (useEncryption && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
       }
+    };
+
+    const trySetTransport = async (url: string, args: any[], label: string) => {
+      await bareConn.setTransport(url, args);
+      applyEncryption();
       transportSet = true;
       emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
     };
 
     const tryWispTransport = async () => {
-      // Wisp transport via bare-mux using @nightnetwork/nova
-      try {
-        const transport = await createWispTransport({ wisp: wispUrl });
-        await bareConn.setTransport("/drift/index.mjs", [transport]);
-        transportSet = true;
-        emitStatus({ phase: "ready", transport: "drift", bare: bareNum });
-      } catch (err) {
-        console.warn("Wisp bare-mux transport failed:", err);
-        throw err;
+      // Wisp transport via bare-mux using @nightnetwork/nova. Try every
+      // configured relay in order before giving up.
+      let lastErr: unknown = null;
+      for (const url of wispUrls) {
+        try {
+          const transport = await createWispTransport({ wisp: url });
+          await bareConn.setTransport("/drift/index.mjs", [transport]);
+          applyEncryption();
+          transportSet = true;
+          emitStatus({ phase: "ready", transport: "drift", bare: bareNum });
+          return;
+        } catch (err) {
+          lastErr = err;
+          console.warn("Wisp bare-mux transport failed:", url, err);
+        }
       }
+      throw lastErr ?? new Error("All Wisp transports failed");
     };
 
-    const tryDrift = async () => trySetTransport("/drift/index.mjs", [{ wisp: wispUrl }], "drift");
-    const tryWisp = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: wispUrl }], "libcurl");
+    // libcurl/epoxy accept a wisp URL per call, so loop the relay list.
+    const tryWithWispList = async (loader: string, label: string) => {
+      let lastErr: unknown = null;
+      for (const url of wispUrls) {
+        try {
+          await bareConn.setTransport(loader, [{ wisp: url }]);
+          applyEncryption();
+          transportSet = true;
+          emitStatus({ phase: "ready", transport: label as any, bare: bareNum });
+          return;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr ?? new Error("All Wisp endpoints failed");
+    };
+
+    const tryDrift = async () => tryWithWispList("/drift/index.mjs", "drift");
+    const tryWisp = async () => tryWithWispList("/libcurl/index.mjs", "libcurl");
     const tryRelay = async () => trySetTransport("/libcurl/index.mjs", [{ wisp: relayUrl }], "libcurl");
-    const tryEpoxy = async () => trySetTransport("/epoxy/index.mjs", [{ wisp: wispUrl }], "epoxy");
+    const tryEpoxy = async () => tryWithWispList("/epoxy/index.mjs", "epoxy");
     const tryBare = async () => trySetTransport(origin + "/api/baremod/index.mjs", [origin + barePathForNum(bareNum)], "bare");
 
     const runMode = mode as TransportMode;
     if (runMode === "bare") {
-      try { await tryBare(); } catch { /* fall through */ }
+      // Frontend-only builds have no bundled bare server, so fall back to Wisp.
+      if (isFrontendOnly) { try { await tryWispTransport(); } catch { /* fall through */ } }
+      else try { await tryBare(); } catch { /* fall through */ }
     } else if (runMode === "epoxy") {
-      try { await tryEpoxy(); } catch { await tryBare(); }
+      try { await tryEpoxy(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else if (runMode === "wisp") {
-      try { await tryWisp(); } catch { await tryBare(); }
+      try { await tryWisp(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else if (runMode === "drift") {
       // Use new Wisp transport (Nova-based) for drift mode
-      try { await tryWispTransport(); } catch { await tryBare(); }
+      try { await tryWispTransport(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else {
       // auto: wisp transport (drift) → wisp → relay → epoxy → bare
       try { await tryWispTransport(); } catch {
         if (!transportSet) try { await tryWisp(); } catch {}
-        if (!transportSet) try { await tryRelay(); } catch {}
+        if (!transportSet && !isFrontendOnly) try { await tryRelay(); } catch {}
         if (!transportSet) try { await tryEpoxy(); } catch {}
-        if (!transportSet) try { await tryBare(); } catch {}
+        if (!transportSet && !isFrontendOnly) try { await tryBare(); } catch {}
       }
     }
 
@@ -1038,63 +1055,79 @@ async function switchBare(n: number, transportMode: TransportMode = "auto", wisp
   try {
     const { BareMuxConnection } = await import("bare-mux-fork");
     if (!bareConn) bareConn = new BareMuxConnection("/baremux/worker.js");
-    const wispUrl = wispServer || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/api/wisp/`;
+    const deployment = await detectDeployment();
+    const isFrontendOnly = deployment === "frontend";
+    const wispUrls = resolveWispUrls(wispServer, deployment);
     const relayUrl = wispRelayUrl || `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.hostname}/api/wisp/`;
     const mode = transportMode || "auto";
-    
+
+    const applyEncryption = () => {
+      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
+    };
+
     const tryWispTransport = async () => {
       // Wisp transport via bare-mux using @nightnetwork/nova
-      try {
-        const transport = await createWispTransport({ wisp: wispUrl });
-        await bareConn.setTransport("/drift/index.mjs", [transport]);
-        emitStatus({ switching: false, transport: "drift", bare: n });
-      } catch (err) {
-        console.warn("Wisp bare-mux transport failed:", err);
-        throw err;
+      let lastErr: unknown = null;
+      for (const url of wispUrls) {
+        try {
+          const transport = await createWispTransport({ wisp: url });
+          await bareConn.setTransport("/drift/index.mjs", [transport]);
+          applyEncryption();
+          emitStatus({ switching: false, transport: "drift", bare: n });
+          return;
+        } catch (err) {
+          lastErr = err;
+          console.warn("Wisp bare-mux transport failed:", url, err);
+        }
       }
+      throw lastErr ?? new Error("All Wisp transports failed");
+    };
+
+    const tryWithWispList = async (loader: string, label: "drift" | "libcurl" | "epoxy") => {
+      let lastErr: unknown = null;
+      for (const url of wispUrls) {
+        try {
+          await bareConn.setTransport(loader, [{ wisp: url }]);
+          applyEncryption();
+          emitStatus({ switching: false, transport: label, bare: n });
+          return;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr ?? new Error("All Wisp endpoints failed");
     };
 
     const tryBare = async () => {
       await bareConn.setTransport(location.origin + "/api/baremod/index.mjs", [location.origin + barePathForNum(n)]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
+      applyEncryption();
       emitStatus({ switching: false, transport: "bare", bare: n });
     };
-    const tryDrift = async () => {
-      await bareConn.setTransport("/drift/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
-      emitStatus({ switching: false, transport: "drift", bare: n });
-    };
-    const tryWisp = async () => {
-      await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
-      emitStatus({ switching: false, transport: "libcurl", bare: n });
-    };
+    const tryDrift = async () => tryWithWispList("/drift/index.mjs", "drift");
+    const tryWisp = async () => tryWithWispList("/libcurl/index.mjs", "libcurl");
     const tryRelay = async () => {
       await bareConn.setTransport("/libcurl/index.mjs", [{ wisp: relayUrl }]);
       emitStatus({ switching: false, transport: "libcurl", bare: n });
     };
-    const tryEpoxy = async () => {
-      await bareConn.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
-      if (useEncryption && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "ENIGMA", data: { enabled: true, key: ENIGMA_KEY } });
-      emitStatus({ switching: false, transport: "epoxy", bare: n });
-    };
+    const tryEpoxy = async () => tryWithWispList("/epoxy/index.mjs", "epoxy");
     const runMode = mode as TransportMode;
     if (runMode === "bare") {
-      await tryBare();
+      if (!isFrontendOnly) await tryBare();
+      else await tryWispTransport();
     } else if (runMode === "epoxy") {
-      try { await tryEpoxy(); } catch { await tryBare(); }
+      try { await tryEpoxy(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else if (runMode === "wisp") {
-      try { await tryWisp(); } catch { await tryBare(); }
+      try { await tryWisp(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else if (runMode === "drift") {
       // Use new Wisp transport (Nova-based) for drift mode
-      try { await tryWispTransport(); } catch { await tryBare(); }
+      try { await tryWispTransport(); } catch { if (!isFrontendOnly) await tryBare(); }
     } else {
       // auto: wisp transport (drift) → wisp → relay → epoxy → bare
       try { await tryWispTransport(); } catch {
         try { await tryWisp(); } catch {}
-        try { await tryRelay(); } catch {}
+        if (!isFrontendOnly) try { await tryRelay(); } catch {}
         try { await tryEpoxy(); } catch {}
-        await tryBare();
+        if (!isFrontendOnly) await tryBare();
       }
     }
     localStorage.setItem(BARE_KEY, String(n));
@@ -1110,43 +1143,24 @@ function useProxyStatus(): ProxyState {
   return s;
 }
 
-// ─── Magic Cursor ─────────────────────────────────────────────────────────────
-
-function GameModeToast({ visible, host }: { visible: boolean; host?: string | null }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          transition={{ duration: 0.2 }}
-          style={{
-            position: "fixed",
-            bottom: 16,
-            right: 16,
-            zIndex: 1000000,
-            padding: "0.55rem 0.85rem",
-            background: "radial-gradient(circle 100px at 50% 50%, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 72%), linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
-            border: "1px solid rgba(255,255,255,0.18)",
-            borderRadius: "2px",
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontSize: "0.68rem",
-            letterSpacing: "0.08em",
-            color: "#e8e8e8",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.10), 0 12px 32px rgba(0,0,0,0.5)",
-            backdropFilter: "blur(16px) saturate(1.1)",
-            WebkitBackdropFilter: "blur(16px) saturate(1.1)",
-            pointerEvents: "none",
-            maxWidth: 280,
-          }}
-        >
-          game mode on{host ? ` · ${host}` : ""}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+/**
+ * Resolves whether this build is running against the full stack (backend
+ * available) or the static frontend only. Returns "detecting" until the probe
+ * finishes.
+ */
+function useDeploymentMode(): "detecting" | DeploymentMode {
+  const [mode, setMode] = useState<"detecting" | DeploymentMode>(() => getDeploymentMode() ?? "detecting");
+  useEffect(() => {
+    if (mode !== "detecting") return;
+    let cancelled = false;
+    const unsubscribe = subscribeDeployment((next) => { if (!cancelled) setMode(next); });
+    void detectDeployment().then((next) => { if (!cancelled) setMode(next); });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [mode]);
+  return mode;
 }
+
+// ─── Magic Cursor ─────────────────────────────────────────────────────────────
 
 // ─── Floating music controller ────────────────────────────────────────────────
 // Pops up when inject.js reports audio playing in any tab. Can be dismissed
@@ -1821,7 +1835,7 @@ const SETTINGS_CODE_STYLE: React.CSSProperties = {
   padding: "0.05rem 0.3rem", color: "rgba(255,255,255,0.5)",
 };
 
-function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void }) {
+function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, frontendOnly = false }: { settings: Settings; onSettingsChange: (s: Settings) => void; onLogout?: () => void; onNavigate?: (url: string) => void; frontendOnly?: boolean }) {
   const [recording, setRecording] = useState<string | null>(null);
   const [customSiteName, setCustomSiteName] = useState("");
   const [customSiteUrl, setCustomSiteUrl] = useState("");
@@ -1872,8 +1886,8 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
     setSiteError("");
   }
 
-  const catIds = ["appearance", "privacy", "gaming", "controls", "advanced"] as const;
-  const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", gaming: "Gaming", controls: "Controls", advanced: "Advanced" };
+  const catIds = ["appearance", "privacy", "controls", "advanced"] as const;
+  const catLabels: Record<string, string> = { appearance: "Appearance", privacy: "Privacy", controls: "Controls", advanced: "Advanced" };
   function scrollToCat(id: string) {
     const el = document.getElementById(`settings-${id}`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2253,73 +2267,6 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       </motion.section>
       </div>
 
-      <div id="settings-gaming">
-      {/* ─── GAMING ─────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
-        <span style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.15)" }}>gaming</span>
-        <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
-      </div>
-
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>game mode</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          On matching sites, restores the normal cursor, hides the custom cursor, and uses faster proxy settings (Scramjet + Bare).
-        </p>
-        <motion.label whileHover={{ color: "rgba(255,255,255,0.8)" }} style={{ display: "flex", alignItems: "center", gap: "0.55rem", marginBottom: "0.85rem", cursor: "pointer", fontSize: "0.72rem", color: "rgba(255,255,255,0.55)" }}>
-          <motion.input
-            type="checkbox"
-            checked={settings.gameModeEnabled}
-            onChange={e => onSettingsChange({ ...settings, gameModeEnabled: e.target.checked })}
-            whileTap={{ scale: 1.2 }}
-          />
-          enable game mode
-        </motion.label>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", margin: "0 0 0.45rem" }}>sites (one hostname per line)</p>
-        <motion.textarea
-          value={settings.gameModeSites.join("\n")}
-          onChange={e => {
-            const sites = e.target.value
-              .split(/\r?\n/)
-              .map(s => s.trim().toLowerCase().replace(/^www\./, ""))
-              .filter(Boolean);
-            onSettingsChange({ ...settings, gameModeSites: sites });
-          }}
-          rows={6}
-          placeholder={"smashkarts.io\nkrunker.io"}
-          whileFocus={{ borderColor: "#555" }}
-          style={{
-            ...inputBase,
-            width: "100%",
-            resize: "vertical",
-            minHeight: 100,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.72rem",
-          }}
-        />
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          type="button"
-          onClick={() => onSettingsChange({ ...settings, gameModeSites: [...DEFAULT_GAME_MODE_SITES] })}
-          style={{
-            marginTop: "0.65rem",
-            background: "none",
-            border: "1px solid #222",
-            color: "rgba(255,255,255,0.35)",
-            padding: "0.35rem 0.75rem",
-            fontSize: "0.6rem",
-            fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            cursor: "pointer",
-            borderRadius: "2px",
-          }}
-        >
-          reset site list
-        </motion.button>
-      </motion.section>
-      </div>
-
       <div id="settings-controls">
       {/* ─── CONTROLS ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", marginTop: 0 }}>
@@ -2460,10 +2407,15 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport mode</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Determines how your traffic is routed. Ordered fastest to slowest: Drift (Rust WASM) &gt; Wisp &gt; Epoxy &gt; Bare HTTP. Auto tries Drift first, then Wisp, then bare HTTP.
+          {frontendOnly
+            ? "Determines how your traffic is routed. Ordered fastest to slowest: Drift (Rust WASM) > Wisp > Epoxy. Auto tries Drift first, then Wisp."
+            : "Determines how your traffic is routed. Ordered fastest to slowest: Drift (Rust WASM) > Wisp > Epoxy > Bare HTTP. Auto tries Drift first, then Wisp, then bare HTTP."}
         </p>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {(["auto", "drift", "wisp", "epoxy", "bare"] as TransportMode[]).map(id => {
+          {(frontendOnly
+            ? (["auto", "drift", "wisp", "epoxy"] as TransportMode[])
+            : (["auto", "drift", "wisp", "epoxy", "bare"] as TransportMode[])
+          ).map(id => {
             const labels: Record<TransportMode, string> = { auto: "Auto", drift: "Drift", wisp: "Wisp", epoxy: "Epoxy", bare: "Bare" };
             const active = settings.transportMode === id;
             return (
@@ -2489,7 +2441,9 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} style={{ marginBottom: "2.5rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp server</p>
         <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Override the default Wisp WebSocket server. Leave empty to use the built-in server at <code style={codeStyle}>/api/wisp/</code>.
+          {frontendOnly
+            ? <>Override the default Wisp WebSocket server. Leave empty to use the public relay list.</>
+            : <>Override the default Wisp WebSocket server. Leave empty to use the built-in server at <code style={codeStyle}>/api/wisp/</code>.</>}
         </p>
         <motion.input
           type="text"
@@ -2501,20 +2455,22 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate }: { se
         />
       </motion.section>
 
-      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
-        <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp relay (fallback)</p>
-        <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
-          Fallback relay server used when primary Wisp fails. Leave empty for default.
-        </p>
-        <motion.input
-          type="text"
-          value={settings.wispRelayUrl}
-          onChange={e => onSettingsChange({ ...settings, wispRelayUrl: e.target.value })}
-          placeholder="ws://your-relay.com/api/wisp/"
-          style={inputBase}
-          whileFocus={{ borderColor: "#555" }}
-        />
-      </motion.section>
+      {!frontendOnly && (
+        <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} style={{ marginBottom: "2.5rem" }}>
+          <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>wisp relay (fallback)</p>
+          <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: "0 0 1rem", lineHeight: 1.5 }}>
+            Fallback relay server used when primary Wisp fails. Leave empty for default.
+          </p>
+          <motion.input
+            type="text"
+            value={settings.wispRelayUrl}
+            onChange={e => onSettingsChange({ ...settings, wispRelayUrl: e.target.value })}
+            placeholder="ws://your-relay.com/api/wisp/"
+            style={inputBase}
+            whileFocus={{ borderColor: "#555" }}
+          />
+        </motion.section>
+      )}
 
       <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} style={{ marginBottom: "2rem" }}>
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>transport encryption</p>
@@ -4573,6 +4529,7 @@ function CollapsedSidebar({
   onOpenLink,
   sidebarSites,
   pinnedTabsToSidebar,
+  frontendOnly = false,
 }: {
   activeUrl: string;
   onNavigate: (url: string) => void;
@@ -4589,6 +4546,8 @@ function CollapsedSidebar({
   sidebarSites?: SidebarSite[];
   /** Surface pinned tabs in the sidebar. */
   pinnedTabsToSidebar?: boolean;
+  /** Static frontend-only build: hide account/AI/chat entries. */
+  frontendOnly?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sidebarW = 56;
@@ -4610,10 +4569,12 @@ function CollapsedSidebar({
     external?: boolean;
   }> = [
     { label: canReturnToBrowse ? "Browse" : "Home", url: "unstable://newtab", icon: House },
-    { label: "Profile", url: "unstable://profile", icon: UserIcon },
+    ...(frontendOnly ? [] : [{ label: "Profile", url: "unstable://profile", icon: UserIcon }]),
     { label: "Games", url: "unstable://games", icon: Gamepad },
-    { label: "AI", url: "unstable://ai", icon: Atom },
-    { label: "Chat", url: "unstable://chat", icon: MessageCircle },
+    ...(frontendOnly ? [] : [
+      { label: "AI", url: "unstable://ai", icon: Atom },
+      { label: "Chat", url: "unstable://chat", icon: MessageCircle },
+    ]),
     ...siteItems,
     { label: "Settings", url: "unstable://settings", icon: Settings },
   ];
@@ -4667,7 +4628,7 @@ function CollapsedSidebar({
       }}
     >
       {/* TOP: profile uses the same subdued treatment as every other sidebar action. */}
-      {!verticalTabs && (
+      {!verticalTabs && !frontendOnly && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem", marginBottom: "0.55rem" }}>
           <motion.button
             whileTap={{ scale: 0.96 }}
@@ -4975,10 +4936,12 @@ function WelcomeOption({ label, description, active, onClick, icon }: { label: s
   );
 }
 
-function WelcomeFlow({ open, user, onComplete }: {
+function WelcomeFlow({ open, user, onComplete, frontendOnly = false }: {
   open: boolean;
   user: User | null;
   onComplete: (choices: WelcomeChoices | null) => void;
+  /** Static frontend-only build: no account step, no account copy. */
+  frontendOnly?: boolean;
 }) {
   const [step, setStep] = useState<"welcome" | "setup">("welcome");
   const [setupStep, setSetupStep] = useState(0);
@@ -4988,7 +4951,9 @@ function WelcomeFlow({ open, user, onComplete }: {
   const [verticalTabs, setVerticalTabs] = useState(false);
   const [pinnedTabsToSidebar, setPinnedTabsToSidebar] = useState(true);
 
-  const setupSteps = ["account", "search engine", "home screen", "tab layout", "pinned tabs"] as const;
+  const setupSteps = (frontendOnly
+    ? ["search engine", "home screen", "tab layout", "pinned tabs"]
+    : ["account", "search engine", "home screen", "tab layout", "pinned tabs"]) as readonly string[];
   const completeSetupChoice = (applyChoice: () => void) => {
     applyChoice();
     if (setupStep < setupSteps.length - 1) {
@@ -5055,7 +5020,9 @@ function WelcomeFlow({ open, user, onComplete }: {
                   Welcome to Unstable
                 </h1>
                 <p style={{ margin: "0 0 0.6rem", fontSize: "0.86rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.65 }}>
-                  A private browser with a built-in proxy. Browse, chat, and play — all inside one window.
+                  {frontendOnly
+                    ? "A private browser with a built-in proxy. Browse and play — all inside one window."
+                    : "A private browser with a built-in proxy. Browse, chat, and play — all inside one window."}
                 </p>
                 <p style={{ margin: "0 0 2rem", fontSize: "0.76rem", color: "rgba(255,255,255,0.32)", lineHeight: 1.6 }}>
                   Unstable is owned and maintained by{" "}
@@ -5137,6 +5104,24 @@ function WelcomeFlow({ open, user, onComplete }: {
   );
 }
 
+/**
+ * Shown for account/AI/chat routes on a static frontend-only deployment, where
+ * the backend that powers those features is not available.
+ */
+function UnavailableFeature({ feature }: { feature: string }) {
+  return (
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.85rem", background: "var(--t-bg, #0d0d0d)", fontFamily: "'Space Grotesk', sans-serif", padding: "2rem", textAlign: "center" }}>
+      <div style={{ padding: "0.45rem 0.9rem", border: "1px solid rgba(255,255,255,0.14)", borderRadius: "999px", background: "rgba(255,255,255,0.04)", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>
+        frontend only
+      </div>
+      <p style={{ margin: 0, fontSize: "0.95rem", color: "#e8e8e8" }}>{feature} is unavailable in this deployment</p>
+      <p style={{ margin: 0, fontSize: "0.7rem", color: "rgba(255,255,255,0.35)", maxWidth: 420, lineHeight: 1.6 }}>
+        This build is served without the Unstable backend, so accounts, chat and AI are disabled. Proxying and every other feature still work.
+      </p>
+    </div>
+  );
+}
+
 function BrowserApp({
   onLogout,
   session,
@@ -5161,6 +5146,10 @@ function BrowserApp({
   if (pathname !== "/" && !isProxyPath) {
     return <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}><NotFound /></Suspense>;
   }
+  // Static frontend-only deployments have no backend, so account/AI/chat
+  // features are unavailable. Everything else keeps working.
+  const deployment = useDeploymentMode();
+  const frontendOnly = deployment === "frontend";
   const initialTabs = useRef(loadTabs()).current;
   const [tabs, setTabs] = useState<Tab[]>(initialTabs.tabs);
   const [activeTabId, setActiveTabId] = useState<string>(initialTabs.activeId || initialTabs.tabs[0].id);
@@ -5227,6 +5216,83 @@ function BrowserApp({
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const tooltipTimer = useRef<number | null>(null);
 
+  /**
+   * Sync a tab's live URL/title/favicon from its (same-origin) proxied iframe.
+   *
+   * Proxied pages navigate internally (redirects and SPA pushState), so the
+   * iframe's real location drifts away from the `src` we last set. We keep the
+   * frame mounted (never touch `src`) and mirror the live URL into `currentUrl`
+   * so the address bar, tab title and favicon stay correct.
+   */
+  const syncTabFromFrame = useCallback((tabId: string) => {
+    const iframe = iframeRefs.current[tabId];
+    if (!iframe) return;
+    let liveHref = "";
+    let liveTitle = "";
+    let liveIcon = "";
+    try {
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument;
+      if (!win || !doc) return;
+      // `location.href` is absolute, but tab URLs and history entries are
+      // same-origin paths ("/ham/…"). Strip our own origin so decodeProxyUrl
+      // recognises the proxy prefix.
+      const rawHref = win.location.href || "";
+      liveHref = rawHref.startsWith(location.origin)
+        ? rawHref.slice(location.origin.length) || "/"
+        : rawHref;
+      liveTitle = doc.title || "";
+      const iconEl = doc.querySelector('link[rel~="icon" i]') as HTMLLinkElement | null;
+      if (iconEl?.href) liveIcon = iconEl.href;
+    } catch {
+      // Cross-origin or mid-navigation: try again on the next tick.
+      return;
+    }
+    if (!liveHref || liveHref === "about:blank") return;
+    let domain = "";
+    try { domain = new URL(decodeProxyUrl(liveHref)).hostname.replace(/^www\./i, "").toLowerCase(); } catch { /* ignore */ }
+    const nextFavicon = liveIcon || (domain ? faviconUrl(domain) : "");
+    setTabs(prev => {
+      let changed = false;
+      const next = prev.map(t => {
+        if (t.id !== tabId) return t;
+        if (!t.url || t.url.startsWith("unstable://")) return t;
+        const sameUrl = (t.currentUrl || t.url) === liveHref;
+        const sameTitle = !liveTitle || t.title === liveTitle;
+        const sameFavicon = !nextFavicon || t.favicon === nextFavicon;
+        if (sameUrl && sameTitle && sameFavicon) return t;
+        changed = true;
+        // Redirects replace the current history entry rather than adding one, so
+        // Back still returns to the page before the redirect.
+        let history = t.history;
+        let historyIndex = t.historyIndex;
+        if (historyIndex >= 0 && history[historyIndex] !== liveHref) {
+          history = [...history];
+          history[historyIndex] = liveHref;
+        }
+        return {
+          ...t,
+          currentUrl: liveHref,
+          title: liveTitle || t.title,
+          favicon: nextFavicon || t.favicon,
+          history,
+          historyIndex,
+        };
+      });
+      // Returning the same array lets React skip the re-render entirely.
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // Poll proxied iframes so redirects and client-side navigation are reflected
+  // even when inject.js is not present (non-HTML responses, older caches, …).
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      for (const tabId of Object.keys(iframeRefs.current)) syncTabFromFrame(tabId);
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [syncTabFromFrame]);
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (toolMenuRef.current && !toolMenuRef.current.contains(e.target as Node)) setToolMenuOpen(false);
@@ -5265,22 +5331,6 @@ function BrowserApp({
   }, [activeTab?.loading, activeTabId]);
   const proxyStatus = useProxyStatus();
   const { setError } = useErrorHandler();
-  const gameModeActive = Boolean(activeTab?.url && isGameModeTabUrl(activeTab.url, settings));
-  const [gameModeToast, setGameModeToast] = useState(false);
-  const lastGameToastHost = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!gameModeActive) {
-      lastGameToastHost.current = null;
-      return;
-    }
-    const host = hostnameFromTabUrl(activeTab!.url);
-    if (!host || lastGameToastHost.current === host) return;
-    lastGameToastHost.current = host;
-    setGameModeToast(true);
-    const timer = window.setTimeout(() => setGameModeToast(false), 3200);
-    return () => window.clearTimeout(timer);
-  }, [gameModeActive, activeTab?.url]);
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
@@ -5309,9 +5359,34 @@ function BrowserApp({
         return;
       }
       if (e.data?.type === "unstable-download" && e.data?.url) {
-        const url = e.data.url;
+        const raw = String(e.data.url);
         const filename = e.data.filename || "download";
+        // Route the download through the proxy so it is fetched from the
+        // unstable/proxy URL instead of hitting the site directly (which would
+        // be blocked by CORS for cross-origin downloads).
+        let url = raw;
+        try {
+          const parsed = new URL(raw, location.origin);
+          if (parsed.protocol === "blob:" || parsed.protocol === "data:") {
+            url = parsed.href;
+          } else if (parsed.origin === location.origin && (parsed.pathname.startsWith(SCRAMJET_PREFIX) || parsed.pathname.startsWith(UV_PREFIX))) {
+            url = parsed.pathname + parsed.search + parsed.hash;
+          } else {
+            const decoded = decodeProxyUrl(parsed.href);
+            url = encodeProxyUrl(decoded, getEffectiveEngine(decoded, settings), settings);
+          }
+        } catch { /* keep the raw URL */ }
         void downloadFile(url, filename);
+        return;
+      }
+      // Proxied page reported a navigation/title change. Read the live location
+      // straight from the iframe (the message carries no trusted URL).
+      if (e.data?.type === "unstable-location-change") {
+        try {
+          for (const [id, el] of Object.entries(iframeRefs.current)) {
+            if (el && el.contentWindow === e.source) { syncTabFromFrame(id); break; }
+          }
+        } catch { /* ignore */ }
         return;
       }
       // Links / window.open() calls from proxied pages that try to escape into
@@ -5354,15 +5429,7 @@ function BrowserApp({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [activeTabId]);
-
-  useEffect(() => {
-    if (!gameModeActive || proxyStatus.phase !== "ready") return;
-    const n = parseInt(localStorage.getItem(BARE_KEY) || "1", 10) || 1;
-    if (proxyStatus.transport !== "bare") {
-      void switchBare(n, "bare", settings.wispServer, settings.wispRelayUrl, settings.transportEncryption, settings);
-    }
-  }, [gameModeActive, proxyStatus.phase, proxyStatus.transport, settings]);
+  }, [activeTabId, syncTabFromFrame, settings]);
 
   useEffect(() => {
     function onRetryTransport() {
@@ -5567,18 +5634,20 @@ function BrowserApp({
 
   useEffect(() => {
     if (!activeTab) return;
-    const display = activeTab.url ? (activeTab.url.startsWith("unstable://") ? activeTab.url : decodeProxyUrl(activeTab.url)) : "";
+    const liveUrl = activeTab.currentUrl || activeTab.url;
+    const display = liveUrl ? (liveUrl.startsWith("unstable://") ? liveUrl : decodeProxyUrl(liveUrl)) : "";
     setUrlInput(display);
-  }, [activeTabId, activeTab?.url]);
+  }, [activeTabId, activeTab?.url, activeTab?.currentUrl]);
 
   useEffect(() => {
-    if (!activeTab?.url || activeTab.url.startsWith("unstable://")) {
+    const liveUrl = activeTab?.currentUrl || activeTab?.url;
+    if (!liveUrl || liveUrl.startsWith("unstable://")) {
       setBookmarked(false);
       return;
     }
-    const url = decodeProxyUrl(activeTab.url);
+    const url = decodeProxyUrl(liveUrl);
     isBookmarked(url).then(setBookmarked);
-  }, [activeTabId, activeTab?.url]);
+  }, [activeTabId, activeTab?.url, activeTab?.currentUrl]);
 
   useEffect(() => {
     clearTimeout(suggestTimer.current);
@@ -5650,8 +5719,9 @@ function BrowserApp({
       if (combo === s.addShortcut) {
         e.preventDefault();
         const activeTab = tabs.find(t => t.id === activeTabId);
-        if (!activeTab?.url || activeTab.url.startsWith("unstable://")) return;
-        const decoded = decodeProxyUrl(activeTab.url);
+        const liveUrl = activeTab?.currentUrl || activeTab?.url;
+        if (!liveUrl || liveUrl.startsWith("unstable://")) return;
+        const decoded = decodeProxyUrl(liveUrl);
         let domain = ""; try { domain = new URL(decoded).hostname; } catch { }
         const sc: Shortcut = { id: Math.random().toString(36).slice(2), name: activeTab.title || domain, url: decoded, favicon: activeTab.favicon || faviconUrl(domain) };
         const updated = [...customShortcuts, sc]; setCustomShortcuts(updated); saveCustomShortcuts(updated);
@@ -5684,6 +5754,7 @@ function BrowserApp({
             return {
               ...tb,
               url: restored,
+              currentUrl: restored,
               title,
               favicon,
               history: hist,
@@ -5693,7 +5764,7 @@ function BrowserApp({
           }));
           return;
         }
-        updateTab(tabId, { url: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
+        updateTab(tabId, { url: "", currentUrl: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
         return;
       }
       if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads", "profile"].includes(page)) {
@@ -5720,6 +5791,7 @@ function BrowserApp({
           return {
             ...tab,
             url: t,
+            currentUrl: t,
             title,
             favicon: "",
             loading: false,
@@ -5737,7 +5809,7 @@ function BrowserApp({
     try {
       domain = new URL(normalized).hostname.replace(/^www\./i, "").toLowerCase();
     } catch { /* ignore */ }
-    const engine = isGameModeHost(domain, settings) ? "scramjet" : settings.proxyEngine;
+    const engine = settings.proxyEngine;
     let proxyUrl: string;
     try {
       proxyUrl = encodeProxyUrl(normalized, engine, settings);
@@ -5755,6 +5827,7 @@ function BrowserApp({
       return {
         ...tab,
         url: proxyUrl,
+        currentUrl: proxyUrl,
         title: domain || "Loading…",
         favicon: domain ? faviconUrl(domain) : "",
         history: hist,
@@ -5770,13 +5843,13 @@ function BrowserApp({
     const tab = tabs.find(t => t.id === activeTabId);
     if (!tab || tab.historyIndex <= 0) return;
     const idx = tab.historyIndex - 1;
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], historyIndex: idx, loading: true } : t));
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], currentUrl: t.history[idx], historyIndex: idx, loading: true } : t));
   }
   function handleForward() {
     const tab = tabs.find(t => t.id === activeTabId);
     if (!tab || tab.historyIndex >= tab.history.length - 1) return;
     const idx = tab.historyIndex + 1;
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], historyIndex: idx, loading: true } : t));
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: t.history[idx], currentUrl: t.history[idx], historyIndex: idx, loading: true } : t));
   }
   function handleReload() {
     if (!iframeRef.current) return;
@@ -5800,6 +5873,7 @@ function BrowserApp({
     const tab: Tab = {
       ...makeTab(normalized),
       url: proxyUrl,
+      currentUrl: proxyUrl,
       title: domain || normalized,
       favicon: domain ? faviconUrl(domain) : "",
       history: [proxyUrl],
@@ -5822,7 +5896,7 @@ function BrowserApp({
         verticalTabs: choices.verticalTabs,
         pinnedTabsToSidebar: choices.pinnedTabsToSidebar,
       }));
-      if (choices.account === "signin" && !user) {
+      if (!frontendOnly && choices.account === "signin" && !user) {
         window.setTimeout(() => handleNavigate("unstable://profile"), 120);
       }
     } else {
@@ -5972,8 +6046,9 @@ function BrowserApp({
   }
 
   function handleShareCurrent() {
-    if (!activeTab.url || activeTab.url.startsWith("unstable://")) return;
-    const decoded = decodeProxyUrl(activeTab.url);
+    const liveUrl = activeTab.currentUrl || activeTab.url;
+    if (!liveUrl || liveUrl.startsWith("unstable://")) return;
+    const decoded = decodeProxyUrl(liveUrl);
     setQrUrl(decoded);
   }
 
@@ -6119,9 +6194,16 @@ function BrowserApp({
         <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
       );
     }
-    if (tab.url === "unstable://ai") return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
-    if (tab.url === "unstable://chat") return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+    if (tab.url === "unstable://ai") {
+      if (frontendOnly) return <UnavailableFeature feature="AI" />;
+      return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
+    }
+    if (tab.url === "unstable://chat") {
+      if (frontendOnly) return <UnavailableFeature feature="Chat" />;
+      return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+    }
     if (tab.url === "unstable://profile") {
+      if (frontendOnly) return <UnavailableFeature feature="Accounts" />;
       if (!user || !profile) {
         return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Profile" />;
       }
@@ -6131,7 +6213,7 @@ function BrowserApp({
         </Suspense>
       );
     }
-    if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={onLogout} onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://settings") return <SettingsPage settings={settings} onSettingsChange={setSettings} onLogout={frontendOnly ? undefined : onLogout} onNavigate={u => handleNavigate(u, tab.id)} frontendOnly={frontendOnly} />;
     if (tab.url === "unstable://games") return (
       <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Games...</div>}>
         <GamesPage onNavigate={u => handleNavigate(u, tab.id)} />
@@ -6175,19 +6257,25 @@ function BrowserApp({
           if (tabAbortRefs.current[tab.id]?.signal.aborted) return;
           
           updateTab(tab.id, { loading: false });
+          // Mirror the live location (post-redirect) into the tab immediately.
+          syncTabFromFrame(tab.id);
           try {
             const iframe = iframeRefs.current[tab.id];
             if (iframe) {
               const doc = iframe.contentDocument;
               const title = doc?.title || tab.title;
+              const liveHrefRaw = (() => { try { return iframe.contentWindow?.location.href || ""; } catch { return ""; } })();
+              const liveHref = liveHrefRaw.startsWith(location.origin)
+                ? liveHrefRaw.slice(location.origin.length) || "/"
+                : liveHrefRaw;
+              const historyUrl = liveHref || tab.url;
               const favicon = tab.favicon || undefined;
-              if (title && tab.url && !tab.url.startsWith("unstable://") && !tab.incognito) {
-                const originalUrl = decodeProxyUrl(tab.url);
-                addHistory(originalUrl || tab.url, title, favicon).catch(() => {});
+              if (title && historyUrl && !historyUrl.startsWith("unstable://") && !tab.incognito) {
+                const originalUrl = decodeProxyUrl(historyUrl);
+                addHistory(originalUrl || historyUrl, title, favicon).catch(() => {});
               }
             }
           } catch {}
-          const gameMode = isGameModeTabUrl(tab.url, settings);
           try {
             const iframe = iframeRefs.current[tab.id];
             if (!iframe) return;
@@ -6195,7 +6283,7 @@ function BrowserApp({
             const doc = iframe.contentDocument;
             if (win && doc) {
               doc.getElementById("unstable-cursor-style")?.remove();
-              const useMagicCursor = settings.magicCursorEnabled && !gameMode;
+              const useMagicCursor = settings.magicCursorEnabled;
               if (useMagicCursor) {
                 const cursorStyle = doc.createElement("style");
                 cursorStyle.id = "unstable-cursor-style";
@@ -6252,7 +6340,7 @@ function BrowserApp({
         }}
       />
     );
-  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase]);
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase, syncTabFromFrame]);
 
   // ─── Floating music controller wiring ──────────────────────────────────────
   const activeMedia = useMemo(() => {
@@ -6283,8 +6371,7 @@ function BrowserApp({
 
   return (
     <>
-      {settings.magicCursorEnabled ? <MagicCursor suppressed={gameModeActive} /> : null}
-      <GameModeToast visible={gameModeToast} host={hostnameFromTabUrl(activeTab?.url ?? "")} />
+      {settings.magicCursorEnabled ? <MagicCursor /> : null}
       <AnimatePresence>
         {activeMedia && !mediaDismissed && (
           <MediaController
@@ -6406,8 +6493,9 @@ function BrowserApp({
                     style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 1.5rem 0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
                   />
                 <button type="button" onClick={async () => {
-                  if (!activeTab?.url || activeTab.url.startsWith("unstable://")) return;
-                  const url = decodeProxyUrl(activeTab.url);
+                  const liveUrl = activeTab?.currentUrl || activeTab?.url;
+                  if (!liveUrl || liveUrl.startsWith("unstable://")) return;
+                  const url = decodeProxyUrl(liveUrl);
                   if (bookmarked) {
                     await removeBookmark(url);
                     setBookmarked(false);
@@ -6520,6 +6608,7 @@ function BrowserApp({
             onOpenLink={handleOpenLink}
             sidebarSites={settings.sidebarSites}
             pinnedTabsToSidebar={settings.pinnedTabsToSidebar}
+            frontendOnly={frontendOnly}
           />
         )}
 
@@ -6675,7 +6764,7 @@ function BrowserApp({
 
       <ErrorScreen />
 
-      <WelcomeFlow open={welcomeOpen} user={user} onComplete={completeWelcome} />
+      <WelcomeFlow open={welcomeOpen} user={user} onComplete={completeWelcome} frontendOnly={frontendOnly} />
 
       <div id="unstable-tooltip" className={tooltip ? "visible" : ""} style={{ left: tooltip ? tooltip.x : 0, top: tooltip ? tooltip.y : 0, transform: "translateX(-50%) translateY(-100%)" }}>{tooltip?.text ?? ""}</div>
 
@@ -6736,6 +6825,8 @@ function LoadingSpinner() {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const deployment = useDeploymentMode();
+  const frontendOnly = deployment === "frontend";
   const [accountLoading, setAccountLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -6777,6 +6868,18 @@ export default function App() {
   }, [accountError, errorDismissed]);
 
   useEffect(() => {
+    // Wait until deployment detection settles before touching Supabase.
+    if (deployment === "detecting") return;
+    // Static frontend-only builds have no backend: skip session restore entirely.
+    if (deployment === "frontend") {
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setAuthContext({ isBanned: false, banReason: null });
+      setAccountLoading(false);
+      return;
+    }
+
     let mounted = true;
 
     async function syncSession(nextSession: Session | null, showLoading = true) {
@@ -6862,10 +6965,10 @@ export default function App() {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [deployment]);
 
   async function logout() {
-    await supabase.auth.signOut();
+    if (!frontendOnly) await supabase.auth.signOut();
     swRegistered = false;
     bareConn = null;
     scrController = null;
@@ -6880,7 +6983,7 @@ export default function App() {
   return (
     <>
       <AnimatePresence mode="wait">
-        {accountLoading ? (
+        {accountLoading || deployment === "detecting" ? (
           <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#000", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />

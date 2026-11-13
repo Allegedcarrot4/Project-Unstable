@@ -348,5 +348,48 @@
         if (t && t !== "_self") form.target = "_self";
       }, true);
     } catch (e) { console.warn("[unstable-inject] containment error:", e); }
+
+    // ─── 9. URL / title change reporting ─────────────────────────────────
+    // Proxied pages navigate internally (server redirects, history.pushState,
+    // hash changes). Tell the Unstable UI whenever the location or title
+    // changes so it can update the address bar, tab title and favicon. The
+    // message intentionally carries no URL: the parent reads the iframe's real
+    // location itself, which cannot be spoofed by page script.
+    try {
+      let lastHref = "";
+      let lastTitle = "";
+      let navTimer = null;
+      function reportLocation() {
+        const href = location.href;
+        const title = document.title || "";
+        if (href === lastHref && title === lastTitle) return;
+        lastHref = href;
+        lastTitle = title;
+        try { PARENT.postMessage({ type: "unstable-location-change" }, "*"); } catch { /* ignore */ }
+      }
+      function scheduleReport() {
+        if (navTimer) return;
+        navTimer = setTimeout(function() { navTimer = null; reportLocation(); }, 60);
+      }
+      try {
+        const origPushState = history.pushState;
+        const origReplaceState = history.replaceState;
+        history.pushState = function() { const r = origPushState.apply(this, arguments); scheduleReport(); return r; };
+        history.replaceState = function() { const r = origReplaceState.apply(this, arguments); scheduleReport(); return r; };
+      } catch { /* history may be locked down */ }
+      window.addEventListener("popstate", scheduleReport);
+      window.addEventListener("hashchange", scheduleReport);
+      document.addEventListener("DOMContentLoaded", scheduleReport);
+      // SPA title updates are the most reliable "navigation settled" signal.
+      try {
+        const titleEl = document.querySelector("title");
+        if (titleEl && typeof MutationObserver === "function") {
+          new MutationObserver(scheduleReport).observe(titleEl, { childList: true, subtree: true, characterData: true });
+        }
+      } catch { /* ignore */ }
+      // Fallback poll: catches redirects/SPA routes that skip the hooks above.
+      setInterval(reportLocation, 1000);
+      reportLocation();
+    } catch (e) { console.warn("[unstable-inject] navigation reporting error:", e); }
   } catch (e) { console.warn("[unstable-inject] error:", e); }
 })();
