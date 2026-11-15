@@ -154,11 +154,21 @@ async function stripResponseHeaders(response) {
   } catch { return response; }
 }
 
+// Absolute URL: proxied documents often carry a <base href="https://site/">
+// (Scramjet/UV insert one), so a root-relative "/inject.js" resolves against
+// the real site and 404s instead of loading from the proxy origin.
+const INJECT_SRC = new URL("inject.js", self.location.href).href;
+
+// Repair double-encoded URL separators left by the rewriter (see s_sw.js).
+function repairUrlEntities(text) {
+  return text.replace(/%26amp%3B/gi, "%26");
+}
+
 function injectFingerprint(response) {
   const ct = response.headers.get("content-type") || "";
   if (!ct.includes("text/html") || !response.body) return response;
   try {
-    const INJECT = '<script src="/inject.js"></script></body>';
+    const INJECT = `<script src="${INJECT_SRC}"></script></body>`;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     let injected = false;
@@ -168,22 +178,32 @@ function injectFingerprint(response) {
       transform(chunk, controller) {
         // Accumulate a small tail window to catch </body> split across chunks
         let text = tail + decoder.decode(chunk, { stream: true });
+        // Repair before splitting so a sequence straddling the tail boundary
+        // is still complete in `text`.
+        text = repairUrlEntities(text);
+        // Hold back enough characters for both `</body>` and `%26amp%3B` to
+        // be split across chunks.
+        tail = text.slice(-16);
+        text = text.slice(0, -16);
         const idx = text.lastIndexOf("</body>");
         if (!injected && idx !== -1) {
           injected = true;
           text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-          tail = "";
-        } else {
-          // Keep last 14 chars as tail in case </body> is split across chunks
-          tail = text.slice(-14);
-          text = text.slice(0, -14);
         }
         if (text) controller.enqueue(encoder.encode(text));
       },
       flush(controller) {
         // Flush remaining tail — if never injected, append script at end
-        let text = tail;
-        if (!injected) text += INJECT;
+        let text = repairUrlEntities(tail);
+        if (!injected) {
+          const idx = text.lastIndexOf("</body>");
+          if (idx !== -1) {
+            injected = true;
+            text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
+          } else {
+            text += INJECT;
+          }
+        }
         if (text) controller.enqueue(encoder.encode(text));
       },
     });

@@ -56,11 +56,25 @@ function isAdRequest(url) {
   } catch { return false; }
 }
 
+// Absolute URL: proxied documents often carry a <base href="https://site/">
+// (Scramjet inserts one), so a root-relative "/inject.js" resolves against the
+// real site and 404s instead of loading from the proxy origin.
+const INJECT_SRC = new URL("inject.js", self.location.href).href;
+
+// The Scramjet HTML rewriter keeps raw entity text (`&amp;`) in URL attributes
+// and then percent-encodes it into the proxy URL (`%26amp%3B`). Google's sign-in
+// form action is built this way; the malformed query makes its identifier POST
+// fail with HTTP 400, which looks like the page freezing after "Next". Repair
+// the double-encoded separators before the document reaches the browser.
+function repairUrlEntities(text) {
+  return text.replace(/%26amp%3B/gi, "%26");
+}
+
 function injectFingerprint(response) {
   const ct = response.headers.get("content-type") || "";
   if (!ct.includes("text/html") || !response.body) return response;
   try {
-    const INJECT = '<script src="/inject.js"></script></body>';
+    const INJECT = `<script src="${INJECT_SRC}"></script></body>`;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     let injected = false;
@@ -69,20 +83,31 @@ function injectFingerprint(response) {
     const transformed = new TransformStream({
       transform(chunk, controller) {
         let text = tail + decoder.decode(chunk, { stream: true });
+        // Repair before splitting so a sequence straddling the tail boundary
+        // is still complete in `text`.
+        text = repairUrlEntities(text);
+        // Hold back enough characters for both `</body>` and `%26amp%3B` to
+        // be split across chunks.
+        tail = text.slice(-16);
+        text = text.slice(0, -16);
         const idx = text.lastIndexOf("</body>");
         if (!injected && idx !== -1) {
           injected = true;
           text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-          tail = "";
-        } else {
-          tail = text.slice(-14);
-          text = text.slice(0, -14);
         }
         if (text) controller.enqueue(encoder.encode(text));
       },
       flush(controller) {
-        let text = tail;
-        if (!injected) text += INJECT;
+        let text = repairUrlEntities(tail);
+        if (!injected) {
+          const idx = text.lastIndexOf("</body>");
+          if (idx !== -1) {
+            injected = true;
+            text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
+          } else {
+            text += INJECT;
+          }
+        }
         if (text) controller.enqueue(encoder.encode(text));
       },
     });

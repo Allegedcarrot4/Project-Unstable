@@ -349,6 +349,34 @@
       }, true);
     } catch (e) { console.warn("[unstable-inject] containment error:", e); }
 
+    // ─── 8b. Entity-encoded form actions ─────────────────────────────────
+    // Sites such as Google's sign-in page write `&amp;` into URL attributes.
+    // The rewriter percent-encodes that as `%26amp%3B`, which turns a valid
+    // query (`...?a=1&dsh=2`) into a malformed one (`...?a=1&amp;dsh=2`) and
+    // makes the POST fail (HTTP 400). The service worker repairs the served
+    // HTML; this covers forms created or mutated dynamically after load.
+    // Only actions that actually contain the entity text are touched.
+    try {
+      const fixEntityUrl = (v) =>
+        typeof v === "string" && /&amp;/i.test(v) ? v.replace(/&amp;/gi, "&") : v;
+      const fixForm = (form, submitter) => {
+        if (!form || form.tagName !== "FORM") return;
+        const action = form.getAttribute("action");
+        if (action && /&amp;/i.test(action)) form.setAttribute("action", fixEntityUrl(action));
+        if (submitter) {
+          const fa = submitter.getAttribute("formaction");
+          if (fa && /&amp;/i.test(fa)) submitter.setAttribute("formaction", fixEntityUrl(fa));
+        }
+      };
+      document.addEventListener("submit", (e) => fixForm(e.target, e.submitter), true);
+      // form.submit() does not fire a submit event, so patch it as well.
+      const origFormSubmit = HTMLFormElement.prototype.submit;
+      HTMLFormElement.prototype.submit = function() {
+        fixForm(this, null);
+        return origFormSubmit.apply(this, arguments);
+      };
+    } catch (e) { console.warn("[unstable-inject] form action repair error:", e); }
+
     // ─── 9. URL / title change reporting ─────────────────────────────────
     // Proxied pages navigate internally (server redirects, history.pushState,
     // hash changes). Tell the Unstable UI whenever the location or title
