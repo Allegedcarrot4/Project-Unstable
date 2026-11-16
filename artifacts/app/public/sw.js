@@ -84,6 +84,52 @@ function stripTrackingParams(url) {
   } catch { return url; }
 }
 
+// ─── Download interception ───────────────────────────────────────────────────
+// A proxied page can start a download without an `<a download>` anchor: links
+// and redirects that answer with `Content-Disposition: attachment` are plain
+// navigations. Those are handed to the download manager instead of letting the
+// iframe render or save binary data, so the file is streamed through the proxy
+// and saved by the browser Unstable runs in.
+
+function isDocumentNavigation(request) {
+  return request.mode === "navigate" || request.destination === "document";
+}
+
+function isAttachmentResponse(response) {
+  try { return /attachment/i.test(response.headers.get("content-disposition") || ""); }
+  catch { return false; }
+}
+
+function parseDispositionFilename(header) {
+  if (!header) return "";
+  const extended = /filename\*\s*=\s*([^;]+)/i.exec(header);
+  if (extended) {
+    const raw = extended[1].trim().replace(/^["']|["']$/g, "");
+    const encoded = /^[^']*'[^']*'(.*)$/.exec(raw);
+    const value = encoded ? encoded[1] : raw;
+    try { return decodeURIComponent(value); } catch { return value; }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(header);
+  if (plain) return (plain[2] ?? plain[3] ?? "").trim();
+  return "";
+}
+
+async function reportDownloadToClients(url, response) {
+  const info = {
+    type: "unstable-download-detected",
+    url,
+    filename: parseDispositionFilename(response.headers.get("content-disposition") || ""),
+    size: Number(response.headers.get("content-length")) || 0,
+    mimeType: response.headers.get("content-type") || "",
+  };
+  try {
+    const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clientList) {
+      try { client.postMessage(info); } catch { /* client gone */ }
+    }
+  } catch { /* ignore */ }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function isBareRequest(url) { return url.includes("/api/cdn"); }
@@ -168,43 +214,24 @@ function injectFingerprint(response) {
   const ct = response.headers.get("content-type") || "";
   if (!ct.includes("text/html") || !response.body) return response;
   try {
-    const INJECT = `<script src="${INJECT_SRC}"></script></body>`;
+    const INJECT = `<script src="${INJECT_SRC}"></script>`;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    let injected = false;
-    let tail = "";
 
+    // The tag is appended once the stream ends instead of being spliced in
+    // before `</body>`. That string also occurs inside inline scripts and
+    // comments (Google's installer page embeds `"</body></html>"` in its
+    // DOMPurify bundle), and a streamed transform only ever sees the current
+    // chunk, so the splice landed inside the script: its `</script>` cut the
+    // element short and the rest of the script rendered as page text.
     const transformed = new TransformStream({
       transform(chunk, controller) {
-        // Accumulate a small tail window to catch </body> split across chunks
-        let text = tail + decoder.decode(chunk, { stream: true });
-        // Repair before splitting so a sequence straddling the tail boundary
-        // is still complete in `text`.
-        text = repairUrlEntities(text);
-        // Hold back enough characters for both `</body>` and `%26amp%3B` to
-        // be split across chunks.
-        tail = text.slice(-16);
-        text = text.slice(0, -16);
-        const idx = text.lastIndexOf("</body>");
-        if (!injected && idx !== -1) {
-          injected = true;
-          text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-        }
+        const text = repairUrlEntities(decoder.decode(chunk, { stream: true }));
         if (text) controller.enqueue(encoder.encode(text));
       },
       flush(controller) {
-        // Flush remaining tail — if never injected, append script at end
-        let text = repairUrlEntities(tail);
-        if (!injected) {
-          const idx = text.lastIndexOf("</body>");
-          if (idx !== -1) {
-            injected = true;
-            text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-          } else {
-            text += INJECT;
-          }
-        }
-        if (text) controller.enqueue(encoder.encode(text));
+        const text = repairUrlEntities(decoder.decode());
+        controller.enqueue(encoder.encode(text + INJECT));
       },
     });
 
@@ -225,10 +252,7 @@ function isLocalApiOrNavigationRequest(url) {
       return false;
     }
     return (
-      u.mode === "navigate" ||
       p.startsWith("/api/") ||
-      p.startsWith("/service/") ||
-      p.startsWith("/ham/") ||
       p.startsWith("/baremux/") ||
       p.startsWith("/return") ||
       p.startsWith("/eggs/") ||
@@ -279,6 +303,15 @@ async function handleRequest(event) {
     response = await processBareResponseCookies(response, bareUrl || reqUrl);
   }
 
+  // Hand attachment navigations to the manager and keep the current page: a 204
+  // leaves the document in place, whereas returning the body would either save
+  // the file natively (no progress, no entry) or render binary garbage.
+  if (isDocumentNavigation(event.request) && isAttachmentResponse(response)) {
+    await reportDownloadToClients(event.request.url, response);
+    try { response.body?.cancel(); } catch { /* already consumed */ }
+    return new Response(null, { status: 204 });
+  }
+
   return response;
 }
 
@@ -286,8 +319,15 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(handleRequest(event));
 });
 
+// Take over as soon as a new worker installs: otherwise the previous build keeps
+// proxying (and keeps its bugs) until every tab of the app is closed.
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("message", async (event) => {
   const { type, data } = event.data || {};
+  if (type === "SKIP_WAITING") { self.skipWaiting(); return; }
   if (type === "ADBLOCK") { adblockEnabled = !!data?.enabled; if (!data?.enabled) adblockCount = 0; }
   if (type === "GET_ADBLOCK_COUNT" && event.ports?.[0]) {
     event.ports[0].postMessage({ count: adblockCount });

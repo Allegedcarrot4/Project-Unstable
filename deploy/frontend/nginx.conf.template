@@ -9,6 +9,16 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Compress text assets on the fly. The proxy payload is large and static
+    # (eggs/scramjet.all.js ~215 KB, uv.bundle.js ~373 KB, inject.js ~24 KB), so
+    # this cuts first-load transfer roughly 3-4x for zero behavioural change.
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml application/javascript application/json
+               application/manifest+json image/svg+xml application/wasm;
+
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
@@ -40,6 +50,12 @@ server {
 
     location = /index.html {
         expires -1;
+    }
+
+    # 332 KB public-suffix list, refetched at most weekly instead of every load.
+    location = /psl.dat {
+        try_files $uri =404;
+        expires 7d;
     }
 
     location ~* \.(?:js|mjs|css|woff2?|png|jpe?g|svg|webp|gif|wasm)$ {

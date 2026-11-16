@@ -5,6 +5,10 @@ import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus } from "lucide-react";
 
 import { ErrorScreen } from "./components/ErrorScreen";
+import { DownloadIndicator } from "./components/DownloadIndicator";
+import { DownloadsPanel } from "./components/DownloadsPanel";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./components/ui/dialog";
+import { AIMessageBody } from "./components/AIMessageBody";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const GamesPage = lazy(() => import("./components/GamesPage").then(m => ({ default: m.GamesPage })));
@@ -15,7 +19,7 @@ import { makeCodec } from "./lib/codec";
 import { useErrorHandler } from "./lib/errorContext";
 import { addHistory, getHistory, clearHistory, deleteHistoryEntry, searchHistory } from "./lib/history";
 import { getBookmarks, addBookmark, removeBookmark, searchBookmarks, isBookmarked } from "./lib/bookmarks";
-import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload, downloadFile, retryDownload, cancelDownload, formatBytes, formatSpeed, subscribe, type DownloadEntry } from "./lib/downloads";
+import { getDownloads, addDownload, removeDownload, clearDownloads, updateDownload, startDownload, setDownloadTransport, retryDownload, cancelDownload, formatBytes, formatSpeed, deriveFilename, saveBlob, subscribe, type DownloadEntry } from "./lib/downloads";
 import { loadWidgetConfig, saveWidgetConfig, toggleWidget, getGreeting, QUOTES, type WidgetType, type WidgetConfig, type Quote } from "./lib/widgets";
 import {
   faviconUrl as _faviconUrl,
@@ -827,6 +831,49 @@ let swRegistered = false;
 let bareConn: any = null;
 let scrController: ScramjetCtrl | null = null;
 
+/**
+ * Scramjet owns the `$scramjet` database and creates its object stores from an
+ * upgrade handler at version 1. Anything else that opens the same name/version
+ * first (the PSL cache below, or a reload racing the controller) creates an
+ * empty version-1 database instead, so Scramjet's upgrade never runs and every
+ * proxied request fails with "object store not found". Create the full schema
+ * here, and drop a storeless database so it can be rebuilt.
+ */
+const SCRAMJET_STORES = ["config", "cookies", "redirectTrackers", "referrerPolicies", "publicSuffixList"] as const;
+
+function openScramjetDB(): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open("$scramjet", 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const store of SCRAMJET_STORES) {
+        if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function ensureScramjetDB(): Promise<void> {
+  const db = await openScramjetDB();
+  const complete = SCRAMJET_STORES.every((store) => db.objectStoreNames.contains(store));
+  db.close();
+  if (complete) return;
+  // A partial or storeless version-1 database cannot be upgraded by Scramjet
+  // itself, because its open() uses the same version. Drop it so the schema can
+  // be rebuilt; if another tab still holds a connection the delete stays queued
+  // and the next load finishes the job.
+  const deleted = await new Promise<boolean>((resolve) => {
+    const del = indexedDB.deleteDatabase("$scramjet");
+    del.onsuccess = () => resolve(true);
+    del.onerror = () => resolve(false);
+    del.onblocked = () => resolve(false);
+  });
+  if (!deleted) return;
+  (await openScramjetDB()).close();
+}
+
 type SL = (s: ProxyState) => void;
 const statusListeners = new Set<SL>();
 let currentStatus: ProxyState = { ...defaultProxyState };
@@ -854,7 +901,21 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     if (!swRegistered) {
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const r of regs) { if (r.active?.scriptURL?.includes("uv.sw.js")) await r.unregister(); }
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      const swReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      // A freshly installed worker otherwise waits for every tab to close, so a
+      // proxy fix stays inactive across reloads. Ask it to take over instead.
+      const activateWaitingWorker = () => {
+        if (swReg.waiting) swReg.waiting.postMessage({ type: "SKIP_WAITING" });
+      };
+      activateWaitingWorker();
+      swReg.addEventListener("updatefound", () => {
+        const installing = swReg.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed") activateWaitingWorker();
+        });
+      });
+      void swReg.update().catch(() => { /* offline or blocked — keep the current worker */ });
       await navigator.serviceWorker.ready;
       swRegistered = true;
     }
@@ -874,6 +935,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
     }
     const { ScramjetController } = window.$scramjetLoadController();
     if (!scrController) {
+      await ensureScramjetDB();
       scrController = new ScramjetController({
         prefix: SCRAMJET_PREFIX,
         files: {
@@ -912,7 +974,7 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
         }).filter((l: string) => l && !l.startsWith("//"));
         await new Promise<void>((resolve, reject) => {
           const tx = db.transaction(PSL_KEY, "readwrite");
-          const req = tx.objectStore(PSL_KEY).put({ data, expiry: Date.now() + 36e5 }, PSL_KEY);
+          const req = tx.objectStore(PSL_KEY).put({ data, expiry: Date.now() + 7 * 24 * 36e5 }, PSL_KEY);
           req.onsuccess = () => resolve();
           req.onerror = () => reject(req.error);
         });
@@ -1480,8 +1542,11 @@ function StatusBar({ visible, leftOffset = 12, transportMode = "auto", wispServe
 
 function AccountAuthScreen({
   onAuthenticated,
+  embedded = false,
 }: {
   onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
+  /** Rendered inside a dialog: drop the full-page background and centering. */
+  embedded?: boolean;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [username, setUsername] = useState("");
@@ -1607,9 +1672,13 @@ function AccountAuthScreen({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
+      style={embedded
+        ? { width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk', sans-serif" }
+        : { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}
     >
-      <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+      {!embedded && (
+        <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+      )}
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -2703,6 +2772,35 @@ function InlineAuthScreen({
   );
 }
 
+// ─── Sign-in dialog ───────────────────────────────────────────────────────────
+// AI/Chat/Profile requests from a signed-out session open this over whatever is
+// on screen instead of replacing the page with a full-screen auth view.
+
+function AuthDialog({
+  prompt,
+  onClose,
+  onAuthenticated,
+}: {
+  prompt: { url: string; tabId: string; feature: string } | null;
+  onClose: () => void;
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
+}) {
+  const feature = prompt?.feature ?? "this feature";
+  const srOnly: React.CSSProperties = { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" };
+  return (
+    <Dialog open={!!prompt} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        className="gap-0 p-0"
+        style={{ background: "var(--t-bg)", border: "1px solid #232323", borderRadius: "6px", width: "calc(100% - 2rem)", maxWidth: "400px", padding: "1.75rem 1.5rem", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 24px 64px rgba(0,0,0,0.65)" }}
+      >
+        <DialogTitle style={srOnly}>Sign in to Unstable</DialogTitle>
+        <DialogDescription style={srOnly}>Sign in or create an account to use {feature}.</DialogDescription>
+        <AccountAuthScreen embedded onAuthenticated={onAuthenticated} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── AI page ──────────────────────────────────────────────────────────────────
 
 function AIPage({ user, profile, onAuthenticated }: { user: User | null; profile: Profile | null; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
@@ -3301,9 +3399,17 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
                               <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isUser ? "rgba(232,236,248,0.84)" : "rgba(120,170,255,0.6)" }}>
                                 {isUser ? "you" : "AI"}
                               </p>
-                              <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                                {message.content}
-                              </p>
+                              {isUser ? (
+                                <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                  {message.content}
+                                </p>
+                              ) : (
+                                <AIMessageBody
+                                  content={message.content}
+                                  interactive={index === messages.length - 1 && !loading}
+                                  onAnswer={answer => void sendMessage(answer)}
+                                />
+                              )}
                             </div>
                           )}
                           {/* Hover actions */}
@@ -5160,6 +5266,8 @@ function BrowserApp({
   ).current;
   const [restorePending, setRestorePending] = useState<boolean>(() => restoredProxyIds.length > 0);
   const [urlInput, setUrlInput] = useState("");
+  // Pending AI/Chat/Profile navigation waiting on sign-in; shown in a dialog.
+  const [authPrompt, setAuthPrompt] = useState<{ url: string; tabId: string; feature: string } | null>(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [adblockCount, setAdblockCount] = useState(0);
   const [split, setSplit] = useState<{ other: string; ratio: number; direction: "horizontal" | "vertical" } | null>(() => {
@@ -5192,6 +5300,8 @@ function BrowserApp({
   const [customShortcuts, setCustomShortcuts] = useState<Shortcut[]>(loadCustomShortcuts);
   const [devToolsOpen, setDevToolsOpen] = useState<Record<string, boolean>>({});
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const [downloadsPanelOpen, setDownloadsPanelOpen] = useState(false);
+  const downloadsPanelRef = useRef<HTMLDivElement>(null);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [qrCopied, setQrCopied] = useState(false);
@@ -5296,6 +5406,7 @@ function BrowserApp({
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (toolMenuRef.current && !toolMenuRef.current.contains(e.target as Node)) setToolMenuOpen(false);
+      if (downloadsPanelRef.current && !downloadsPanelRef.current.contains(e.target as Node)) setDownloadsPanelOpen(false);
     }
     function handleBlur() { setToolMenuOpen(false); }
     document.addEventListener("mousedown", handleClick);
@@ -5332,6 +5443,97 @@ function BrowserApp({
   const proxyStatus = useProxyStatus();
   const { setError } = useErrorHandler();
 
+  // ─── Proxied downloads ─────────────────────────────────────────────────────
+  // The bytes have to come from inside the proxied frame: only that frame's
+  // service worker can resolve a proxy URL, so `fetch` from this window 404s on
+  // /ham/ and /service/. The app registers the download, asks the frame to stream
+  // it, reassembles the chunks and hands the file to the host browser.
+  const frameTransfers = useRef(new Map<string, {
+    chunks: BlobPart[];
+    received: number;
+    filename: string;
+    mime: string;
+    lastUpdate: number;
+    lastBytes: number;
+    lastTime: number;
+  }>());
+
+  const postToTabFrame = useCallback((tabId: string | undefined, message: unknown) => {
+    if (!tabId) return false;
+    const frame = iframeRefs.current[tabId] || (tabId === activeTabId ? iframeRef.current : null);
+    const win = frame?.contentWindow;
+    if (!win) return false;
+    try { win.postMessage(message, "*"); return true; } catch { return false; }
+  }, [activeTabId]);
+
+  useEffect(() => {
+    setDownloadTransport((entry) => {
+      frameTransfers.current.set(entry.id, {
+        chunks: [], received: 0, filename: entry.filename, mime: "",
+        lastUpdate: 0, lastBytes: 0, lastTime: Date.now(),
+      });
+      const sent = postToTabFrame(entry.tabId, {
+        type: "unstable-download-fetch",
+        requestId: entry.id,
+        url: entry.url,
+        filename: entry.filename,
+      });
+      if (!sent) {
+        frameTransfers.current.delete(entry.id);
+        updateDownload(entry.id, {
+          state: "error",
+          errorMessage: "Open the page that started this download, then retry.",
+          completedAt: Date.now(),
+        });
+      }
+    });
+    return () => setDownloadTransport(null);
+  }, [postToTabFrame]);
+
+  /**
+   * Normalises a download URL reported by a proxied page (or by a service worker)
+   * and registers it with the manager, which asks the frame for the bytes.
+   */
+  const beginProxyDownload = useCallback((rawUrl: string, rawFilename: string, source?: MessageEventSource | null) => {
+    const candidate = String(rawUrl || "").trim();
+    if (!candidate || /^(javascript|mailto|tel):/i.test(candidate)) return;
+
+    let tabId = activeTabId;
+    if (source) {
+      for (const [id, el] of Object.entries(iframeRefs.current)) {
+        if (el && el.contentWindow === source) { tabId = id; break; }
+      }
+    }
+
+    // Match the engine of the frame that initiated it: a proxy URL is only
+    // routable by the service worker controlling that frame's scope.
+    const tabUrl = tabs.find(t => t.id === tabId)?.url ?? "";
+    const engine: ProxyEngine = tabUrl.startsWith(UV_PREFIX)
+      ? "uv"
+      : tabUrl.startsWith(SCRAMJET_PREFIX)
+        ? "scramjet"
+        : getEffectiveEngine(tabUrl, settings);
+
+    let url = candidate;
+    let filename = String(rawFilename || "").trim();
+    try {
+      const parsed = new URL(candidate, location.origin);
+      if (parsed.protocol === "blob:" || parsed.protocol === "data:") {
+        url = parsed.href;
+      } else if (parsed.origin === location.origin && (parsed.pathname.startsWith(SCRAMJET_PREFIX) || parsed.pathname.startsWith(UV_PREFIX))) {
+        url = parsed.pathname + parsed.search + parsed.hash;
+      } else {
+        const decoded = decodeProxyUrl(parsed.href) || parsed.href;
+        // No settings here on purpose: the engine must match this frame's service
+        // worker, not the site's configured preference.
+        url = encodeProxyUrl(decoded, engine);
+        if (!filename) filename = deriveFilename(decoded);
+      }
+    } catch { /* keep the raw URL and given filename */ }
+
+    startDownload(url, filename || deriveFilename(url), tabId);
+  }, [activeTabId, settings, tabs]);
+
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       if (e.data?.type === "unstable-permission-request") {
@@ -5359,24 +5561,63 @@ function BrowserApp({
         return;
       }
       if (e.data?.type === "unstable-download" && e.data?.url) {
-        const raw = String(e.data.url);
-        const filename = e.data.filename || "download";
-        // Route the download through the proxy so it is fetched from the
-        // unstable/proxy URL instead of hitting the site directly (which would
-        // be blocked by CORS for cross-origin downloads).
-        let url = raw;
-        try {
-          const parsed = new URL(raw, location.origin);
-          if (parsed.protocol === "blob:" || parsed.protocol === "data:") {
-            url = parsed.href;
-          } else if (parsed.origin === location.origin && (parsed.pathname.startsWith(SCRAMJET_PREFIX) || parsed.pathname.startsWith(UV_PREFIX))) {
-            url = parsed.pathname + parsed.search + parsed.hash;
-          } else {
-            const decoded = decodeProxyUrl(parsed.href);
-            url = encodeProxyUrl(decoded, getEffectiveEngine(decoded, settings), settings);
+        beginProxyDownload(String(e.data.url), String(e.data.filename || ""), e.source);
+        return;
+      }
+      // Chunked transfer from the proxied frame that owns the bytes.
+      if (typeof e.data?.requestId === "string" && typeof e.data?.type === "string" && e.data.type.startsWith("unstable-download-")) {
+        const requestId = e.data.requestId as string;
+        const transfer = frameTransfers.current.get(requestId);
+        const now = Date.now();
+        if (e.data.type === "unstable-download-meta") {
+          if (!transfer) return;
+          transfer.filename = String(e.data.filename || transfer.filename);
+          transfer.mime = String(e.data.mime || transfer.mime || "");
+          const patch: Partial<DownloadEntry> = { filename: transfer.filename };
+          if (transfer.mime) patch.mimeType = transfer.mime;
+          if (typeof e.data.total === "number" && e.data.total > 0) patch.totalBytes = e.data.total;
+          updateDownload(requestId, patch);
+          return;
+        }
+        if (e.data.type === "unstable-download-chunk") {
+          if (!transfer || !(e.data.chunk instanceof ArrayBuffer)) return;
+          transfer.chunks.push(e.data.chunk);
+          transfer.received += e.data.chunk.byteLength;
+          if (now - transfer.lastUpdate > 200) {
+            const elapsed = (now - transfer.lastTime) / 1000;
+            const speed = elapsed > 0 ? Math.round((transfer.received - transfer.lastBytes) / elapsed) : 0;
+            transfer.lastUpdate = now;
+            transfer.lastBytes = transfer.received;
+            transfer.lastTime = now;
+            updateDownload(requestId, { downloadedBytes: transfer.received, speedBytesPerSec: speed });
           }
-        } catch { /* keep the raw URL */ }
-        void downloadFile(url, filename);
+          return;
+        }
+        if (e.data.type === "unstable-download-end") {
+          if (!transfer) return;
+          frameTransfers.current.delete(requestId);
+          // The user may have cancelled while the frame was still streaming.
+          if (!getDownloads().some(d => d.id === requestId)) return;
+          const blob = new Blob(transfer.chunks, { type: transfer.mime || undefined });
+          saveBlob(blob, transfer.filename || "download");
+          updateDownload(requestId, {
+            state: "complete",
+            downloadedBytes: blob.size,
+            totalBytes: blob.size,
+            speedBytesPerSec: 0,
+            completedAt: Date.now(),
+          });
+          return;
+        }
+        if (e.data.type === "unstable-download-error") {
+          frameTransfers.current.delete(requestId);
+          updateDownload(requestId, {
+            state: "error",
+            errorMessage: String(e.data.message || "Download failed"),
+            completedAt: Date.now(),
+          });
+          return;
+        }
         return;
       }
       // Proxied page reported a navigation/title change. Read the live location
@@ -5427,9 +5668,22 @@ function BrowserApp({
         return;
       }
     }
+    // Attachment responses captured by the service workers (links/redirects that
+    // save a file without an `<a download>` attribute).
+    function handleServiceWorkerMessage(event: MessageEvent) {
+      const data = event.data as { type?: string; url?: string; filename?: string } | null;
+      if (data?.type !== "unstable-download-detected" || !data.url) return;
+      beginProxyDownload(data.url, data.filename || "");
+    }
+
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [activeTabId, syncTabFromFrame, settings]);
+    const supportsServiceWorker = "serviceWorker" in navigator;
+    if (supportsServiceWorker) navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (supportsServiceWorker) navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+    };
+  }, [activeTabId, syncTabFromFrame, settings, beginProxyDownload]);
 
   useEffect(() => {
     function onRetryTransport() {
@@ -5522,6 +5776,7 @@ function BrowserApp({
         transport: settings.transportMode,
         encoding: settings.codec,
         transportEncryption: settings.transportEncryption,
+        engine: settings.proxyEngine === "uv" ? "ultraviolet" : settings.proxyEngine === "scramjet" ? "scramjet" : undefined,
       });
     }
   }, [proxyStatus.phase, proxyStatus.message, settings.transportMode, settings.codec, settings.transportEncryption, setError]);
@@ -5733,7 +5988,14 @@ function BrowserApp({
 
   const updateTab = useCallback((id: string, u: Partial<Tab>) => setTabs(prev => prev.map(t => t.id === id ? { ...t, ...u } : t)), []);
 
-  function handleNavigate(url: string, tabId = activeTabId) {
+  function completeAuthPrompt(payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) {
+    const pending = authPrompt;
+    setAuthPrompt(null);
+    onAuthenticated(payload);
+    if (pending) handleNavigate(pending.url, pending.tabId, { skipAuthGate: true });
+  }
+
+  function handleNavigate(url: string, tabId = activeTabId, opts?: { skipAuthGate?: boolean }) {
     const t = url.trim();
     if (t.startsWith("unstable://")) {
       const page = t.slice("unstable://".length);
@@ -5768,6 +6030,13 @@ function BrowserApp({
         return;
       }
       if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads", "profile"].includes(page)) {
+        // Signed out: prompt in place instead of opening the page, then follow
+        // through to it once authentication succeeds.
+        const needsAuth = page === "ai" || page === "chat" || page === "profile";
+        if (needsAuth && !frontendOnly && !opts?.skipAuthGate && (!user || !profile || (page === "chat" && !session))) {
+          setAuthPrompt({ url: t, tabId, feature: page === "ai" ? "AI" : page === "chat" ? "Chat" : "Profile" });
+          return;
+        }
         const titles: Record<string, string> = {
           settings: "Settings",
           credits: "Credits",
@@ -6372,6 +6641,7 @@ function BrowserApp({
   return (
     <>
       {settings.magicCursorEnabled ? <MagicCursor /> : null}
+      <DownloadIndicator onOpen={() => handleNavigate("unstable://downloads")} />
       <AnimatePresence>
         {activeMedia && !mediaDismissed && (
           <MediaController
@@ -6547,13 +6817,23 @@ function BrowserApp({
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNewIncognitoTab(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><EyeOff size={12} style={{ opacity: 0.7, flexShrink: 0 }} />New incognito tab</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://history"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><HistoryIcon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />History</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://bookmarks"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Bookmark size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Bookmarks</motion.button>
-                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleNavigate("unstable://downloads"); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Download size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Downloads</motion.button>
+                    <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setDownloadsPanelOpen(true); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Download size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Download manager</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleShareCurrent(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><QrCode size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Share via QR</motion.button>
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setFullscreen(f => !f); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Maximize size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{fullscreen ? "Exit fullscreen" : "Fullscreen"}</motion.button>
                     <div style={{ height: 1, background: "#222", margin: "0.2rem 0" }} />
                     <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); handleSplitActive(); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><Columns2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />{split ? "Close split" : "Split current tab"}</motion.button>
                     {split && <motion.button whileHover={{ background: "#1a1a1a" }} onClick={() => { setToolMenuOpen(false); setSplit(s => s && ({ ...s, direction: s.direction === "horizontal" ? "vertical" : "horizontal" })); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "transparent", border: "none", color: "rgba(255,255,255,0.75)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", padding: "0.45rem 0.7rem", textAlign: "left", letterSpacing: "0.02em" }}><ArrowUpDown size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Rotate split</motion.button>}
                   </motion.div>
+                )}
+              </AnimatePresence>
+              <AnimatePresence>
+                {downloadsPanelOpen && (
+                  <div ref={downloadsPanelRef} style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 2001 }}>
+                    <DownloadsPanel
+                      onOpenManager={() => { setDownloadsPanelOpen(false); handleNavigate("unstable://downloads"); }}
+                      onClose={() => setDownloadsPanelOpen(false)}
+                    />
+                  </div>
                 )}
               </AnimatePresence>
             </div>
@@ -6761,6 +7041,8 @@ function BrowserApp({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AuthDialog prompt={authPrompt} onClose={() => setAuthPrompt(null)} onAuthenticated={completeAuthPrompt} />
 
       <ErrorScreen />
 

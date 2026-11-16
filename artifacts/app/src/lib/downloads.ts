@@ -1,5 +1,4 @@
 const DOWNLOADS_KEY = "unstable-downloads-store";
-const DOWNLOADS_EVENT = "unstable-downloads-change";
 
 type DownloadsListener = () => void;
 const listeners = new Set<DownloadsListener>();
@@ -16,16 +15,88 @@ export interface DownloadEntry {
   mimeType?: string;
   speedBytesPerSec?: number;
   errorMessage?: string;
+  /** Tab whose proxied frame owns the transfer (needed to resume/retry). */
+  tabId?: string;
   controller?: AbortController;
 }
 
 export function subscribe(fn: DownloadsListener): () => void {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => { listeners.delete(fn); };
 }
 
 function notify() {
   listeners.forEach(fn => fn());
+}
+
+// Placeholder names that carry no information: prefer the URL or the response
+// headers over these.
+const GENERIC_FILENAMES = new Set(["download", "file", "unnamed", "blob", "attachment", "index"]);
+
+const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g;
+
+export function sanitizeFilename(name: string): string {
+  const cleaned = name
+    .replace(INVALID_FILENAME_CHARS, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+/, "")
+    .slice(0, 120)
+    .trim();
+  return cleaned;
+}
+
+/**
+ * Best-effort filename for a URL. Proxy URLs (`/ham/https%3A%2F%2Fsite%2Fa.zip`)
+ * decode back to the remote path, so the encoded segment is unwrapped first.
+ */
+export function deriveFilename(rawUrl: string, fallback = "download"): string {
+  let path = "";
+  try {
+    path = new URL(rawUrl, location.href).pathname;
+  } catch {
+    path = rawUrl;
+  }
+
+  let segment = path.split("/").filter(Boolean).pop() ?? "";
+  try { segment = decodeURIComponent(segment); } catch { /* keep raw */ }
+
+  // A decoded proxy path is the full remote URL — take its last segment.
+  if (segment.includes("/")) {
+    const inner = segment.split(/[?#]/)[0].split("/").filter(Boolean);
+    segment = inner[inner.length - 1] ?? segment;
+  }
+
+  const cleaned = sanitizeFilename(segment);
+  return cleaned || fallback;
+}
+
+/** Parses `filename` / RFC 5987 `filename*=UTF-8''…` out of a Content-Disposition header. */
+export function filenameFromContentDisposition(header: string | null): string {
+  if (!header) return "";
+  const extended = /filename\*\s*=\s*([^;]+)/i.exec(header);
+  if (extended) {
+    const raw = extended[1].trim().replace(/^["']|["']$/g, "");
+    const encoded = /^[^']*'[^']*'(.*)$/.exec(raw);
+    const value = encoded ? encoded[1] : raw;
+    try { return sanitizeFilename(decodeURIComponent(value)); } catch { return sanitizeFilename(value); }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(header);
+  if (plain) return sanitizeFilename((plain[2] ?? plain[3] ?? "").trim());
+  return "";
+}
+
+/**
+ * How a started download actually gets its bytes. The app installs a transport
+ * that forwards the request to the proxied frame, because only that frame's
+ * service worker can resolve a proxy URL.
+ */
+export type DownloadTransport = (entry: DownloadEntry) => void;
+
+let transport: DownloadTransport | null = null;
+
+export function setDownloadTransport(fn: DownloadTransport | null): void {
+  transport = fn;
 }
 
 export function addDownload(filename: string, url: string, totalBytes = 0, mimeType?: string): DownloadEntry {
@@ -42,6 +113,20 @@ export function addDownload(filename: string, url: string, totalBytes = 0, mimeT
   const all = getDownloads();
   all.unshift(entry);
   saveDownloads(all);
+  notify();
+  return entry;
+}
+
+/** Registers a download and hands it to the transport. */
+export function startDownload(url: string, filename: string, tabId?: string): DownloadEntry {
+  const requested = (filename || "").trim();
+  const name = requested && !GENERIC_FILENAMES.has(requested.toLowerCase())
+    ? sanitizeFilename(requested) || deriveFilename(url)
+    : deriveFilename(url);
+
+  const entry = addDownload(name, url, 0);
+  if (tabId) updateDownload(entry.id, { tabId });
+  transport?.({ ...entry, tabId });
   return entry;
 }
 
@@ -75,88 +160,55 @@ function saveDownloads(downloads: DownloadEntry[]): void {
   localStorage.setItem(DOWNLOADS_KEY, JSON.stringify(downloads));
 }
 
-export async function downloadFile(url: string, filename: string, mimeType?: string): Promise<void> {
-  const entry = addDownload(filename, url, 0, mimeType);
-  const controller = new AbortController();
-  updateDownload(entry.id, { controller });
-
-  let lastBytes = 0;
-  const speedSamples: number[] = [];
-  const speedInterval = setInterval(() => {
-    const current = entry.downloadedBytes;
-    const delta = current - lastBytes;
-    lastBytes = current;
-    speedSamples.push(delta);
-    if (speedSamples.length > 10) speedSamples.shift();
-    const avg = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
-    updateDownload(entry.id, { speedBytesPerSec: Math.round(avg) });
-  }, 1000);
-
-  try {
-    const resp = await fetch(url, { signal: controller.signal });
-    if (!resp.ok) {
-      updateDownload(entry.id, { state: "error", errorMessage: `HTTP ${resp.status}`, completedAt: Date.now() });
-      return;
-    }
-    const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
-    if (total) updateDownload(entry.id, { totalBytes: total });
-
-    const reader = resp.body?.getReader();
-    if (!reader) {
-      const blob = await resp.blob();
-      triggerBlobDownload(blob, filename);
-      updateDownload(entry.id, { state: "complete", downloadedBytes: blob.size, totalBytes: blob.size, completedAt: Date.now() });
-      return;
-    }
-
-    const chunks: BlobPart[] = [];
-    let done = false;
-    while (!done) {
-      const result = await reader.read();
-      done = result.done;
-      if (result.value) {
-        chunks.push(result.value);
-        entry.downloadedBytes += result.value.length;
-        updateDownload(entry.id, { downloadedBytes: entry.downloadedBytes });
-      }
-    }
-
-    const blob = new Blob(chunks, { type: mimeType || resp.headers.get("Content-Type") || undefined });
-    triggerBlobDownload(blob, filename);
-    updateDownload(entry.id, { state: "complete", downloadedBytes: blob.size, totalBytes: blob.size, completedAt: Date.now() });
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      removeDownload(entry.id);
-      return;
-    }
-    updateDownload(entry.id, { state: "error", errorMessage: err instanceof Error ? err.message : "Download failed", completedAt: Date.now() });
-  } finally {
-    clearInterval(speedInterval);
+/**
+ * A transfer only lives inside its page, so anything left "in-progress" by a
+ * previous page load can never resume — mark it interrupted instead of leaving
+ * a permanently stuck row in the manager.
+ */
+function markInterruptedDownloads(): void {
+  const all = getDownloads();
+  let changed = false;
+  for (const entry of all) {
+    if (entry.state !== "in-progress") continue;
+    entry.state = "error";
+    entry.errorMessage = "Interrupted (page reloaded)";
+    entry.completedAt = entry.completedAt ?? Date.now();
+    changed = true;
   }
+  if (changed) saveDownloads(all);
 }
 
+markInterruptedDownloads();
+
 export function retryDownload(id: string): void {
-  const all = getDownloads();
-  const entry = all.find(d => d.id === id);
+  const entry = getDownloads().find(d => d.id === id);
   if (!entry) return;
-  removeDownload(id);
-  void downloadFile(entry.url, entry.filename, entry.mimeType);
+
+  updateDownload(id, {
+    state: "in-progress",
+    downloadedBytes: 0,
+    totalBytes: 0,
+    speedBytesPerSec: 0,
+    errorMessage: undefined,
+    completedAt: undefined,
+    startedAt: Date.now(),
+  });
+
+  if (!transport) {
+    updateDownload(id, { state: "error", errorMessage: "Retry is unavailable on this page.", completedAt: Date.now() });
+    return;
+  }
+  transport({ ...entry, state: "in-progress", downloadedBytes: 0, totalBytes: 0 });
 }
 
 export function cancelDownload(id: string): void {
-  const all = getDownloads();
-  const entry = all.find(d => d.id === id);
-  if (entry?.controller) {
-    entry.controller.abort();
-  } else {
-    removeDownload(id);
-  }
+  removeDownload(id);
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
   return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + " " + units[i];
 }
 
@@ -165,7 +217,8 @@ export function formatSpeed(bytesPerSec: number): string {
   return formatBytes(bytesPerSec) + "/s";
 }
 
-function triggerBlobDownload(blob: Blob, filename: string): void {
+/** Hands a finished file to the browser Unstable is running in. */
+export function saveBlob(blob: Blob, filename: string): void {
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = blobUrl;
@@ -173,5 +226,5 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(blobUrl);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
 }

@@ -2,7 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useErrorHandler } from '@/lib/errorContext';
-import { generateErrorReport } from '@/lib/errorHandler';
+import { generateErrorReport, type ErrorCategory } from '@/lib/errorHandler';
+
+const CATEGORY_LABELS: Record<ErrorCategory, string> = {
+  network: 'Network',
+  proxy: 'Upstream / proxy',
+  transport: 'Transport',
+  engine: 'Proxy engine',
+  auth: 'Authentication',
+  render: 'Rendering',
+  storage: 'Storage',
+  permission: 'Permission',
+  timeout: 'Timeout',
+  unknown: 'Unknown',
+};
+
+const categoryLabel = (category: ErrorCategory) => CATEGORY_LABELS[category] ?? 'Unknown';
 
 const cardStyle: React.CSSProperties = {
   background: `rgba(var(--rgb-bg-secondary, 17, 17, 17), 0.5)`,
@@ -101,7 +116,7 @@ export function ErrorScreen() {
                   Error occurred
                 </h1>
                 <p style={{ fontSize: '0.62rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, margin: '0.2rem 0 0', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {currentError.category}
+                  {categoryLabel(currentError.category)}
                 </p>
               </div>
             </div>
@@ -115,7 +130,7 @@ export function ErrorScreen() {
                     Something went wrong
                   </h2>
                   <p style={{ fontSize: '1rem', color: `var(--t-text-secondary, rgba(255,255,255,0.55))`, margin: 0, letterSpacing: '0.08em' }}>
-                    Unexpected error
+                    {currentError.detail ?? 'Unexpected error'}
                   </p>
                 </div>
                 <p style={{ color: `var(--t-text, #e0e0e0)`, marginBottom: '1.5rem', fontSize: '0.85rem', lineHeight: 1.6 }}>
@@ -159,7 +174,13 @@ export function ErrorScreen() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '1rem', marginBottom: '1rem', rowGap: '0.75rem' }}>
                   <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Error Type</span>
-                  <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{currentError.category}</span>
+                  <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{categoryLabel(currentError.category)}</span>
+                  {currentError.errorCode && (
+                    <>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Error Code</span>
+                      <span style={{ fontSize: '0.72rem', color: `var(--t-text, #e0e0e0)`, fontFamily: 'ui-monospace, monospace' }}>{currentError.errorCode}</span>
+                    </>
+                  )}
                   {currentError.transport && (
                     <>
                       <span style={{ fontSize: '0.72rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Transport</span>
@@ -240,10 +261,10 @@ export function ErrorScreen() {
                   </div>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
-                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: currentError.backendStatus === 'online' ? '#10b981' : '#ef4444' }} />
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: currentError.backendStatus === 'online' ? '#10b981' : currentError.backendStatus === 'offline' ? '#ef4444' : 'rgba(255,255,255,0.25)' }} />
                       <span style={{ fontSize: '0.65rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))`, letterSpacing: '0.06em' }}>Backend</span>
                     </div>
-                    <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0 }}>{currentError.backendStatus === 'online' ? 'Online' : 'Offline'}</p>
+                    <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0 }}>{currentError.backendStatus === 'online' ? 'Online' : currentError.backendStatus === 'offline' ? 'Offline' : 'Unknown'}</p>
                   </div>
                   {currentError.latency !== undefined && (
                     <div>
@@ -254,7 +275,7 @@ export function ErrorScreen() {
                       <p style={{ fontSize: '0.72rem', fontWeight: 600, color: `var(--t-text, #e0e0e0)`, margin: 0 }}>{currentError.latency}ms</p>
                     </div>
                   )}
-                  {currentError.transport && (
+                  {currentError.engine && (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
                         <span style={{ width: '14px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: `var(--t-text-muted, rgba(255,255,255,0.3))` }}>T</span>

@@ -7,6 +7,15 @@ export interface ErrorContextOptions {
   transport?: string;
   encoding?: string;
   transportEncryption?: boolean;
+  engine?: 'ultraviolet' | 'scramjet' | 'none';
+}
+
+/** Fall back to the page's own proxy prefix so page errors still report an engine. */
+function inferEngineFromLocation(): 'ultraviolet' | 'scramjet' | undefined {
+  if (typeof window === 'undefined') return undefined;
+  if (window.location.pathname.startsWith('/ham/')) return 'scramjet';
+  if (window.location.pathname.startsWith('/service/')) return 'ultraviolet';
+  return undefined;
 }
 
 interface ErrorContextType {
@@ -40,6 +49,7 @@ export function ErrorProvider({ children }: { children: ReactNode }) {
       errorDetails.transport = opts?.transport;
       errorDetails.encoding = opts?.encoding;
       errorDetails.transportEncryption = opts?.transportEncryption;
+      errorDetails.engine = opts?.engine ?? inferEngineFromLocation();
 
       if (error instanceof Error) {
         errorDetails.originalError = error;

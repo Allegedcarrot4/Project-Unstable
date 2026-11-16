@@ -1,4 +1,6 @@
-importScripts('/eggs/scramjet.all.js');
+// Cache-busting version: bump this whenever eggs/scramjet.all.js changes so an
+// installed worker re-fetches the bundle instead of reusing its HTTP cache.
+importScripts('/eggs/scramjet.all.js?v=3');
 const { ScramjetServiceWorker } = $scramjetLoadWorker();
 
 let sw = null;
@@ -70,45 +72,71 @@ function repairUrlEntities(text) {
   return text.replace(/%26amp%3B/gi, "%26");
 }
 
+// ─── Download interception ───────────────────────────────────────────────────
+// Same contract as sw.js: attachment navigations are reported to the download
+// manager and answered with 204 so the proxied page stays where it was.
+
+function isDocumentNavigation(request) {
+  return request.mode === "navigate" || request.destination === "document";
+}
+
+function isAttachmentResponse(response) {
+  try { return /attachment/i.test(response.headers.get("content-disposition") || ""); }
+  catch { return false; }
+}
+
+function parseDispositionFilename(header) {
+  if (!header) return "";
+  const extended = /filename\*\s*=\s*([^;]+)/i.exec(header);
+  if (extended) {
+    const raw = extended[1].trim().replace(/^["']|["']$/g, "");
+    const encoded = /^[^']*'[^']*'(.*)$/.exec(raw);
+    const value = encoded ? encoded[1] : raw;
+    try { return decodeURIComponent(value); } catch { return value; }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(header);
+  if (plain) return (plain[2] ?? plain[3] ?? "").trim();
+  return "";
+}
+
+async function reportDownloadToClients(url, response) {
+  const info = {
+    type: "unstable-download-detected",
+    url,
+    filename: parseDispositionFilename(response.headers.get("content-disposition") || ""),
+    size: Number(response.headers.get("content-length")) || 0,
+    mimeType: response.headers.get("content-type") || "",
+  };
+  try {
+    const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clientList) {
+      try { client.postMessage(info); } catch { /* client gone */ }
+    }
+  } catch { /* ignore */ }
+}
+
 function injectFingerprint(response) {
   const ct = response.headers.get("content-type") || "";
   if (!ct.includes("text/html") || !response.body) return response;
   try {
-    const INJECT = `<script src="${INJECT_SRC}"></script></body>`;
+    const INJECT = `<script src="${INJECT_SRC}"></script>`;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    let injected = false;
-    let tail = "";
 
+    // Appended at the end of the stream, not spliced in before `</body>`: that
+    // string also occurs inside inline scripts and comments (Google's installer
+    // page embeds `"</body></html>"` in its DOMPurify bundle), and a streamed
+    // transform only sees the current chunk, so the splice landed inside the
+    // script — its `</script>` cut the element short and the remaining script
+    // was rendered as visible page text.
     const transformed = new TransformStream({
       transform(chunk, controller) {
-        let text = tail + decoder.decode(chunk, { stream: true });
-        // Repair before splitting so a sequence straddling the tail boundary
-        // is still complete in `text`.
-        text = repairUrlEntities(text);
-        // Hold back enough characters for both `</body>` and `%26amp%3B` to
-        // be split across chunks.
-        tail = text.slice(-16);
-        text = text.slice(0, -16);
-        const idx = text.lastIndexOf("</body>");
-        if (!injected && idx !== -1) {
-          injected = true;
-          text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-        }
+        const text = repairUrlEntities(decoder.decode(chunk, { stream: true }));
         if (text) controller.enqueue(encoder.encode(text));
       },
       flush(controller) {
-        let text = repairUrlEntities(tail);
-        if (!injected) {
-          const idx = text.lastIndexOf("</body>");
-          if (idx !== -1) {
-            injected = true;
-            text = text.slice(0, idx) + INJECT + text.slice(idx + 7);
-          } else {
-            text += INJECT;
-          }
-        }
-        if (text) controller.enqueue(encoder.encode(text));
+        const text = repairUrlEntities(decoder.decode());
+        controller.enqueue(encoder.encode(text + INJECT));
       },
     });
 
@@ -138,20 +166,33 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (ev) => {
+  // Requests that are neither proxied nor blockable are left entirely to the
+  // browser: no service-worker round trip and no bypass of the HTTP cache.
+  const reqUrl = ev.request.url;
+  const isProxied = reqUrl.includes('/ham/');
+  const isBlockable = adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes('/cdn-cgi/'));
+  if (!isProxied && !isBlockable) return;
+
   ev.respondWith(
     (async () => {
-      const reqUrl = ev.request.url;
+      // A thrown error here rejects the respondWith promise, which the browser
+      // reports as an opaque ERR_FAILED with no detail. Answer with a readable
+      // 500 instead so a misconfigured proxy is diagnosable.
+      try {
+        // Adblock check
+        if (adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes('/cdn-cgi/'))) {
+          return new Response(null, { status: 204 });
+        }
 
-      // Adblock check
-      if (adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes('/cdn-cgi/'))) {
-        return new Response(null, { status: 204 });
-      }
-
-      if (!sw) { sw = new ScramjetServiceWorker(); configPromise = sw.loadConfig(); }
-      await configPromise;
-      if (sw.route(ev) || ev.request.url.includes('/ham/')) {
-        try {
+        if (!sw) { sw = new ScramjetServiceWorker(); configPromise = sw.loadConfig(); }
+        await configPromise;
+        if (sw.route(ev) || reqUrl.includes('/ham/')) {
           const response = await sw.fetch(ev);
+          if (isDocumentNavigation(ev.request) && isAttachmentResponse(response)) {
+            await reportDownloadToClients(ev.request.url, response);
+            try { response.body?.cancel(); } catch { /* already consumed */ }
+            return new Response(null, { status: 204 });
+          }
           const stripped = new Headers(response.headers);
           stripped.delete('service-worker-allowed');
           stripped.delete('service-worker');
@@ -168,11 +209,14 @@ self.addEventListener('fetch', (ev) => {
           });
           finalResponse = await injectFingerprint(finalResponse);
           return finalResponse;
-        } catch (err) {
-          return new Response("Scramjet SW Error: " + err, { status: 500 });
         }
+        return fetch(ev.request);
+      } catch (err) {
+        return new Response("Scramjet SW Error: " + err, {
+          status: 500,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        });
       }
-      return fetch(ev.request);
     })()
   );
 });

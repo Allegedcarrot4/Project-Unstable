@@ -157,15 +157,91 @@
       };
     }
     // ─── 6. Download Interception ──────────────────────────────────────────
+    // Downloads must be fetched *inside* the proxied page: only this frame's
+    // service worker can turn a proxy URL back into the real file. The Unstable
+    // window has no proxy route of its own, so fetching there 404s. Bytes are
+    // streamed to the parent in chunks so the manager can show progress and
+    // save the file in the browser Unstable runs in.
+    function postToParent(message, transfer) {
+      try { PARENT.postMessage(message, "*", transfer || []); }
+      catch { try { PARENT.postMessage(message, "*"); } catch { /* ignore */ } }
+    }
+
+    function parseDispositionFilename(header) {
+      if (!header) return "";
+      const extended = /filename\*\s*=\s*([^;]+)/i.exec(header);
+      if (extended) {
+        const raw = extended[1].trim().replace(/^["']|["']$/g, "");
+        const encoded = /^[^']*'[^']*'(.*)$/.exec(raw);
+        const value = encoded ? encoded[1] : raw;
+        try { return decodeURIComponent(value); } catch { return value; }
+      }
+      const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(header);
+      if (plain) return (plain[2] ?? plain[3] ?? "").trim();
+      return "";
+    }
+
+    async function streamDownload(requestId, url, filename) {
+      try {
+        const resp = await fetch(url, { credentials: "include" });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const headerName = parseDispositionFilename(resp.headers.get("content-disposition"));
+        const total = Number(resp.headers.get("content-length")) || 0;
+        const mime = resp.headers.get("content-type") || "";
+        postToParent({
+          type: "unstable-download-meta", requestId,
+          filename: headerName || filename || "", total, mime,
+        });
+
+        const reader = resp.body ? resp.body.getReader() : null;
+        if (!reader) {
+          const buffer = await resp.arrayBuffer();
+          postToParent({ type: "unstable-download-chunk", requestId, chunk: buffer }, [buffer]);
+        } else {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value || !value.byteLength) continue;
+            // Copy out of the view: the underlying buffer may be pooled.
+            const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+            postToParent({ type: "unstable-download-chunk", requestId, chunk: buffer }, [buffer]);
+          }
+        }
+        postToParent({ type: "unstable-download-end", requestId });
+      } catch (err) {
+        postToParent({
+          type: "unstable-download-error", requestId,
+          message: err && err.message ? err.message : "Download failed",
+        });
+      }
+    }
+
+    function reportDownload(anchor) {
+      const rawHref = anchor.getAttribute("href") || "";
+      if (!rawHref || /^(javascript|mailto|tel|data:text)/i.test(rawHref) || rawHref === "#") return false;
+      let url = anchor.href || rawHref;
+      let filename = (anchor.getAttribute("download") || "").trim();
+      try {
+        if (!filename) filename = decodeURIComponent(new URL(url, location.href).pathname.split("/").filter(Boolean).pop() || "");
+      } catch { filename = ""; }
+      try { PARENT.postMessage({ type: "unstable-download", url, filename: filename || "download" }, "*"); }
+      catch { return false; }
+      return true;
+    }
+
+    // The parent asks for the bytes (after normalising the URL) once a download
+    // is registered, so progress is tracked in one place.
+    window.addEventListener("message", (e) => {
+      if (e.source !== PARENT) return;
+      const d = e.data;
+      if (!d || d.type !== "unstable-download-fetch" || !d.url || !d.requestId) return;
+      void streamDownload(String(d.requestId), String(d.url), String(d.filename || ""));
+    });
+
     document.addEventListener("click", (e) => {
-      const a = e.target.closest("a");
-      if (!a || !a.download) return;
+      const a = e.target && e.target.closest ? e.target.closest("a[download]") : null;
+      if (!a || !reportDownload(a)) return;
       e.preventDefault();
-      PARENT.postMessage({
-        type: "unstable-download",
-        url: a.href,
-        filename: a.download || a.href.split("/").pop() || "download",
-      }, "*");
     }, true);
 
     // ─── 7. Media Session Bridge (music controller) ─────────────────────────
@@ -330,9 +406,11 @@
         }
       }, true);
 
-      // Programmatic anchor clicks (element.click()) with a new-tab target.
+      // Programmatic anchor clicks (element.click()): download anchors go to the
+      // manager, new-tab targets go to an in-app tab.
       const origAnchorClick = HTMLAnchorElement.prototype.click;
       HTMLAnchorElement.prototype.click = function() {
+        if (this.hasAttribute("download") && reportDownload(this)) return;
         const target = (this.getAttribute("target") || "").toLowerCase();
         if (target && target !== "_self" && target !== "_top" && target !== "_parent" && this.href) {
           if (forwardToApp(this.href)) return;
