@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus } from "lucide-react";
+import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus, MemoryStick } from "lucide-react";
 
+import { domToCanvas } from "modern-screenshot";
 import { ErrorScreen } from "./components/ErrorScreen";
 import { DownloadIndicator } from "./components/DownloadIndicator";
 import { DownloadsPanel } from "./components/DownloadsPanel";
@@ -4525,11 +4527,16 @@ function DownloadsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
 
 // ─── Split pane header ────────────────────────────────────────────────────────
 
-function SplitHeader({ tab, onSwap, onClose }: { tab: Tab; onSwap: () => void; onClose: () => void }) {
+/** Height of the split pane header bar; the keep-alive stage lays tabs out to match. */
+const SPLIT_HEADER_H = 26;
+/** Thickness of the split divider. */
+const D = 4;
+
+function SplitHeader({ tab, onSwap, onClose, style }: { tab: Tab; onSwap: () => void; onClose: () => void; style?: React.CSSProperties }) {
   const label = tab.title || getDomainFromProxyUrl(tab.url) || "New Tab";
   const hdrBtn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.35)", cursor: "pointer", padding: "2px", borderRadius: "3px", display: "flex", alignItems: "center", justifyContent: "center" };
   return (
-    <div onClick={onSwap} title="Click to swap sides" style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.45rem", background: "#0c0c0c", borderBottom: "1px solid #1a1a1a", flexShrink: 0, fontSize: "0.62rem", color: "rgba(255,255,255,0.55)", userSelect: "none", cursor: "pointer" }}>
+    <div onClick={onSwap} title="Click to swap sides" style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.25rem 0.45rem", background: "#0c0c0c", borderBottom: "1px solid #1a1a1a", flexShrink: 0, fontSize: "0.62rem", color: "rgba(255,255,255,0.55)", userSelect: "none", cursor: "pointer", overflow: "hidden", boxSizing: "border-box", ...style }}>
       {tab.favicon ? <img src={tab.favicon} alt="" width={12} height={12} style={{ borderRadius: 2, objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} /> : <Globe size={12} style={{ opacity: 0.5 }} />}
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
       <button title="Swap sides" style={hdrBtn} onClick={e => { e.stopPropagation(); onSwap(); }} onMouseEnter={e => e.currentTarget.style.color = "#e8e8e8"} onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.35)"}><ArrowLeftRight size={11} /></button>
@@ -4563,18 +4570,119 @@ function QrCodeCanvas({ url, size = 160 }: { url: string; size?: number }) {
   );
 }
 
-function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, onTogglePin, inSplit, thumbnail }: {
+/**
+ * Hosts a captured preview canvas. The capture is often CORS-tainted (proxied
+ * pages load assets from other origins), which blocks reading it back but not
+ * painting it, so the canvas element itself is adopted into the card.
+ */
+function PreviewSurface({ canvas }: { canvas: HTMLCanvasElement | undefined }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    host.replaceChildren();
+    if (canvas) {
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      canvas.style.display = "block";
+      host.appendChild(canvas);
+    }
+    return () => { canvas?.remove(); };
+  }, [canvas]);
+  return <div ref={hostRef} style={{ width: "100%", height: "100%", background: "#0a0a0a" }} />;
+}
+
+function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, onTogglePin, inSplit, thumbnail, readMemory, requestPreview }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
-  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; onTogglePin?: () => void; inSplit?: boolean; thumbnail?: string;
+  onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; onTogglePin?: () => void; inSplit?: boolean;
+  /** Captured screenshot of the tab's page, if one could be taken. */
+  thumbnail?: HTMLCanvasElement;
+  /** Measures this tab's memory (MB) — the tab strip owns the iframes. */
+  readMemory?: () => number | null;
+  /** Asks the shell for a fresh preview screenshot when the card opens. */
+  requestPreview?: () => void;
 }) {
   const rawLabel = tab.url ? (tab.title || getDomainFromProxyUrl(tab.url) || "Loading…") : "New Tab";
   const label = rawLabel.length > 20 ? rawLabel.slice(0, 20) + "…" : rawLabel;
   const [ctxOpen, setCtxOpen] = useState(false);
   const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
   const ctxRef = useRef<HTMLDivElement>(null);
+  const tabRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setPreviewVisible] = useState(false);
+  const [previewPos, setPreviewPos] = useState<{ left: number; top: number } | null>(null);
+  const [memoryMb, setMemoryMb] = useState<number | null>(null);
+
+  const CARD_W = 300;
+
+  /** Portalled to <body>: the tab has overflow:hidden, so an inline popup would be clipped away. */
+  function openPreview() {
+    const el = tabRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    requestPreview?.();
+    const cardH = 264;
+    let left = rect.left + rect.width / 2 - CARD_W / 2;
+    left = Math.max(8, Math.min(window.innerWidth - CARD_W - 8, left));
+    let top = rect.bottom + 6;
+    if (top + cardH > window.innerHeight - 8) top = Math.max(8, rect.top - cardH - 6);
+    setPreviewPos({ left, top });
+    setPreviewVisible(true);
+  }
+  function closePreview() {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setPreviewVisible(false);
+    setPreviewPos(null);
+  }
+
+  useEffect(() => {
+    return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); };
+  }, []);
+
+  // Keep the figure live while the card is open, like the browser's own card.
+  useEffect(() => {
+    if (!showPreview) return;
+    const read = () => setMemoryMb(readMemory ? readMemory() : null);
+    read();
+    const id = setInterval(read, 1000);
+    return () => clearInterval(id);
+  }, [showPreview, readMemory, tab.id]);
+
+  const fullUrl = tab.url
+    ? (tab.url.startsWith("unstable://") ? tab.url : (getDomainFromProxyUrl(tab.url) || decodeProxyUrl(tab.url)))
+    : "New tab";
+  const memLabel = memoryMb == null ? "unavailable" : `${memoryMb < 10 ? memoryMb.toFixed(1) : Math.round(memoryMb)} MB`;
+
+  const previewCard = showPreview && previewPos ? createPortal(
+    <div style={{ position: "fixed", left: previewPos.left, top: previewPos.top, width: CARD_W, zIndex: 6000, pointerEvents: "none", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ background: "#111", border: "1px solid #262626", borderRadius: 10, padding: 10, boxShadow: "0 16px 44px rgba(0,0,0,0.65)" }}>
+        <p title={tab.title || rawLabel} style={{ margin: 0, fontSize: "0.78rem", color: "#eef0f3", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {tab.title || rawLabel}
+        </p>
+        <p title={fullUrl} style={{ margin: "2px 0 0", fontSize: "0.66rem", color: "rgba(255,255,255,0.38)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {fullUrl}
+        </p>
+        <div style={{ marginTop: 8, width: "100%", height: 158, borderRadius: 6, overflow: "hidden", background: "#0a0a0a", border: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexDirection: "column" }}>
+          {thumbnail ? (
+            <PreviewSurface canvas={thumbnail} />
+          ) : (
+            <>
+              {tab.favicon ? <img src={tab.favicon} alt="" width={24} height={24} style={{ borderRadius: 4, objectFit: "contain", opacity: 0.55 }} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} /> : <Globe size={22} style={{ opacity: 0.3 }} />}
+              <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                {tab.url.startsWith("unstable://") ? "internal page" : "no preview yet"}
+              </span>
+            </>
+          )}
+        </div>
+        <div title={memoryMb == null ? "Memory reporting is unavailable for this page." : "JavaScript heap used by this tab's frame."} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+          <MemoryStick size={13} style={{ color: "rgba(255,255,255,0.45)", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.55)" }}>Memory usage: {memLabel}</span>
+        </div>
+      </div>
+    </div>,
+    document.body
+  ) : null;
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -4586,15 +4694,11 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
   }, []);
 
-  useEffect(() => {
-    return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); };
-  }, []);
-
   return (
-    <motion.div layout="position" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8, width: 0, paddingLeft: 0, paddingRight: 0, borderRightWidth: 0 }} transition={{ duration: 0.18, ease: "easeInOut" }}
+    <motion.div ref={tabRef} layout="position" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8, width: 0, paddingLeft: 0, paddingRight: 0, borderRightWidth: 0 }} transition={{ duration: 0.18, ease: "easeInOut" }}
       onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
-      onMouseEnter={() => { setHovered(true); if (thumbnail && tab.url && !tab.url.startsWith("unstable://")) { hoverTimerRef.current = setTimeout(() => setShowPreview(true), 500); } }}
-      onMouseLeave={() => { setHovered(false); if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setShowPreview(false); }}
+      onMouseEnter={() => { setHovered(true); if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); hoverTimerRef.current = setTimeout(openPreview, 500); }}
+      onMouseLeave={() => { setHovered(false); closePreview(); }}
       style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? (tab.incognito ? "#14121a" : "#111") : hovered ? "#0f0f0f" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -4626,20 +4730,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
           </motion.div>
         )}
       </AnimatePresence>
-      <AnimatePresence>
-        {showPreview && thumbnail && (
-          <motion.div initial={{ opacity: 0, y: 4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.95 }} transition={{ duration: 0.15 }}
-            style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", zIndex: 3000, marginTop: 6, pointerEvents: "none" }}>
-            <div style={{ background: "#111", border: "1px solid #333", borderRadius: "8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)", padding: 4 }}>
-              <img src={thumbnail} alt="" style={{ width: 260, height: 146, display: "block", borderRadius: "4px", objectFit: "cover" }} />
-              <div style={{ padding: "4px 6px", maxWidth: 260 }}>
-                <p style={{ margin: 0, fontSize: "0.62rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tab.title || "Loading…"}</p>
-                <p style={{ margin: "2px 0 0", fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getDomainFromProxyUrl(tab.url) || tab.url}</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {previewCard}
     </motion.div>
   );
 }
@@ -5380,8 +5471,7 @@ function BrowserApp({
       localStorage.removeItem("unstable_split");
     }
   }, [split]);
-  const splitPaneRef = useRef<HTMLDivElement>(null);
-  const paneARef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [splitDragging, setSplitDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -5406,7 +5496,25 @@ function BrowserApp({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const iframeRefs = useRef<Record<string, HTMLIFrameElement>>({});
   const tabAbortRefs = useRef<Record<string, AbortController>>({});
-  const [tabThumbnails, setTabThumbnails] = useState<Record<string, string>>({});
+
+  /**
+   * Memory used by a tab, in MB, for the tab hover card. Proxied pages run
+   * same-origin inside their iframe, so Chrome's (non-standard)
+   * `performance.memory` is readable per frame. Internal pages render inside
+   * the app itself, so their heap is the app's heap. Null = not reported.
+   */
+  const readTabMemory = useCallback((tabId: string): number | null => {
+    const readHeap = (win: Window | null): number | null => {
+      try {
+        const used = (win as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } } | null)
+          ?.performance?.memory?.usedJSHeapSize;
+        return typeof used === "number" && used > 0 ? used / 1048576 : null;
+      } catch { return null; }
+    };
+    const iframe = iframeRefs.current[tabId];
+    return iframe ? readHeap(iframe.contentWindow) : readHeap(window);
+  }, []);
+  const [tabPreviews, setTabPreviews] = useState<Record<string, HTMLCanvasElement>>({});
   const thumbnailTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
@@ -5796,32 +5904,136 @@ function BrowserApp({
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
 
-  // Capture tab thumbnails periodically
+  // ─── Tab preview thumbnails ───────────────────────────────────────────────
+  // A tab's preview is a screenshot of its live iframe document. Chromium
+  // refuses to draw an iframe into a canvas, so the frame's DOM is rasterised
+  // with modern-screenshot instead. Only on-screen frames are captured: hidden
+  // keep-alive frames keep their last good thumbnail rather than being wiped.
+  const previewDisabledRef = useRef<Set<string>>(new Set());
+  const previewFailsRef = useRef<Record<string, number>>({});
+  const previewAtRef = useRef<Record<string, number>>({});
+  const previewUrlRef = useRef<Record<string, string>>({});
+  const capturingRef = useRef<Set<string>>(new Set());
+
+  const captureTabThumbnail = useCallback(async (tabId: string): Promise<void> => {
+    if (capturingRef.current.has(tabId) || previewDisabledRef.current.has(tabId)) return;
+    const iframe = iframeRefs.current[tabId];
+    const doc = iframe?.contentDocument;
+    if (!iframe || !doc?.documentElement || !doc.body) return;
+    const width = iframe.clientWidth;
+    const height = iframe.clientHeight;
+    if (!width || !height) return;
+
+    capturingRef.current.add(tabId);
+    const startedAt = Date.now();
+    try {
+      const src = await Promise.race([
+        domToCanvas(doc.documentElement, {
+          width,
+          height,
+          scale: 280 / width,
+          backgroundColor: "#0d0d0d",
+          quality: 0.6,
+          timeout: 6000,
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("thumbnail timeout")), 7000)),
+      ]);
+      const out = document.createElement("canvas");
+      out.width = 280;
+      out.height = 160;
+      const ctx = out.getContext("2d");
+      if (ctx && src.width > 0 && src.height > 0) {
+        // Cover-crop into the preview box instead of stretching.
+        const scale = Math.max(280 / src.width, 160 / src.height);
+        const dw = src.width * scale;
+        const dh = src.height * scale;
+        ctx.fillStyle = "#0d0d0d";
+        ctx.fillRect(0, 0, 280, 160);
+        ctx.drawImage(src, (280 - dw) / 2, (160 - dh) / 2, dw, dh);
+        previewAtRef.current[tabId] = Date.now();
+        previewFailsRef.current[tabId] = 0;
+        // No toDataURL(): proxied pages pull assets from other origins, which
+        // taints the canvas. A tainted canvas cannot be read back, but it can
+        // still be painted to the screen, so it is handed to the card as-is.
+        setTabPreviews(prev => ({ ...prev, [tabId]: out }));
+      }
+    } catch {
+      // Heavy pages can be slow or refuse to rasterise; after a couple of
+      // failures stop trying for this tab so hovering stays snappy.
+      previewFailsRef.current[tabId] = (previewFailsRef.current[tabId] ?? 0) + 1;
+      if (previewFailsRef.current[tabId] >= 2 || Date.now() - startedAt > 7000) {
+        previewDisabledRef.current.add(tabId);
+      }
+    } finally {
+      capturingRef.current.delete(tabId);
+    }
+  }, []);
+
+  /** Refresh a tab's preview on demand (used when the hover card opens). */
+  const requestTabThumbnail = useCallback((tabId: string) => {
+    const at = previewAtRef.current[tabId] ?? 0;
+    if (Date.now() - at > 15000) void captureTabThumbnail(tabId);
+  }, [captureTabThumbnail]);
+
+  // Capture the visible tabs periodically.
   useEffect(() => {
-    function captureThumbnails() {
-      const newThumbs: Record<string, string> = {};
+    function captureVisible() {
+      const visibleIds = new Set<string>([activeTabId, ...(split ? [split.other] : [])]);
       for (const tab of tabs) {
         if (!tab.url || tab.url.startsWith("unstable://")) continue;
-        const iframe = iframeRefs.current[tab.id];
-        if (!iframe) continue;
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = 280;
-          canvas.height = 160;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) continue;
-          ctx.drawImage(iframe as unknown as CanvasImageSource, 0, 0, 280, 160);
-          newThumbs[tab.id] = canvas.toDataURL("image/jpeg", 0.5);
-        } catch { /* cross-origin or not loaded */ }
-      }
-      if (Object.keys(newThumbs).length > 0) {
-        setTabThumbnails(prev => ({ ...prev, ...newThumbs }));
+        if (!visibleIds.has(tab.id)) continue;
+        void captureTabThumbnail(tab.id);
       }
     }
-    thumbnailTimerRef.current = setInterval(captureThumbnails, 5000);
-    captureThumbnails();
+    thumbnailTimerRef.current = setInterval(captureVisible, 5000);
+    captureVisible();
     return () => { if (thumbnailTimerRef.current) clearInterval(thumbnailTimerRef.current); };
+  }, [tabs, activeTabId, split, captureTabThumbnail]);
+
+  // A navigation gives a tab a clean slate for preview capture (and clears the
+  // stale preview of a tab that has left its page behind).
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (previewUrlRef.current[tab.id] === tab.url) continue;
+      previewUrlRef.current[tab.id] = tab.url;
+      previewDisabledRef.current.delete(tab.id);
+      delete previewFailsRef.current[tab.id];
+      if (!tab.url) {
+        delete previewAtRef.current[tab.id];
+        setTabPreviews(prev => {
+          if (!(tab.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[tab.id];
+          return next;
+        });
+      }
+    }
+    // Drop previews (and their canvases) for tabs that have been closed.
+    const live = new Set(tabs.map(t => t.id));
+    for (const id of Object.keys(previewUrlRef.current)) {
+      if (live.has(id)) continue;
+      delete previewUrlRef.current[id];
+      delete previewAtRef.current[id];
+      delete previewFailsRef.current[id];
+      previewDisabledRef.current.delete(id);
+      setTabPreviews(prev => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   }, [tabs]);
+
+  // Give a freshly activated tab a moment to paint, then refresh its preview
+  // so the hover card is unlikely to open on a stale image.
+  useEffect(() => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab?.url || tab.url.startsWith("unstable://")) return;
+    const timer = setTimeout(() => { void captureTabThumbnail(activeTabId); }, 900);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId, captureTabThumbnail]);
 
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
@@ -6358,11 +6570,9 @@ function BrowserApp({
       if (id === activeTabId) return;
       setSplit(null);
     }
-    // Cancel in-flight navigation for the previously active tab
-    if (tabAbortRefs.current[activeTabId]) {
-      tabAbortRefs.current[activeTabId].abort();
-      delete tabAbortRefs.current[activeTabId];
-    }
+    // Tabs stay mounted and keep streaming while hidden, so switching must not
+    // abort anything: an aborted navigation would leave the previous tab stuck
+    // on its spinner until the user reloads it.
     setActiveTabId(id);
   }
   function handleSplitTab(id: string) {
@@ -6388,28 +6598,26 @@ function BrowserApp({
     setActiveTabId(other);
   }
   function startSplitDrag(e: React.MouseEvent) {
-    if (!split || !splitPaneRef.current || !paneARef.current) return;
+    if (!split || !stageRef.current) return;
     e.preventDefault();
-    const rect = splitPaneRef.current.getBoundingClientRect();
+    const rect = stageRef.current.getBoundingClientRect();
     const startRatio = split.ratio;
     const horizontal = split.direction === "horizontal";
     const startPos = horizontal ? e.clientX : e.clientY;
-    const size = horizontal ? rect.width : rect.height;
-    const paneA = paneARef.current;
-    const apply = (ratio: number) => {
-      if (horizontal) paneA.style.width = `${ratio * 100}%`;
-      else paneA.style.height = `${ratio * 100}%`;
-    };
+    const size = (horizontal ? rect.width : rect.height) || 1;
+    const clampRatio = (value: number) => Math.min(0.85, Math.max(0.15, value));
     let pendingRatio: number | null = null;
     let rafId = 0;
     setSplitDragging(true);
     const move = (ev: MouseEvent) => {
       const delta = (horizontal ? ev.clientX : ev.clientY) - startPos;
-      pendingRatio = Math.min(0.85, Math.max(0.15, startRatio + delta / size));
+      pendingRatio = clampRatio(startRatio + delta / size);
       if (!rafId) {
         rafId = requestAnimationFrame(() => {
           rafId = 0;
-          if (pendingRatio != null) { apply(pendingRatio); pendingRatio = null; }
+          const ratio = pendingRatio;
+          pendingRatio = null;
+          if (ratio != null) setSplit(s => (s ? { ...s, ratio } : s));
         });
       }
     };
@@ -6421,8 +6629,9 @@ function BrowserApp({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setSplitDragging(false);
-      const finalRatio = Math.min(0.85, Math.max(0.15, (horizontal ? parseFloat(paneA.style.width) : parseFloat(paneA.style.height)) / 100));
-      setSplit(s => (s ? { ...s, ratio: finalRatio } : s));
+      const ratio = pendingRatio;
+      pendingRatio = null;
+      if (ratio != null) setSplit(s => (s ? { ...s, ratio } : s));
     };
     document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
     document.body.style.userSelect = "none";
@@ -6755,7 +6964,7 @@ function BrowserApp({
         }}
       />
     );
-  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase, syncTabFromFrame]);
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase, syncTabFromFrame, activeTabId]);
 
   // ─── Floating music controller wiring ──────────────────────────────────────
   const activeMedia = useMemo(() => {
@@ -6859,13 +7068,13 @@ function BrowserApp({
                       tabEls.push(
                         <div key="split-group" style={{ display: "flex", alignItems: "stretch", height: "100%", background: "#151515", border: "1px solid #262626", borderRadius: "6px", margin: "0 2px", overflow: "hidden", flexShrink: 0 }}>
                           {tabs.filter(t => splitTabIds.has(t.id)).map(t => (
-                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} onTogglePin={() => handleTogglePin(t.id)} thumbnail={tabThumbnails[t.id]} />
+                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} onTogglePin={() => handleTogglePin(t.id)} thumbnail={tabPreviews[t.id]} readMemory={() => readTabMemory(t.id)} requestPreview={() => requestTabThumbnail(t.id)} />
                           ))}
                         </div>
                       );
                       return;
                     }
-                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} onTogglePin={() => handleTogglePin(tab.id)} thumbnail={tabThumbnails[tab.id]} />);
+                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} onTogglePin={() => handleTogglePin(tab.id)} thumbnail={tabPreviews[tab.id]} readMemory={() => readTabMemory(tab.id)} requestPreview={() => requestTabThumbnail(tab.id)} />);
                   });
                   return tabEls;
                 })()}
@@ -7042,63 +7251,77 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          <div style={{ position: "relative", width: "100%", height: "100%", display: "flex" }}>
-            {split ? (() => {
-              const otherTab = tabs.find(t => t.id === split.other);
-              const horizontal = split.direction === "horizontal";
+          {/* Keep-alive stage. Every tab stays mounted for its whole lifetime;
+              only visibility/pointer-events toggle, so each hidden tab's proxy
+              stream keeps running and switching is instant with no reload.
+              In split view the two visible tabs are inline rects on the same
+              wrappers, so toggling split never remounts a tab either. */}
+          <div ref={stageRef} style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
+            {(() => {
+              const horizontal = split ? split.direction === "horizontal" : false;
+              const otherTab = split ? tabs.find(t => t.id === split.other) : undefined;
+              const headerH = SPLIT_HEADER_H;
+              const rects: Record<string, React.CSSProperties> = {};
+              if (split && otherTab) {
+                const pos = Math.round(split.ratio * 100);
+                const firstMain = horizontal ? { left: 0, top: 0, width: `${pos}%`, height: "100%" } : { left: 0, top: 0, width: "100%", height: `${pos}%` };
+                const secondMain = horizontal ? { left: `${pos}%`, top: 0, width: `${100 - pos}%`, height: "100%" } : { left: 0, top: `${pos}%`, width: "100%", height: `${100 - pos}%` };
+                rects[activeTabId] = { ...firstMain, height: horizontal ? firstMain.height : `calc(${firstMain.height} - ${D}px)` };
+                rects[split.other] = { ...secondMain, top: horizontal ? secondMain.top : `calc(${secondMain.top} + ${D}px)`, height: horizontal ? secondMain.height : `calc(${secondMain.height} - ${D}px)` };
+              }
               return (
-                <div ref={splitPaneRef} style={{ flex: 1, display: "flex", flexDirection: horizontal ? "row" : "column", minWidth: 0, minHeight: 0, position: "relative" }}>
-                  {splitDragging && (
-                    <div style={{ position: "absolute", inset: 0, zIndex: 40, cursor: horizontal ? "col-resize" : "row-resize" }} />
-                  )}
-                  <div ref={paneARef} style={{ width: horizontal ? `${split.ratio * 100}%` : "100%", height: horizontal ? "100%" : `${split.ratio * 100}%`, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
-                    <SplitHeader tab={activeTab} onSwap={handleSwapSplit} onClose={() => setSplit(null)} />
-                    <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-                      <AnimatePresence mode="wait">
-                        {tabs.filter(t => t.id === activeTabId).map(tab => (
-                          <motion.div key={tab.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ type: "spring", stiffness: 300, damping: 25 }} style={{ position: "absolute", inset: 0 }}>
-                            {renderTabContent(tab)}
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </div>
-                  <div onMouseDown={startSplitDrag} onDoubleClick={() => setSplit(s => s && ({ ...s, ratio: 0.5 }))}
-                    style={{ width: horizontal ? 4 : "100%", height: horizontal ? "100%" : 4, cursor: horizontal ? "col-resize" : "row-resize", background: splitDragging ? "#333" : "#1a1a1a", flexShrink: 0, transition: "background 0.15s", position: "relative", zIndex: 5 }}>
-                    {horizontal
-                      ? <GripVertical size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />
-                      : <GripHorizontal size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />}
-                  </div>
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
-                    {otherTab ? (
+                <>
+                  {tabs.map(tab => {
+                    const isActive = tab.id === activeTabId;
+                    const rect = rects[tab.id];
+                    const visible = isActive || (split ? tab.id === split.other : false);
+                    const zIndex = isActive ? 2 : visible ? 1 : 0;
+                    return (
+                      <div key={tab.id} aria-hidden={!visible}
+                        style={{
+                          position: "absolute",
+                          ...(rect ?? { inset: 0 }),
+                          display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0,
+                          overflow: "hidden",
+                          visibility: visible ? "visible" : "hidden",
+                          pointerEvents: visible ? "auto" : "none",
+                          zIndex,
+                          background: "#0d0d0d",
+                          opacity: visible ? 1 : 0,
+                        }}>
+                        {rect && (
+                          <SplitHeader tab={tab} onSwap={handleSwapSplit} onClose={() => setSplit(null)}
+                            style={{ height: headerH, flexShrink: 0 }} />
+                        )}
+                        <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
+                          {renderTabContent(tab)}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {split && otherTab && (() => {
+                    const pos = Math.round(split.ratio * 100);
+                    const dividerStyle: React.CSSProperties = horizontal
+                      ? { left: `${pos}%`, top: 0, width: D, height: "100%", marginLeft: -D / 2, cursor: "col-resize" }
+                      : { left: 0, top: `${pos}%`, width: "100%", height: D, marginTop: -D / 2, cursor: "row-resize" };
+                    return (
                       <>
-                        <SplitHeader tab={otherTab} onSwap={handleSwapSplit} onClose={() => setSplit(null)} />
-                        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>{renderTabContent(otherTab)}</div>
+                        <div onMouseDown={startSplitDrag} onDoubleClick={() => setSplit(s => s && ({ ...s, ratio: 0.5 }))}
+                          style={{ position: "absolute", zIndex: 6, background: splitDragging ? "#333" : "#1a1a1a", transition: "background 0.15s", ...dividerStyle }}>
+                          {horizontal
+                            ? <GripVertical size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />
+                            : <GripHorizontal size={10} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: splitDragging ? 0.7 : 0.3, pointerEvents: "none" }} />}
+                        </div>
+                        {splitDragging && (
+                          <div style={{ position: "absolute", inset: 0, zIndex: 7, cursor: dividerStyle.cursor }} />
+                        )}
                       </>
-                    ) : (
-                      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Tab closed</div>
-                    )}
-                  </div>
-                </div>
+                    );
+                  })()}
+                </>
               );
-            })() : (
-            <div style={{ flex: 1, position: "relative", height: "100%" }}>
-            <AnimatePresence mode="wait">
-              {tabs.filter(t => t.id === activeTabId).map(tab => (
-                <motion.div
-                  key={tab.id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                  style={{ position: "absolute", inset: 0 }}
-                >
-              {renderTabContent(tab)}
-            </motion.div>
-          ))}
-          </AnimatePresence>
-            </div>
-            )}
+            })()}
           </div>
         </div>
       </div>
