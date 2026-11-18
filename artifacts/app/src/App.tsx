@@ -12,6 +12,7 @@ import { AIMessageBody } from "./components/AIMessageBody";
 const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const GamesPage = lazy(() => import("./components/GamesPage").then(m => ({ default: m.GamesPage })));
+const ReleasesPage = lazy(() => import("./components/ReleasesPage").then(m => ({ default: m.ReleasesPage })));
 const NotFound = lazy(() => import("./pages/not-found"));
 
 import type { CodecType } from "./lib/codec";
@@ -3519,12 +3520,20 @@ function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
   );
 }
 
-function ChatPage({ user, profile, session, onAuthenticated }: { user: User | null; profile: Profile | null; session: Session | null; onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void }) {
+function ChatPage({ user, profile, session, onAuthenticated, chatTab, onChatTabChange }: {
+  user: User | null;
+  profile: Profile | null;
+  session: Session | null;
+  onAuthenticated: (payload: { session: Session; user: User; profile: Profile; authContext: AppAuthContext }) => void;
+  /** Opened as unstable://dm vs unstable://chat. */
+  chatTab?: "global" | "dm";
+  onChatTabChange?: (tab: "global" | "dm") => void;
+}) {
   if (!user || !profile || !session) {
     return <InlineAuthScreen onAuthenticated={onAuthenticated} feature="Chat" />;
   }
 
-  return <ChatPageInner user={user} profile={profile} session={session} />;
+  return <ChatPageInner user={user} profile={profile} session={session} chatTab={chatTab} onChatTabChange={onChatTabChange} />;
 }
 
 function formatChatTime(timestamp: string) {
@@ -3532,7 +3541,13 @@ function formatChatTime(timestamp: string) {
   return Number.isNaN(date.getTime()) ? "sending…" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function ChatPageInner({ user, profile, session }: { user: User; profile: Profile; session: Session }) {
+function ChatPageInner({ user, profile, session, chatTab, onChatTabChange }: {
+  user: User;
+  profile: Profile;
+  session: Session;
+  chatTab?: "global" | "dm";
+  onChatTabChange?: (tab: "global" | "dm") => void;
+}) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3541,7 +3556,14 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
   const [replyTarget, setReplyTarget] = useState<ChatMessageRecord | null>(null);
   const [reactionPickerId, setReactionPickerId] = useState<string | null>(null);
   const [recentOwnMessageId, setRecentOwnMessageId] = useState<string | null>(null);
-  const [chatTab, setChatTab] = useState<"global" | "dm">("global");
+  // When the page is opened from a URL the parent owns the tab; otherwise keep
+  // it local so the toggle still works if no handler is supplied.
+  const [localChatTab, setLocalChatTab] = useState<"global" | "dm">("global");
+  const activeChatTab = chatTab ?? localChatTab;
+  const selectChatTab = (next: "global" | "dm") => {
+    setLocalChatTab(next);
+    onChatTabChange?.(next);
+  };
   const [reactions, setReactions] = useState<Record<string, string[]>>(() => {
     try {
       const raw = localStorage.getItem(`unstable_chat_reactions_${user.id}`);
@@ -3683,11 +3705,11 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
       <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
         <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", justifyContent: "flex-start" }}>
           <button
-            onClick={() => setChatTab("global")}
+            onClick={() => selectChatTab("global")}
             style={{
-              background: chatTab === "global" ? "rgba(255,255,255,0.08)" : "transparent",
-              border: `1px solid ${chatTab === "global" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
-              color: chatTab === "global" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
+              background: activeChatTab === "global" ? "rgba(255,255,255,0.08)" : "transparent",
+              border: `1px solid ${activeChatTab === "global" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
+              color: activeChatTab === "global" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
               borderRadius: "999px",
               padding: "0.55rem 0.9rem",
               cursor: "pointer",
@@ -3699,11 +3721,11 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
             Global chat
           </button>
           <button
-            onClick={() => setChatTab("dm")}
+            onClick={() => selectChatTab("dm")}
             style={{
-              background: chatTab === "dm" ? "rgba(255,255,255,0.08)" : "transparent",
-              border: `1px solid ${chatTab === "dm" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
-              color: chatTab === "dm" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
+              background: activeChatTab === "dm" ? "rgba(255,255,255,0.08)" : "transparent",
+              border: `1px solid ${activeChatTab === "dm" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
+              color: activeChatTab === "dm" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
               borderRadius: "999px",
               padding: "0.55rem 0.9rem",
               cursor: "pointer",
@@ -3716,7 +3738,7 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
           </button>
         </div>
 
-        {chatTab === "global" ? (
+        {activeChatTab === "global" ? (
           <div style={{ height: "100%", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
             <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", borderRadius: "18px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
               <div>
@@ -3869,6 +3891,31 @@ function ChatPageInner({ user, profile, session }: { user: User; profile: Profil
         )}
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * Shown when a tab points at an internal route that doesn't exist. Without this
+ * the URL was passed straight to the proxy iframe, which can't load a
+ * non-http scheme and shows the browser's "site can't be reached" page.
+ */
+function UnknownPage({ url, onNavigate }: { url: string; onNavigate: (url: string) => void }) {
+  return (
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.9rem", padding: "2rem", textAlign: "center", background: "var(--t-bg, #0d0d0d)", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div style={{ padding: "0.4rem 0.75rem", border: "1px solid rgba(255,255,255,0.14)", borderRadius: "999px", background: "rgba(255,255,255,0.04)", fontSize: "0.56rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>
+        page not found
+      </div>
+      <p style={{ margin: 0, fontSize: "0.85rem", color: "#e8e8e8", wordBreak: "break-all" }}>{url}</p>
+      <p style={{ margin: 0, fontSize: "0.68rem", color: "rgba(255,255,255,0.4)", maxWidth: 380, lineHeight: 1.6 }}>
+        That internal page doesn't exist. Check the address, or head back to the new tab page.
+      </p>
+      <button
+        onClick={() => onNavigate("unstable://newtab")}
+        style={{ marginTop: "0.3rem", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px", color: "#e8e8e8", padding: "0.5rem 0.9rem", fontSize: "0.66rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
+      >
+        Go home
+      </button>
+    </div>
   );
 }
 
@@ -4622,6 +4669,28 @@ function SidebarSiteIcon({ site, size = 18 }: { site: SidebarSite; size?: number
   );
 }
 
+/** lucide `rotate-ccw-clock`, inlined to match the other sidebar brand marks. */
+function RotateCcwClockIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
 function CollapsedSidebar({
   activeUrl,
   onNavigate,
@@ -4904,8 +4973,30 @@ function CollapsedSidebar({
         </div>
       )}
 
-      {/* BOTTOM: GitHub, Discord, Settings */}
+      {/* BOTTOM: Releases, GitHub, Discord, Settings */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.55rem" }}>
+        {(() => {
+          const active = activeUrl === "unstable://releases";
+          const s = expanded ? linkBtn : iconBtn;
+          return (
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onNavigate("unstable://releases")}
+              data-tooltip="Releases" aria-label="Releases"
+              style={{
+                ...s,
+                background: active ? "#101010" : "none",
+                borderColor: active ? "#1f1f1f" : "transparent",
+                color: active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)",
+              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.background = "#0f0f0f"; (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#1b1b1b"; } }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#101010" : "none"; (e.currentTarget as HTMLButtonElement).style.color = active ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.28)"; (e.currentTarget as HTMLButtonElement).style.borderColor = active ? "#1f1f1f" : "transparent"; }}
+            >
+              <RotateCcwClockIcon size={18} />
+              {expanded && "Releases"}
+            </motion.button>
+          );
+        })()}
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => (onOpenLink ? onOpenLink("https://github.com/Allegedcarrot4/Project-Unstable") : window.open("https://github.com/Allegedcarrot4/Project-Unstable", "_blank"))}
@@ -5998,7 +6089,19 @@ function BrowserApp({
   function handleNavigate(url: string, tabId = activeTabId, opts?: { skipAuthGate?: boolean }) {
     const t = url.trim();
     if (t.startsWith("unstable://")) {
-      const page = t.slice("unstable://".length);
+      // Aliases for the DM section. An unknown unstable:// page used to fall
+      // through to the proxy, which handed a non-http scheme to an iframe and
+      // made Chrome show "This site can't be reached".
+      const aliases: Record<string, string> = {
+        dms: "dm",
+        messages: "dm",
+        private: "dm",
+        directmessages: "dm",
+        "direct-messages": "dm",
+      };
+      const rawPage = t.slice("unstable://".length);
+      const page = aliases[rawPage.toLowerCase()] ?? rawPage;
+      const internalUrl = page === rawPage ? t : `unstable://${page}`;
       if (page === "newtab") {
         const tab = tabs.find(tb => tb.id === tabId);
         if (tab?.url.startsWith("unstable://") && tab.lastProxyUrl) {
@@ -6029,12 +6132,12 @@ function BrowserApp({
         updateTab(tabId, { url: "", currentUrl: "", title: "New Tab", favicon: "", loading: false, lastProxyUrl: undefined });
         return;
       }
-      if (["settings", "credits", "ai", "chat", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads", "profile"].includes(page)) {
+      if (["settings", "credits", "ai", "chat", "dm", "blank", "tos", "privacy", "games", "history", "bookmarks", "downloads", "profile", "releases"].includes(page)) {
         // Signed out: prompt in place instead of opening the page, then follow
         // through to it once authentication succeeds.
-        const needsAuth = page === "ai" || page === "chat" || page === "profile";
-        if (needsAuth && !frontendOnly && !opts?.skipAuthGate && (!user || !profile || (page === "chat" && !session))) {
-          setAuthPrompt({ url: t, tabId, feature: page === "ai" ? "AI" : page === "chat" ? "Chat" : "Profile" });
+        const needsAuth = page === "ai" || page === "chat" || page === "dm" || page === "profile";
+        if (needsAuth && !frontendOnly && !opts?.skipAuthGate && (!user || !profile || ((page === "chat" || page === "dm") && !session))) {
+          setAuthPrompt({ url: internalUrl, tabId, feature: page === "ai" ? "AI" : page === "profile" ? "Profile" : "Chat" });
           return;
         }
         const titles: Record<string, string> = {
@@ -6042,6 +6145,7 @@ function BrowserApp({
           credits: "Credits",
           ai: "AI",
           chat: "Chat",
+          dm: "Direct messages",
           blank: "Blank",
           tos: "ToS",
           privacy: "Privacy",
@@ -6050,17 +6154,18 @@ function BrowserApp({
           bookmarks: "Bookmarks",
           downloads: "Downloads",
           profile: "Profile",
+          releases: "Releases",
         };
         const title = titles[page] ?? page.charAt(0).toUpperCase() + page.slice(1);
         setTabs(prev => prev.map(tab => {
           if (tab.id !== tabId) return tab;
           const lastProxyUrl =
             tab.url && !tab.url.startsWith("unstable://") ? tab.url : tab.lastProxyUrl;
-          const hist = [...tab.history.slice(0, tab.historyIndex + 1), t];
+          const hist = [...tab.history.slice(0, tab.historyIndex + 1), internalUrl];
           return {
             ...tab,
-            url: t,
-            currentUrl: t,
+            url: internalUrl,
+            currentUrl: internalUrl,
             title,
             favicon: "",
             loading: false,
@@ -6071,6 +6176,26 @@ function BrowserApp({
         }));
         return;
       }
+      // Unknown internal route: keep it inside the app so the tab renders a
+      // not-found card instead of proxying an unstable:// URL.
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        const lastProxyUrl =
+          tab.url && !tab.url.startsWith("unstable://") ? tab.url : tab.lastProxyUrl;
+        const hist = [...tab.history.slice(0, tab.historyIndex + 1), internalUrl];
+        return {
+          ...tab,
+          url: internalUrl,
+          currentUrl: internalUrl,
+          title: "Page not found",
+          favicon: "",
+          loading: false,
+          lastProxyUrl,
+          history: hist,
+          historyIndex: hist.length - 1,
+        };
+      }));
+      return;
     }
     const normalized = normalizeUrl(t, settings.searchEngine);
     if (!normalized) return;
@@ -6467,9 +6592,19 @@ function BrowserApp({
       if (frontendOnly) return <UnavailableFeature feature="AI" />;
       return <AIPage user={user} profile={profile} onAuthenticated={onAuthenticated} />;
     }
-    if (tab.url === "unstable://chat") {
+    if (tab.url === "unstable://chat" || tab.url === "unstable://dm") {
       if (frontendOnly) return <UnavailableFeature feature="Chat" />;
-      return <ChatPage user={user} profile={profile} session={session} onAuthenticated={onAuthenticated} />;
+      const dm = tab.url === "unstable://dm";
+      return (
+        <ChatPage
+          user={user}
+          profile={profile}
+          session={session}
+          onAuthenticated={onAuthenticated}
+          chatTab={dm ? "dm" : "global"}
+          onChatTabChange={next => handleNavigate(next === "dm" ? "unstable://dm" : "unstable://chat", tab.id)}
+        />
+      );
     }
     if (tab.url === "unstable://profile") {
       if (frontendOnly) return <UnavailableFeature feature="Accounts" />;
@@ -6491,6 +6626,11 @@ function BrowserApp({
     if (tab.url === "unstable://history") return <HistoryPage onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://bookmarks") return <BookmarksPage onNavigate={u => handleNavigate(u, tab.id)} />;
     if (tab.url === "unstable://downloads") return <DownloadsPage onNavigate={u => handleNavigate(u, tab.id)} />;
+    if (tab.url === "unstable://releases") return (
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading Releases...</div>}>
+        <ReleasesPage />
+      </Suspense>
+    );
     if (tab.url === "unstable://credits") return <CreditsPage />;
     if (tab.url === "unstable://tos") return <ToSPage />;
     if (tab.url === "unstable://privacy") return <PrivacyPage />;
@@ -6514,6 +6654,12 @@ function BrowserApp({
           </div>
         );
       }
+    }
+    // Every real internal page is handled above. Anything else on the
+    // unstable:// scheme must never reach the iframe: Chrome can't load a
+    // non-http scheme and renders "This site can't be reached".
+    if (tab.url.startsWith("unstable://")) {
+      return <UnknownPage url={tab.url} onNavigate={u => handleNavigate(u, tab.id)} />;
     }
     return (
       <iframe ref={(el) => { if (el) { iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; (el as HTMLIFrameElement & { muted: boolean }).muted = tab.muted; } }}
