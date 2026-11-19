@@ -5,7 +5,6 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus, MemoryStick } from "lucide-react";
 
-import { domToCanvas } from "modern-screenshot";
 import { ErrorScreen } from "./components/ErrorScreen";
 import { DownloadIndicator } from "./components/DownloadIndicator";
 import { DownloadsPanel } from "./components/DownloadsPanel";
@@ -4689,28 +4688,113 @@ function makeFallbackPreview(title: string, url: string): HTMLCanvasElement {
   return canvas;
 }
 
+/** Preview bitmap size, in CSS pixels, used by every tab thumbnail. */
+const PREVIEW_W = 280;
+const PREVIEW_H = 160;
+/** Upper bound on elements inspected per thumbnail; keeps a build in the ~ms range. */
+const PREVIEW_NODE_BUDGET = 300;
+/** Tabs kept mounted (active included) so switching back is instant, not a reload. */
+const KEEP_ALIVE_TABS = 3;
+
+/** True when the element directly contains visible text (not just child boxes). */
+function hasOwnText(el: Element): boolean {
+  const nodes = el.childNodes;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.nodeType === 3 && (n.textContent || "").trim()) return true;
+  }
+  return false;
+}
+
 /**
- * A capture can succeed but come back empty (a frame that was hidden, still
- * white, or refused to paint). Those would show as a flat dark box, so they are
- * treated as failures and the generated fallback is shown instead.
- * Tainted canvases cannot be inspected; they are assumed to have content.
+ * Our own page thumbnailer.
+ *
+ * A cross-document iframe cannot be screenshotted from the parent page
+ * (Chromium refuses to draw one into a canvas), and DOM-cloning libraries
+ * rasterise the entire tree — far too heavy to run while hovering. This walks
+ * the live document instead and paints a coarse block map: element backgrounds,
+ * media placeholders and text runs, clipped to the viewport and scaled into the
+ * card. It only reads layout that already exists, never clones anything, and
+ * stops after a small node budget, so a build costs a couple of milliseconds.
+ *
+ * Returns the canvas plus how many shapes were painted; too few means the page
+ * gave us nothing recognisable and the caller should keep the fallback.
  */
-function isBlankCapture(canvas: HTMLCanvasElement): boolean {
-  try {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return false;
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let differing = 0;
-    for (let i = 0; i < data.length; i += 4 * 7) {
-      if (Math.abs(data[i] - 13) > 14 || Math.abs(data[i + 1] - 13) > 14 || Math.abs(data[i + 2] - 13) > 14) {
-        differing++;
-        if (differing > 30) return false;
+function paintPagePreview(root: Element, viewW: number, viewH: number, win?: Window | null): { canvas: HTMLCanvasElement; painted: number } {
+  const canvas = document.createElement("canvas");
+  canvas.width = PREVIEW_W;
+  canvas.height = PREVIEW_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { canvas, painted: 0 };
+  ctx.fillStyle = "#0d0d0d";
+  ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
+  if (!viewW || !viewH) return { canvas, painted: 0 };
+
+  const styleOf = win?.getComputedStyle ? win.getComputedStyle.bind(win) : getComputedStyle;
+  const sx = PREVIEW_W / viewW;
+  const sy = PREVIEW_H / viewH;
+  const queue: Element[] = [root];
+  let head = 0;
+  let painted = 0;
+  let budget = PREVIEW_NODE_BUDGET;
+
+  while (head < queue.length && budget > 0) {
+    const el = queue[head++];
+    budget--;
+    const tag = el.tagName;
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "LINK" || tag === "META" || tag === "HEAD" || tag === "NOSCRIPT" || tag === "TEMPLATE") continue;
+
+    let rect: DOMRect;
+    try { rect = el.getBoundingClientRect(); } catch { continue; }
+    if (rect.width < 2 || rect.height < 2) continue;
+    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= viewH || rect.left >= viewW) continue;
+
+    let cs: CSSStyleDeclaration | null = null;
+    try { cs = styleOf(el); } catch { /* detached or unreadable: draw from layout alone */ }
+    if (cs && (cs.visibility === "hidden" || cs.display === "none" || parseFloat(cs.opacity || "1") < 0.05)) continue;
+
+    const x = Math.max(0, rect.left * sx);
+    const y = Math.max(0, rect.top * sy);
+    const w = Math.min(PREVIEW_W - x, rect.width * sx);
+    const h = Math.min(PREVIEW_H - y, rect.height * sy);
+    if (w >= 1 && h >= 1) {
+      if (tag === "IMG" || tag === "VIDEO" || tag === "CANVAS" || tag === "SVG" || tag === "PICTURE") {
+        // Media is never drawn (it would taint the canvas); a soft box stands in.
+        ctx.fillStyle = "rgba(255,255,255,0.10)";
+        ctx.fillRect(x, y, w, h);
+        painted++;
+      } else if (cs) {
+        const bg = cs.backgroundColor;
+        if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+          ctx.fillStyle = bg;
+          ctx.fillRect(x, y, w, h);
+          painted++;
+        }
+      }
+      // Text becomes a low-alpha bar: enough to read the shape of the page.
+      if (cs && hasOwnText(el)) {
+        const fontSize = parseFloat(cs.fontSize) || 14;
+        const barH = Math.max(1.5, Math.min(h, fontSize * sy * 0.85));
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = cs.color || "#e8e8e8";
+        ctx.fillRect(x, y + Math.min(h - barH, h * 0.12), Math.min(w, Math.max(4, w * 0.9)), barH);
+        ctx.globalAlpha = 1;
+        painted++;
       }
     }
-    return true;
-  } catch {
-    return false;
+
+    const kids = el.childElementCount;
+    for (let i = 0; i < kids && budget > 0 && queue.length < PREVIEW_NODE_BUDGET * 3; i++) queue.push(el.children[i]);
   }
+
+  return { canvas, painted };
+}
+
+/** Runs `fn` when the browser is idle, so a thumbnail never competes with input. */
+function runWhenIdle(fn: () => void, timeout = 300): void {
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+  if (typeof w.requestIdleCallback === "function") w.requestIdleCallback(fn, { timeout });
+  else setTimeout(fn, 40);
 }
 
 function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, onTogglePin, inSplit, thumbnail, readMemory, requestPreview }: {
@@ -5584,6 +5668,10 @@ function BrowserApp({
       : t);
   });
   const [activeTabId, setActiveTabId] = useState<string>(initialTabs.activeId || initialTabs.tabs[0].id);
+  // Recently used tabs, newest first. These stay mounted so going back to a tab
+  // you were just on is instant instead of a cold proxy reload; everything older
+  // is unmounted so a long tab strip cannot turn into "all pages running".
+  const [recentTabIds, setRecentTabIds] = useState<string[]>(() => [initialTabs.activeId || initialTabs.tabs[0]?.id].filter(Boolean));
   const [urlInput, setUrlInput] = useState("");
   // Pending AI/Chat/Profile navigation waiting on sign-in; shown in a dialog.
   const [authPrompt, setAuthPrompt] = useState<{ url: string; tabId: string; feature: string } | null>(null);
@@ -5631,6 +5719,11 @@ function BrowserApp({
     });
   }, [tabs]);
 
+  // Newest-first list of recently active tabs; the stage keeps these mounted.
+  useEffect(() => {
+    setRecentTabIds(prev => (prev[0] === activeTabId ? prev : [activeTabId, ...prev.filter(id => id !== activeTabId)].slice(0, KEEP_ALIVE_TABS)));
+  }, [activeTabId]);
+
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [welcomeOpen, setWelcomeOpen] = useState<boolean>(() => {
@@ -5677,7 +5770,6 @@ function BrowserApp({
     return internal ? readHeap(window) : null;
   }, []);
   const [tabPreviews, setTabPreviews] = useState<Record<string, HTMLCanvasElement>>({});
-  const thumbnailTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -6089,121 +6181,59 @@ function BrowserApp({
   }, [tabs, activeTabId]);
 
   // ─── Tab preview thumbnails ───────────────────────────────────────────────
-  // A tab's preview is a screenshot of its live iframe document, or of the tab's
-  // own wrapper for internal pages. Chromium refuses to draw an iframe into a
-  // canvas, so the DOM is rasterised with modern-screenshot instead. Only
-  // on-screen tabs are captured; an idle tab keeps its last good thumbnail.
-  const previewDisabledRef = useRef<Set<string>>(new Set());
-  const previewFailsRef = useRef<Record<string, number>>({});
+  // Previews are built by `paintPagePreview`, our own block renderer, from the
+  // tab's live iframe document (or its wrapper for internal pages). Nothing is
+  // captured on a timer: a build happens when the hover card asks for one, on
+  // an idle callback, and the result is cached per tab+URL. Hovering therefore
+  // never blocks on rendering work.
   const previewAtRef = useRef<Record<string, number>>({});
   const previewUrlRef = useRef<Record<string, string>>({});
-  const capturingRef = useRef<Set<string>>(new Set());
+  const previewBusyRef = useRef<Set<string>>(new Set());
 
-  const captureTabThumbnail = useCallback(async (tabId: string): Promise<void> => {
-    if (capturingRef.current.has(tabId) || previewDisabledRef.current.has(tabId)) return;
-    // Proxy pages (and the /mue/ new-tab frame) live in an iframe, so the frame's
-    // document is the thing to rasterise. Internal pages — new tab, error and
-    // blank screens — have no frame of their own, so the tab's own wrapper
-    // element is captured instead. Either way the card gets a real picture.
+  const buildTabPreview = useCallback((tabId: string): void => {
+    if (previewBusyRef.current.has(tabId)) return;
     const iframe = iframeRefs.current[tabId];
     const doc = iframe?.contentDocument;
-    let target: HTMLElement | null = null;
+    let target: Element | null = null;
+    let win: Window | null = null;
     let width = 0;
     let height = 0;
     if (iframe && doc?.documentElement && doc.body) {
       target = doc.documentElement;
+      win = doc.defaultView;
       width = iframe.clientWidth;
       height = iframe.clientHeight;
     } else {
+      // Internal pages (new tab, settings, error screens) live in the tab's own
+      // wrapper instead of a frame.
       const wrapper = document.querySelector<HTMLElement>(`[data-tab-content="${tabId}"]`);
       if (wrapper) {
         target = wrapper;
+        win = window;
         width = wrapper.clientWidth;
         height = wrapper.clientHeight;
       }
     }
     if (!target || !width || !height) return;
 
-    capturingRef.current.add(tabId);
-    const startedAt = Date.now();
+    previewBusyRef.current.add(tabId);
     try {
-      const src = await Promise.race([
-        domToCanvas(target, {
-          width,
-          height,
-          scale: 280 / width,
-          backgroundColor: "#0d0d0d",
-          quality: 0.6,
-          timeout: 6000,
-        }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("thumbnail timeout")), 7000)),
-      ]);
-      const out = document.createElement("canvas");
-      out.width = 280;
-      out.height = 160;
-      const ctx = out.getContext("2d");
-      if (ctx && src.width > 0 && src.height > 0) {
-        // Cover-crop into the preview box instead of stretching.
-        const scale = Math.max(280 / src.width, 160 / src.height);
-        const dw = src.width * scale;
-        const dh = src.height * scale;
-        ctx.fillStyle = "#0d0d0d";
-        ctx.fillRect(0, 0, 280, 160);
-        ctx.drawImage(src, (280 - dw) / 2, (160 - dh) / 2, dw, dh);
-        if (isBlankCapture(out)) {
-          // Empty frame: drop any stale preview so the card falls back to the
-          // generated one instead of showing a flat dark rectangle.
-          previewFailsRef.current[tabId] = (previewFailsRef.current[tabId] ?? 0) + 1;
-          setTabPreviews(prev => {
-            if (!(tabId in prev)) return prev;
-            const next = { ...prev };
-            delete next[tabId];
-            return next;
-          });
-          return;
-        }
-        previewAtRef.current[tabId] = Date.now();
-        previewFailsRef.current[tabId] = 0;
-        // No toDataURL(): proxied pages pull assets from other origins, which
-        // taints the canvas. A tainted canvas cannot be read back, but it can
-        // still be painted to the screen, so it is handed to the card as-is.
-        setTabPreviews(prev => ({ ...prev, [tabId]: out }));
-      }
+      const { canvas, painted } = paintPagePreview(target, width, height, win);
+      if (painted < 2) return;
+      previewAtRef.current[tabId] = Date.now();
+      setTabPreviews(prev => ({ ...prev, [tabId]: canvas }));
     } catch {
-      // Heavy pages can be slow or refuse to rasterise; after a couple of
-      // failures stop trying for this tab so hovering stays snappy.
-      previewFailsRef.current[tabId] = (previewFailsRef.current[tabId] ?? 0) + 1;
-      if (previewFailsRef.current[tabId] >= 2 || Date.now() - startedAt > 7000) {
-        previewDisabledRef.current.add(tabId);
-      }
+      /* A page that refuses to be measured just keeps the fallback preview. */
     } finally {
-      capturingRef.current.delete(tabId);
+      previewBusyRef.current.delete(tabId);
     }
   }, []);
 
   /** Refresh a tab's preview on demand (used when the hover card opens). */
   const requestTabThumbnail = useCallback((tabId: string) => {
-    const at = previewAtRef.current[tabId] ?? 0;
-    if (Date.now() - at > 15000) void captureTabThumbnail(tabId);
-  }, [captureTabThumbnail]);
-
-  // Capture the visible tabs periodically.
-  useEffect(() => {
-    function captureVisible() {
-      const visibleIds = new Set<string>([activeTabId, ...(split ? [split.other] : [])]);
-      for (const tab of tabs) {
-        if (!visibleIds.has(tab.id)) continue;
-        // Internal pages (new tab, settings, error screens) render as plain DOM
-        // and change rarely, so they are refreshed less often than proxied ones.
-        const internal = !tab.url || tab.url.startsWith("unstable://");
-        if (internal && Date.now() - (previewAtRef.current[tab.id] ?? 0) < 20000) continue;
-        void captureTabThumbnail(tab.id);
-      }
-    }
-    thumbnailTimerRef.current = setInterval(captureVisible, 5000);
-    captureVisible();
-    return () => { if (thumbnailTimerRef.current) clearInterval(thumbnailTimerRef.current); };
-  }, [tabs, activeTabId, split, captureTabThumbnail]);
+    if (Date.now() - (previewAtRef.current[tabId] ?? 0) < 8000) return;
+    runWhenIdle(() => buildTabPreview(tabId));
+  }, [buildTabPreview]);
 
   // A navigation gives a tab a clean slate for preview capture (and clears the
   // stale preview of a tab that has left its page behind).
@@ -6211,17 +6241,13 @@ function BrowserApp({
     for (const tab of tabs) {
       if (previewUrlRef.current[tab.id] === tab.url) continue;
       previewUrlRef.current[tab.id] = tab.url;
-      previewDisabledRef.current.delete(tab.id);
-      delete previewFailsRef.current[tab.id];
-      if (!tab.url) {
-        delete previewAtRef.current[tab.id];
-        setTabPreviews(prev => {
-          if (!(tab.id in prev)) return prev;
-          const next = { ...prev };
-          delete next[tab.id];
-          return next;
-        });
-      }
+      delete previewAtRef.current[tab.id];
+      setTabPreviews(prev => {
+        if (!(tab.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[tab.id];
+        return next;
+      });
     }
     // Drop previews (and their canvases) for tabs that have been closed.
     const live = new Set(tabs.map(t => t.id));
@@ -6229,8 +6255,6 @@ function BrowserApp({
       if (live.has(id)) continue;
       delete previewUrlRef.current[id];
       delete previewAtRef.current[id];
-      delete previewFailsRef.current[id];
-      previewDisabledRef.current.delete(id);
       setTabPreviews(prev => {
         if (!(id in prev)) return prev;
         const next = { ...prev };
@@ -6240,13 +6264,15 @@ function BrowserApp({
     }
   }, [tabs]);
 
-  // Give a freshly activated tab a moment to paint, then refresh its preview
-  // so the hover card is unlikely to open on a stale image.
+  // Warm the active tab's preview once it has painted, so the first hover is
+  // instant. Idle-scheduled, so it never lands in the middle of a tab switch.
   useEffect(() => {
-    const timer = setTimeout(() => { void captureTabThumbnail(activeTabId); }, 900);
+    if (!activeTab) return;
+    const id = activeTab.id;
+    const timer = setTimeout(() => runWhenIdle(() => buildTabPreview(id)), 1200);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId, captureTabThumbnail]);
+  }, [activeTabId, activeTab?.url, activeTab?.loading, buildTabPreview]);
 
   useEffect(() => {
     try { localStorage.setItem(PANIC_URL_KEY, JSON.stringify({ url: settings.panicUrl })); } catch {}
@@ -7454,13 +7480,13 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          {/* Tab stage. Only the tabs that need a live frame are mounted: the
-              active one, the other half of a split, and any tab still loading
-              (so a background navigation finishes instead of being thrown away
-              when you switch away). Everything else is unmounted so idle tabs
-              stop costing CPU/memory — mounting every tab made the app crawl.
-              Split view is inline rects over the same wrappers, so toggling
-              split never remounts a tab. */}
+          {/* Tab stage. A tab is mounted when it is active, the other half of a
+              split, still loading (so a background navigation finishes), playing
+              media, or one of the few most recently used tabs — those stay warm
+              so switching back to them is instant instead of a cold proxy
+              reload. Everything older is unmounted: mounting every tab made the
+              app crawl. Split view is inline rects over the same wrappers, so
+              toggling split never remounts a tab. */}
           <div ref={stageRef} style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
             {(() => {
               const horizontal = split ? split.direction === "horizontal" : false;
@@ -7474,10 +7500,13 @@ function BrowserApp({
                 rects[activeTabId] = { ...firstMain, height: horizontal ? firstMain.height : `calc(${firstMain.height} - ${D}px)` };
                 rects[split.other] = { ...secondMain, top: horizontal ? secondMain.top : `calc(${secondMain.top} + ${D}px)`, height: horizontal ? secondMain.height : `calc(${secondMain.height} - ${D}px)` };
               }
+              const keepAlive = new Set(recentTabIds);
               const mounted = tabs.filter(tab =>
                 tab.id === activeTabId
                 || (!!split && tab.id === split.other)
-                || tab.loading,
+                || tab.loading
+                || keepAlive.has(tab.id)
+                || !!mediaByTab[tab.id]?.playing,
               );
               return (
                 <>
@@ -7642,16 +7671,14 @@ function LoadingSpinner() {
   useEffect(() => {
     const start = Date.now();
     const duration = 3500;
-    let raf: number;
-    const tick = () => {
-      const elapsed = Date.now() - start;
-      const t = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setProgress(Math.round(eased * 100));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    // A timer rather than requestAnimationFrame: the boot screen must advance
+    // even in a tab that is not compositing frames.
+    const id = setInterval(() => {
+      const t = Math.min((Date.now() - start) / duration, 1);
+      setProgress(Math.round((1 - Math.pow(1 - t, 3)) * 100));
+      if (t >= 1) clearInterval(id);
+    }, 80);
+    return () => clearInterval(id);
   }, []);
   const msg = [...LOADING_MESSAGES].reverse().find(m => progress >= m.at)?.text ?? LOADING_MESSAGES[0].text;
   const r = 52;
@@ -7838,25 +7865,25 @@ export default function App() {
 
   return (
     <>
-      <AnimatePresence mode="wait">
-        {accountLoading || deployment === "detecting" ? (
-          <motion.div key="account-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#000", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
-            <LoadingSpinner />
-          </motion.div>
-        ) : (
-          <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
-            onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
-              setSession(nextSession);
-              setUser(nextUser);
-              setProfile(nextProfile);
-              setAuthContext(nextAuthContext);
-              setAccountError("");
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {accountLoading || deployment === "detecting" ? (
+        // Deliberately not animated: an AnimatePresence exit here would hold the
+        // whole app back until the spinner's animation finished (and never
+        // finish at all in a tab that is not compositing frames).
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#000", position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none" }} />
+          <LoadingSpinner />
+        </div>
+      ) : (
+        <BrowserApp key="app" onLogout={() => { void logout(); }} session={session} user={user} profile={profile} authContext={authContext}
+          onAuthenticated={({ session: nextSession, user: nextUser, profile: nextProfile, authContext: nextAuthContext }) => {
+            setSession(nextSession);
+            setUser(nextUser);
+            setProfile(nextProfile);
+            setAuthContext(nextAuthContext);
+            setAccountError("");
+          }}
+        />
+      )}
       <AnimatePresence>
         {accountError && !errorDismissed && (
           <motion.div
