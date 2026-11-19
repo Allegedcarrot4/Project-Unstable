@@ -749,6 +749,52 @@ function saveTabs(t: Tab[], activeId?: string) {
   localStorage.setItem(TABS_KEY, JSON.stringify({ tabs: t, activeId }));
 }
 
+// ─── Session restore ─────────────────────────────────────────────────────────
+// Restored proxy pages are kept aside as a pending payload instead of being
+// parked in the tab list: the tabs themselves open as plain new tabs (exactly
+// like a fresh launch), and the bottom-right prompt either puts the pages back
+// or drops them. The payload has its own storage key so answering can wait.
+
+const PENDING_RESTORE_KEY = "unstable_restore_pending";
+
+interface PendingRestore {
+  id: string;
+  url: string;
+  title: string;
+  favicon: string;
+  history: string[];
+  historyIndex: number;
+}
+
+function isProxyUrl(url: string): boolean {
+  return url.startsWith(SCRAMJET_PREFIX) || url.startsWith(UV_PREFIX);
+}
+
+function loadPendingRestore(initial: { tabs: Tab[] }): PendingRestore[] {
+  const liveIds = new Set(initial.tabs.map(t => t.id));
+  try {
+    const raw = localStorage.getItem(PENDING_RESTORE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((p): p is PendingRestore => !!p
+          && typeof p.id === "string" && liveIds.has(p.id)
+          && typeof p.url === "string" && isProxyUrl(p.url));
+      }
+    }
+  } catch { /* ignore */ }
+  return initial.tabs
+    .filter(t => !!t.url && isProxyUrl(t.url))
+    .map(t => ({
+      id: t.id,
+      url: t.url,
+      title: t.title,
+      favicon: t.favicon,
+      history: t.history ?? [],
+      historyIndex: t.historyIndex ?? -1,
+    }));
+}
+
 // ─── Cloak ────────────────────────────────────────────────────────────────────
 
 function applyCloak(id: CloakId) {
@@ -4592,6 +4638,81 @@ function PreviewSurface({ canvas }: { canvas: HTMLCanvasElement | undefined }) {
   return <div ref={hostRef} style={{ width: "100%", height: "100%", background: "#0a0a0a" }} />;
 }
 
+/**
+ * Deterministic stand-in preview for when no capture exists yet (a tab that was
+ * never on screen, a page that refuses to rasterise, a brand-new tab). It looks
+ * like a page rather than an empty box, so the hover card is never blank.
+ */
+function makeFallbackPreview(title: string, url: string): HTMLCanvasElement {
+  const W = 280;
+  const H = 160;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  let seed = 0;
+  for (let i = 0; i < url.length; i++) seed = (seed * 31 + url.charCodeAt(i)) % 360;
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, `hsl(${seed}, 30%, 17%)`);
+  grad.addColorStop(1, `hsl(${(seed + 52) % 360}, 36%, 9%)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  // Faint grid, so it reads as a rendered page rather than a flat swatch.
+  ctx.strokeStyle = "rgba(255,255,255,0.045)";
+  ctx.lineWidth = 1;
+  for (let x = 20; x < W; x += 20) { ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke(); }
+  for (let y = 20; y < H; y += 20) { ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke(); }
+  // Window chrome.
+  ctx.fillStyle = "rgba(255,255,255,0.07)";
+  ctx.fillRect(0, 0, W, 18);
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(11 + i * 8, 9, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Monogram + label.
+  const label = (title || "New Tab").trim() || "New Tab";
+  ctx.beginPath();
+  ctx.arc(W / 2, 78, 28, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.09)";
+  ctx.fill();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.font = "600 28px 'Space Grotesk', system-ui, sans-serif";
+  ctx.fillText(label.charAt(0).toUpperCase(), W / 2, 80);
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.font = "500 11px 'Space Grotesk', system-ui, sans-serif";
+  ctx.fillText(label.length > 32 ? `${label.slice(0, 32)}…` : label, W / 2, 126);
+  return canvas;
+}
+
+/**
+ * A capture can succeed but come back empty (a frame that was hidden, still
+ * white, or refused to paint). Those would show as a flat dark box, so they are
+ * treated as failures and the generated fallback is shown instead.
+ * Tainted canvases cannot be inspected; they are assumed to have content.
+ */
+function isBlankCapture(canvas: HTMLCanvasElement): boolean {
+  try {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let differing = 0;
+    for (let i = 0; i < data.length; i += 4 * 7) {
+      if (Math.abs(data[i] - 13) > 14 || Math.abs(data[i + 1] - 13) > 14 || Math.abs(data[i + 2] - 13) > 14) {
+        differing++;
+        if (differing > 30) return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate, onCloseRight, onCloseOthers, onSplit, onToggleMute, onTogglePin, inSplit, thumbnail, readMemory, requestPreview }: {
   tab: Tab; isActive: boolean; onActivate: () => void; onClose: () => void;
   onRefresh?: () => void; onDuplicate?: () => void; onCloseRight?: () => void; onCloseOthers?: () => void; onSplit?: () => void; onToggleMute?: () => void; onTogglePin?: () => void; inSplit?: boolean;
@@ -4616,8 +4737,19 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
 
   const CARD_W = 300;
 
+  // The hover card sits above the context menu, so it must never be visible
+  // while the menu is open — otherwise it covers the menu items.
+  const ctxOpenRef = useRef(false);
+
+  /** Always-available stand-in so the card shows a picture even with no capture. */
+  const fallbackPreview = useMemo(
+    () => makeFallbackPreview(tab.title || rawLabel, tab.url || "unstable://newtab"),
+    [tab.title, tab.url, rawLabel],
+  );
+
   /** Portalled to <body>: the tab has overflow:hidden, so an inline popup would be clipped away. */
   function openPreview() {
+    if (ctxOpenRef.current) return;
     const el = tabRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -4640,6 +4772,13 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); };
   }, []);
 
+  // Opening the tab's context menu dismisses the card immediately.
+  useEffect(() => {
+    ctxOpenRef.current = ctxOpen;
+    if (ctxOpen) closePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxOpen]);
+
   // Keep the figure live while the card is open, like the browser's own card.
   useEffect(() => {
     if (!showPreview) return;
@@ -4654,7 +4793,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     : "New tab";
   const memLabel = memoryMb == null ? "unavailable" : `${memoryMb < 10 ? memoryMb.toFixed(1) : Math.round(memoryMb)} MB`;
 
-  const previewCard = showPreview && previewPos ? createPortal(
+  const previewCard = showPreview && previewPos && !ctxOpen ? createPortal(
     <div style={{ position: "fixed", left: previewPos.left, top: previewPos.top, width: CARD_W, zIndex: 6000, pointerEvents: "none", fontFamily: "'Space Grotesk', sans-serif" }}>
       <div style={{ background: "#111", border: "1px solid #262626", borderRadius: 10, padding: 10, boxShadow: "0 16px 44px rgba(0,0,0,0.65)" }}>
         <p title={tab.title || rawLabel} style={{ margin: 0, fontSize: "0.78rem", color: "#eef0f3", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -4663,16 +4802,12 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
         <p title={fullUrl} style={{ margin: "2px 0 0", fontSize: "0.66rem", color: "rgba(255,255,255,0.38)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {fullUrl}
         </p>
-        <div style={{ marginTop: 8, width: "100%", height: 158, borderRadius: 6, overflow: "hidden", background: "#0a0a0a", border: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexDirection: "column" }}>
-          {thumbnail ? (
-            <PreviewSurface canvas={thumbnail} />
-          ) : (
-            <>
-              {tab.favicon ? <img src={tab.favicon} alt="" width={24} height={24} style={{ borderRadius: 4, objectFit: "contain", opacity: 0.55 }} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} /> : <Globe size={22} style={{ opacity: 0.3 }} />}
-              <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                {tab.url.startsWith("unstable://") ? "internal page" : "no preview yet"}
-              </span>
-            </>
+        <div style={{ marginTop: 8, width: "100%", height: 158, borderRadius: 6, overflow: "hidden", background: "#0a0a0a", border: "1px solid rgba(255,255,255,0.07)", position: "relative" }}>
+          <PreviewSurface canvas={thumbnail ?? fallbackPreview} />
+          {tab.favicon && (
+            <img src={tab.favicon} alt="" width={16} height={16}
+              style={{ position: "absolute", right: 6, bottom: 6, borderRadius: 3, objectFit: "contain", opacity: 0.85, filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.8))" }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
           )}
         </div>
         <div title={memoryMb == null ? "Memory reporting is unavailable for this page." : "JavaScript heap used by this tab's frame."} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
@@ -4696,7 +4831,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
 
   return (
     <motion.div ref={tabRef} layout="position" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8, width: 0, paddingLeft: 0, paddingRight: 0, borderRightWidth: 0 }} transition={{ duration: 0.18, ease: "easeInOut" }}
-      onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
+      onClick={onActivate} onMouseDown={e => { if (e.button === 1) { e.preventDefault(); onClose(); } }} onContextMenu={e => { e.preventDefault(); closePreview(); ctxOpenRef.current = true; setCtxPos({ x: e.clientX, y: e.clientY }); setCtxOpen(true); }}
       onMouseEnter={() => { setHovered(true); if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); hoverTimerRef.current = setTimeout(openPreview, 500); }}
       onMouseLeave={() => { setHovered(false); closePreview(); }}
       style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0 0.5rem 0 0.7rem", height: "100%", cursor: "pointer", background: isActive ? (tab.incognito ? "#14121a" : "#111") : hovered ? "#0f0f0f" : "transparent", borderRight: "1px solid #1a1a1a", width: 160, flexShrink: 0, transition: "background 0.1s", position: "relative", overflow: "hidden" }}
@@ -5439,14 +5574,16 @@ function BrowserApp({
   const deployment = useDeploymentMode();
   const frontendOnly = deployment === "frontend";
   const initialTabs = useRef(loadTabs()).current;
-  const [tabs, setTabs] = useState<Tab[]>(initialTabs.tabs);
+  // Restored proxy pages wait in this payload; the tabs themselves start empty.
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore[]>(() => loadPendingRestore(initialTabs));
+  const [restoreAccepted, setRestoreAccepted] = useState(false);
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const pendingIds = new Set(pendingRestore.map(p => p.id));
+    return initialTabs.tabs.map(t => pendingIds.has(t.id)
+      ? { ...t, url: "", title: "New Tab", favicon: "", history: [], historyIndex: -1, currentUrl: undefined, loading: false }
+      : t);
+  });
   const [activeTabId, setActiveTabId] = useState<string>(initialTabs.activeId || initialTabs.tabs[0].id);
-  // Session restore: proxy tabs saved from a previous visit are held back until
-  // the proxy engine is ready AND the user confirms they want them reloaded.
-  const restoredProxyIds = useRef<string[]>(
-    initialTabs.tabs.filter(t => t.url && (t.url.startsWith(SCRAMJET_PREFIX) || t.url.startsWith(UV_PREFIX))).map(t => t.id),
-  ).current;
-  const [restorePending, setRestorePending] = useState<boolean>(() => restoredProxyIds.length > 0);
   const [urlInput, setUrlInput] = useState("");
   // Pending AI/Chat/Profile navigation waiting on sign-in; shown in a dialog.
   const [authPrompt, setAuthPrompt] = useState<{ url: string; tabId: string; feature: string } | null>(null);
@@ -5473,6 +5610,27 @@ function BrowserApp({
   }, [split]);
   const stageRef = useRef<HTMLDivElement>(null);
   const [splitDragging, setSplitDragging] = useState(false);
+
+  // Keep the pending payload across launches until it is answered.
+  useEffect(() => {
+    try {
+      if (pendingRestore.length > 0) localStorage.setItem(PENDING_RESTORE_KEY, JSON.stringify(pendingRestore));
+      else localStorage.removeItem(PENDING_RESTORE_KEY);
+    } catch { /* ignore */ }
+  }, [pendingRestore]);
+
+  // A restored tab that gets used for something else no longer needs restoring.
+  useEffect(() => {
+    setPendingRestore(prev => {
+      if (prev.length === 0) return prev;
+      const next = prev.filter(p => {
+        const tab = tabs.find(t => t.id === p.id);
+        return !!tab && !tab.url;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [tabs]);
+
   const [fullscreen, setFullscreen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [welcomeOpen, setWelcomeOpen] = useState<boolean>(() => {
@@ -5503,7 +5661,7 @@ function BrowserApp({
    * `performance.memory` is readable per frame. Internal pages render inside
    * the app itself, so their heap is the app's heap. Null = not reported.
    */
-  const readTabMemory = useCallback((tabId: string): number | null => {
+  const readTabMemory = useCallback((tab: Tab): number | null => {
     const readHeap = (win: Window | null): number | null => {
       try {
         const used = (win as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } } | null)
@@ -5511,8 +5669,12 @@ function BrowserApp({
         return typeof used === "number" && used > 0 ? used / 1048576 : null;
       } catch { return null; }
     };
-    const iframe = iframeRefs.current[tabId];
-    return iframe ? readHeap(iframe.contentWindow) : readHeap(window);
+    const iframe = iframeRefs.current[tab.id];
+    if (iframe) return readHeap(iframe.contentWindow);
+    // Idle proxy tabs are unmounted, so there is no frame to measure — reporting
+    // the app's own heap for them would be a lie.
+    const internal = !tab.url || tab.url.startsWith("unstable://");
+    return internal ? readHeap(window) : null;
   }, []);
   const [tabPreviews, setTabPreviews] = useState<Record<string, HTMLCanvasElement>>({});
   const thumbnailTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -5641,6 +5803,28 @@ function BrowserApp({
   }, [activeTab?.loading, activeTabId]);
   const proxyStatus = useProxyStatus();
   const { setError } = useErrorHandler();
+
+  // Accepted + proxy ready: put the saved pages back into their tabs. Declared
+  // here because it depends on the proxy engine's live phase.
+  useEffect(() => {
+    if (!restoreAccepted || pendingRestore.length === 0 || proxyStatus.phase !== "ready") return;
+    const byId = new Map(pendingRestore.map(p => [p.id, p]));
+    setTabs(prev => prev.map(t => {
+      const p = byId.get(t.id);
+      if (!p || t.url) return t;
+      return {
+        ...t,
+        url: p.url,
+        title: p.title || "Loading…",
+        favicon: p.favicon,
+        history: p.history,
+        historyIndex: p.historyIndex,
+        loading: true,
+      };
+    }));
+    setPendingRestore([]);
+    setRestoreAccepted(false);
+  }, [restoreAccepted, pendingRestore, proxyStatus.phase]);
 
   // ─── Proxied downloads ─────────────────────────────────────────────────────
   // The bytes have to come from inside the proxied frame: only that frame's
@@ -5905,10 +6089,10 @@ function BrowserApp({
   }, [tabs, activeTabId]);
 
   // ─── Tab preview thumbnails ───────────────────────────────────────────────
-  // A tab's preview is a screenshot of its live iframe document. Chromium
-  // refuses to draw an iframe into a canvas, so the frame's DOM is rasterised
-  // with modern-screenshot instead. Only on-screen frames are captured: hidden
-  // keep-alive frames keep their last good thumbnail rather than being wiped.
+  // A tab's preview is a screenshot of its live iframe document, or of the tab's
+  // own wrapper for internal pages. Chromium refuses to draw an iframe into a
+  // canvas, so the DOM is rasterised with modern-screenshot instead. Only
+  // on-screen tabs are captured; an idle tab keeps its last good thumbnail.
   const previewDisabledRef = useRef<Set<string>>(new Set());
   const previewFailsRef = useRef<Record<string, number>>({});
   const previewAtRef = useRef<Record<string, number>>({});
@@ -5917,18 +6101,34 @@ function BrowserApp({
 
   const captureTabThumbnail = useCallback(async (tabId: string): Promise<void> => {
     if (capturingRef.current.has(tabId) || previewDisabledRef.current.has(tabId)) return;
+    // Proxy pages (and the /mue/ new-tab frame) live in an iframe, so the frame's
+    // document is the thing to rasterise. Internal pages — new tab, error and
+    // blank screens — have no frame of their own, so the tab's own wrapper
+    // element is captured instead. Either way the card gets a real picture.
     const iframe = iframeRefs.current[tabId];
     const doc = iframe?.contentDocument;
-    if (!iframe || !doc?.documentElement || !doc.body) return;
-    const width = iframe.clientWidth;
-    const height = iframe.clientHeight;
-    if (!width || !height) return;
+    let target: HTMLElement | null = null;
+    let width = 0;
+    let height = 0;
+    if (iframe && doc?.documentElement && doc.body) {
+      target = doc.documentElement;
+      width = iframe.clientWidth;
+      height = iframe.clientHeight;
+    } else {
+      const wrapper = document.querySelector<HTMLElement>(`[data-tab-content="${tabId}"]`);
+      if (wrapper) {
+        target = wrapper;
+        width = wrapper.clientWidth;
+        height = wrapper.clientHeight;
+      }
+    }
+    if (!target || !width || !height) return;
 
     capturingRef.current.add(tabId);
     const startedAt = Date.now();
     try {
       const src = await Promise.race([
-        domToCanvas(doc.documentElement, {
+        domToCanvas(target, {
           width,
           height,
           scale: 280 / width,
@@ -5950,6 +6150,18 @@ function BrowserApp({
         ctx.fillStyle = "#0d0d0d";
         ctx.fillRect(0, 0, 280, 160);
         ctx.drawImage(src, (280 - dw) / 2, (160 - dh) / 2, dw, dh);
+        if (isBlankCapture(out)) {
+          // Empty frame: drop any stale preview so the card falls back to the
+          // generated one instead of showing a flat dark rectangle.
+          previewFailsRef.current[tabId] = (previewFailsRef.current[tabId] ?? 0) + 1;
+          setTabPreviews(prev => {
+            if (!(tabId in prev)) return prev;
+            const next = { ...prev };
+            delete next[tabId];
+            return next;
+          });
+          return;
+        }
         previewAtRef.current[tabId] = Date.now();
         previewFailsRef.current[tabId] = 0;
         // No toDataURL(): proxied pages pull assets from other origins, which
@@ -5980,8 +6192,11 @@ function BrowserApp({
     function captureVisible() {
       const visibleIds = new Set<string>([activeTabId, ...(split ? [split.other] : [])]);
       for (const tab of tabs) {
-        if (!tab.url || tab.url.startsWith("unstable://")) continue;
         if (!visibleIds.has(tab.id)) continue;
+        // Internal pages (new tab, settings, error screens) render as plain DOM
+        // and change rarely, so they are refreshed less often than proxied ones.
+        const internal = !tab.url || tab.url.startsWith("unstable://");
+        if (internal && Date.now() - (previewAtRef.current[tab.id] ?? 0) < 20000) continue;
         void captureTabThumbnail(tab.id);
       }
     }
@@ -6028,8 +6243,6 @@ function BrowserApp({
   // Give a freshly activated tab a moment to paint, then refresh its preview
   // so the hover card is unlikely to open on a stale image.
   useEffect(() => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (!tab?.url || tab.url.startsWith("unstable://")) return;
     const timer = setTimeout(() => { void captureTabThumbnail(activeTabId); }, 900);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6794,7 +7007,7 @@ function BrowserApp({
       return settings.newtabMode === "legacy" ? (
         <NewTabPage onNavigate={u => handleNavigate(u, tab.id)} customShortcuts={customShortcuts} setCustomShortcuts={setCustomShortcuts} wallpaper={settings.wallpaper} searchEngine={settings.searchEngine} showMs={settings.showMsIndicator} />
       ) : (
-        <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+        <iframe ref={(el) => { if (el) iframeRefs.current[tab.id] = el; else delete iframeRefs.current[tab.id]; }} src={`/mue/index.html?searchUrl=${encodeURIComponent(SEARCH_ENGINES[settings.searchEngine]?.url ?? "https://duckduckgo.com/?q=")}`} style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
       );
     }
     if (tab.url === "unstable://ai") {
@@ -6844,26 +7057,6 @@ function BrowserApp({
     if (tab.url === "unstable://tos") return <ToSPage />;
     if (tab.url === "unstable://privacy") return <PrivacyPage />;
     if (tab.url === "unstable://blank") return <div style={{ width: "100%", height: "100%", background: "var(--t-bg)" }} />;
-    // Restored-from-session proxy tabs: hold the iframe until the user opts in
-    // and the proxy engine is actually ready, otherwise the frame 404s on a
-    // cold /ham/ or /service/ path before the service worker controls it.
-    if (tab.url.startsWith(SCRAMJET_PREFIX) || tab.url.startsWith(UV_PREFIX)) {
-      const held = restoredProxyIds.includes(tab.id) && (restorePending || proxyStatus.phase !== "ready");
-      if (held) {
-        const decoded = decodeProxyUrl(tab.url);
-        return (
-          <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", background: "var(--t-bg, #0d0d0d)", fontFamily: "'Space Grotesk', sans-serif" }}>
-            <div style={{ padding: "0.5rem 0.9rem", border: "1px solid rgba(255,255,255,0.14)", borderRadius: "8px", background: "rgba(255,255,255,0.04)", fontSize: "0.6rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)" }}>
-              {restorePending ? "restore waiting" : "proxy starting"}
-            </div>
-            <p style={{ margin: 0, fontSize: "0.8rem", color: "#e8e8e8", maxWidth: "70%", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decoded}</p>
-            <p style={{ margin: 0, fontSize: "0.65rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>
-              {restorePending ? "Confirm the restore prompt to load this tab" : "Waiting for the proxy engine…"}
-            </p>
-          </div>
-        );
-      }
-    }
     // Every real internal page is handled above. Anything else on the
     // unstable:// scheme must never reach the iframe: Chrome can't load a
     // non-http scheme and renders "This site can't be reached".
@@ -6871,7 +7064,17 @@ function BrowserApp({
       return <UnknownPage url={tab.url} onNavigate={u => handleNavigate(u, tab.id)} />;
     }
     return (
-      <iframe ref={(el) => { if (el) { iframeRefs.current[tab.id] = el; if (tab.id === activeTabId) iframeRef.current = el; (el as HTMLIFrameElement & { muted: boolean }).muted = tab.muted; } }}
+      <iframe ref={(el) => {
+        if (el) {
+          iframeRefs.current[tab.id] = el;
+          if (tab.id === activeTabId) iframeRef.current = el;
+          (el as HTMLIFrameElement & { muted: boolean }).muted = tab.muted;
+        } else {
+          // Unmounted (tab went idle or closed): drop the stale frame handle.
+          delete iframeRefs.current[tab.id];
+          if (iframeRef.current && !document.contains(iframeRef.current)) iframeRef.current = null;
+        }
+      }}
         src={tab.url}
         style={{ width: "100%", height: "100%", border: "none", display: "block" }}
         allow="fullscreen *;autoplay *;camera *;microphone *;payment *;clipboard-read *;clipboard-write *;encrypted-media *;gamepad *"
@@ -6964,7 +7167,7 @@ function BrowserApp({
         }}
       />
     );
-  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, restorePending, proxyStatus.phase, syncTabFromFrame, activeTabId]);
+  }, [settings, customShortcuts, user, profile, session, onAuthenticated, scrController, proxyStatus.phase, syncTabFromFrame, activeTabId]);
 
   // ─── Floating music controller wiring ──────────────────────────────────────
   const activeMedia = useMemo(() => {
@@ -7068,13 +7271,13 @@ function BrowserApp({
                       tabEls.push(
                         <div key="split-group" style={{ display: "flex", alignItems: "stretch", height: "100%", background: "#151515", border: "1px solid #262626", borderRadius: "6px", margin: "0 2px", overflow: "hidden", flexShrink: 0 }}>
                           {tabs.filter(t => splitTabIds.has(t.id)).map(t => (
-                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} onTogglePin={() => handleTogglePin(t.id)} thumbnail={tabPreviews[t.id]} readMemory={() => readTabMemory(t.id)} requestPreview={() => requestTabThumbnail(t.id)} />
+                            <BrowserTab key={t.id} tab={t} isActive={t.id === activeTabId} onActivate={() => handleTabActivate(t.id)} onClose={() => handleCloseTab(t.id)} onRefresh={() => handleRefreshTab(t.id)} onDuplicate={() => handleDuplicateTab(t.id)} onCloseRight={() => handleCloseTabsToRight(t.id)} onCloseOthers={() => handleCloseOtherTabs(t.id)} onSplit={() => handleSplitTab(t.id)} inSplit={split?.other === t.id} onToggleMute={() => handleToggleMute(t.id)} onTogglePin={() => handleTogglePin(t.id)} thumbnail={tabPreviews[t.id]} readMemory={() => readTabMemory(t)} requestPreview={() => requestTabThumbnail(t.id)} />
                           ))}
                         </div>
                       );
                       return;
                     }
-                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} onTogglePin={() => handleTogglePin(tab.id)} thumbnail={tabPreviews[tab.id]} readMemory={() => readTabMemory(tab.id)} requestPreview={() => requestTabThumbnail(tab.id)} />);
+                    tabEls.push(<BrowserTab key={tab.id} tab={tab} isActive={tab.id === activeTabId} onActivate={() => handleTabActivate(tab.id)} onClose={() => handleCloseTab(tab.id)} onRefresh={() => handleRefreshTab(tab.id)} onDuplicate={() => handleDuplicateTab(tab.id)} onCloseRight={() => handleCloseTabsToRight(tab.id)} onCloseOthers={() => handleCloseOtherTabs(tab.id)} onSplit={() => handleSplitTab(tab.id)} inSplit={false} onToggleMute={() => handleToggleMute(tab.id)} onTogglePin={() => handleTogglePin(tab.id)} thumbnail={tabPreviews[tab.id]} readMemory={() => readTabMemory(tab)} requestPreview={() => requestTabThumbnail(tab.id)} />);
                   });
                   return tabEls;
                 })()}
@@ -7251,11 +7454,13 @@ function BrowserApp({
           {fullscreen && (
             <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
-          {/* Keep-alive stage. Every tab stays mounted for its whole lifetime;
-              only visibility/pointer-events toggle, so each hidden tab's proxy
-              stream keeps running and switching is instant with no reload.
-              In split view the two visible tabs are inline rects on the same
-              wrappers, so toggling split never remounts a tab either. */}
+          {/* Tab stage. Only the tabs that need a live frame are mounted: the
+              active one, the other half of a split, and any tab still loading
+              (so a background navigation finishes instead of being thrown away
+              when you switch away). Everything else is unmounted so idle tabs
+              stop costing CPU/memory — mounting every tab made the app crawl.
+              Split view is inline rects over the same wrappers, so toggling
+              split never remounts a tab. */}
           <div ref={stageRef} style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
             {(() => {
               const horizontal = split ? split.direction === "horizontal" : false;
@@ -7269,15 +7474,20 @@ function BrowserApp({
                 rects[activeTabId] = { ...firstMain, height: horizontal ? firstMain.height : `calc(${firstMain.height} - ${D}px)` };
                 rects[split.other] = { ...secondMain, top: horizontal ? secondMain.top : `calc(${secondMain.top} + ${D}px)`, height: horizontal ? secondMain.height : `calc(${secondMain.height} - ${D}px)` };
               }
+              const mounted = tabs.filter(tab =>
+                tab.id === activeTabId
+                || (!!split && tab.id === split.other)
+                || tab.loading,
+              );
               return (
                 <>
-                  {tabs.map(tab => {
+                  {mounted.map(tab => {
                     const isActive = tab.id === activeTabId;
                     const rect = rects[tab.id];
                     const visible = isActive || (split ? tab.id === split.other : false);
                     const zIndex = isActive ? 2 : visible ? 1 : 0;
                     return (
-                      <div key={tab.id} aria-hidden={!visible}
+                      <div key={tab.id} aria-hidden={!visible} data-tab-content={tab.id}
                         style={{
                           position: "absolute",
                           ...(rect ?? { inset: 0 }),
@@ -7348,39 +7558,34 @@ function BrowserApp({
         )}
       </AnimatePresence>
 
-      {/* Non-blocking session restore prompt. Browsing remains usable while the
-          saved proxy pages wait for the user's choice. */}
+      {/* Non-blocking session restore prompt, bottom right. The tabs are already
+          open as plain new tabs, so browsing stays normal either way. */}
       <AnimatePresence>
-        {restorePending && restoredProxyIds.length > 0 && (
+        {pendingRestore.length > 0 && (
           <motion.div initial={{ opacity: 0, x: 18, y: 18 }} animate={{ opacity: 1, x: 0, y: 0 }} exit={{ opacity: 0, x: 18, y: 18 }} transition={{ type: "spring", stiffness: 400, damping: 28 }}
             style={{ position: "fixed", right: 18, bottom: 18, zIndex: 999999, background: "linear-gradient(180deg, #171717, #101010)", border: "1px solid #383838", borderRadius: "12px", padding: "1rem", maxWidth: 360, width: "calc(100vw - 36px)", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}>
               <p style={{ margin: "0 0 0.35rem", fontSize: "0.6rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", fontWeight: 600 }}>session restore</p>
               <p style={{ color: "#e8e8e8", margin: "0 0 0.75rem", fontSize: "0.85rem", lineHeight: 1.5 }}>
-                Restore <strong>{restoredProxyIds.length}</strong> saved {restoredProxyIds.length === 1 ? "tab" : "tabs"} from your last visit?
+                Restore <strong>{pendingRestore.length}</strong> saved {pendingRestore.length === 1 ? "tab" : "tabs"} from your last visit?
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", maxHeight: 112, overflow: "auto", marginBottom: "0.85rem" }}>
-                {restoredProxyIds.map(id => {
-                  const t = tabs.find(x => x.id === id);
-                  if (!t) return null;
-                  const decoded = t.url ? decodeProxyUrl(t.url) : "";
-                  return (
-                    <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "4px" }}>
-                      {t.favicon ? <img src={t.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0 }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : null}
-                      <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decoded || t.title}</span>
-                    </div>
-                  );
-                })}
+                {pendingRestore.map(p => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "4px" }}>
+                    {p.favicon ? <img src={p.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0 }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : null}
+                    <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeProxyUrl(p.url) || p.title}</span>
+                  </div>
+                ))}
               </div>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                   onClick={() => {
-                    // Decline: drop the saved proxy URLs, keep the tabs as fresh new tabs
-                    setTabs(prev => prev.map(t => restoredProxyIds.includes(t.id) ? { ...t, url: "", title: "New Tab", favicon: "", history: [], historyIndex: -1, loading: false } : t));
-                    setRestorePending(false);
+                    // Decline: the tabs are already new tabs, just drop the payload.
+                    setPendingRestore([]);
+                    setRestoreAccepted(false);
                   }}
                   style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>no thanks</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-                  onClick={() => { setRestorePending(false); }}
+                  onClick={() => setRestoreAccepted(true)}
                   style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>restore</motion.button>
               </div>
           </motion.div>
