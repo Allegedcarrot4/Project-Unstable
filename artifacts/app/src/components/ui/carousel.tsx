@@ -1,7 +1,7 @@
 import * as React from "react"
 import useEmblaCarousel, {
   type UseEmblaCarouselType,
-} from "embla-carousel-react"
+} from "@animate-ui/react/primitives/carousel"
 import { ArrowLeft, ArrowRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"

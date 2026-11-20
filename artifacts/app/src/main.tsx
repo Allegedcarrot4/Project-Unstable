@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { AnimateUIProvider } from "@animate-ui/react/provider";
 import App from "./App";
 import { ErrorProvider } from "./lib/errorContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -85,7 +86,9 @@ function RootApp() {
         }
       >
         <PasswordGate>
-          <App />
+          <AnimateUIProvider>
+            <App />
+          </AnimateUIProvider>
         </PasswordGate>
       </ErrorBoundary>
     </ErrorProvider>

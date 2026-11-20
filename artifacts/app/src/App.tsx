@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, lazy, Suspense, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useMotionValue, useSpring, useVelocity, useTransform, useAnimation } from "framer-motion";
+import { useMotionTokens, useShouldReduceMotion } from "@animate-ui/react/utils/motion";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Gamepad, MessageCircle, Settings, Atom, House, Zap, Brain, Mic, ThumbsUp, ThumbsDown, Flame, Laugh, Heart, Volume2, VolumeX, RefreshCw, Wrench, Maximize, EllipsisVertical, Columns2, Layers, ArrowLeft, ArrowRight, ArrowLeftRight, ArrowUpDown, GripVertical, GripHorizontal, PanelLeftClose, PanelLeft, ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward, Music, Swords, Puzzle, Car, Ghost, Users, User as UserIcon, X, Clock, History as HistoryIcon, Bookmark, Download, Trash2, ExternalLink, Globe, Settings2, Star, Shield, Copy, Pencil, Send, QrCode, EyeOff, Pin, Plus, MemoryStick } from "lucide-react";
@@ -9,8 +10,8 @@ import { ErrorScreen } from "./components/ErrorScreen";
 import { DownloadIndicator } from "./components/DownloadIndicator";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./components/ui/dialog";
-import { AIMessageBody } from "./components/AIMessageBody";
-const DMChat = lazy(() => import("./components/DMChat").then(m => ({ default: m.DMChat })));
+const AIChat = lazy(() => import("./components/AIChat").then(m => ({ default: m.AIChat })));
+const ChatHub = lazy(() => import("./components/ChatHub").then(m => ({ default: m.ChatHub })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const GamesPage = lazy(() => import("./components/GamesPage").then(m => ({ default: m.GamesPage })));
 const ReleasesPage = lazy(() => import("./components/ReleasesPage").then(m => ({ default: m.ReleasesPage })));
@@ -258,14 +259,6 @@ interface MediaState {
   duration: number;
 }
 
-interface AIMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-type AIMode = "fast" | "think";
-
 interface Profile {
   id: string;
   username: string;
@@ -277,26 +270,6 @@ interface Profile {
 interface AppAuthContext {
   isBanned: boolean;
   banReason: string | null;
-}
-
-interface AIConversationRecord {
-  id: string;
-  title: string | null;
-  created_at: string;
-}
-
-interface ChatMessageRecord {
-  id: string;
-  user_id: string;
-  username: string;
-  content: string;
-  created_at: string;
-}
-
-interface ParsedChatMessage {
-  replyUsername: string | null;
-  replySnippet: string | null;
-  body: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -406,18 +379,6 @@ const DEFAULT_SHORTCUTS: Shortcut[] = [
 function faviconUrl(domain: string) { return _faviconUrl(domain); }
 function extractDomain(url: string) { return _extractDomain(url); }
 
-function aiMessageId() {
-  return Math.random().toString(36).slice(2);
-}
-
-// ai_chat_feedback.message_id FKeys to ai_messages(id) (uuid), so only ids that
-// came back from the database may be written. Optimistic/local ids are not uuids.
-const MESSAGE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isPersistedMessageId(id: string) {
-  return MESSAGE_UUID_RE.test(id);
-}
-
 function getDeviceId() {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
@@ -430,11 +391,6 @@ function getDeviceId() {
   return next;
 }
 
-function buildConversationTitle(text: string) {
-  const trimmed = text.trim().replace(/\s+/g, " ");
-  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
-}
-
 function normalizeUsername(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
@@ -445,39 +401,6 @@ function isValidEmail(value: string) {
 
 function usernameToAuthEmail(username: string) {
   return `${normalizeUsername(username)}@unstableuser.com`;
-}
-
-function buildReplyPayload(message: ChatMessageRecord, content: string) {
-  const snippet = message.content.trim().replace(/\s+/g, " ").slice(0, 72);
-  return `[[reply:${message.username}|${snippet}]]\n${content}`;
-}
-
-function parseChatMessageContent(content: string): ParsedChatMessage {
-  const match = content.match(/^\[\[reply:([^|\]]+)\|([\s\S]*?)\]\]\n([\s\S]*)$/);
-  if (!match) {
-    return { replyUsername: null, replySnippet: null, body: content };
-  }
-  return {
-    replyUsername: match[1] ?? null,
-    replySnippet: match[2] ?? null,
-    body: match[3] ?? "",
-  };
-}
-
-async function sendAiChat(messages: AIMessage[], mode: AIMode): Promise<string> {
-  const res = await fetch("/api/ai/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      mode,
-      messages: messages.map(({ role, content }) => ({ role, content })),
-    }),
-  });
-
-  const data = await res.json().catch(() => null) as { content?: string; error?: string } | null;
-  if (!res.ok) throw new Error(data?.error || "The AI request failed.");
-  if (!data?.content) throw new Error("The AI response was empty.");
-  return data.content;
 }
 
 async function readJson<T>(res: Response): Promise<T | null> {
@@ -1323,7 +1246,7 @@ function MediaController({
     >
       <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
         {/* Artwork */}
-        <div style={{ width: 42, height: 42, borderRadius: "4px", flexShrink: 0, overflow: "hidden", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 42, height: 42, borderRadius: "0", flexShrink: 0, overflow: "hidden", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {state.artwork ? (
             <img src={state.artwork} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
           ) : (
@@ -1347,8 +1270,8 @@ function MediaController({
       </div>
 
       {/* Progress */}
-      <div style={{ height: "3px", borderRadius: "2px", background: "rgba(255,255,255,0.10)", margin: "0.55rem 0 0.45rem", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${progress * 100}%`, background: "rgba(255,255,255,0.55)", borderRadius: "2px", transition: "width 0.9s linear" }} />
+      <div style={{ height: "3px", borderRadius: "10px", background: "rgba(255,255,255,0.10)", margin: "0.55rem 0 0.45rem", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${progress * 100}%`, background: "rgba(255,255,255,0.55)", borderRadius: "10px", transition: "width 0.9s linear" }} />
       </div>
 
       {/* Controls */}
@@ -1519,7 +1442,7 @@ function ConnectionStatusSummary({ transportMode, wispServer, wispRelayUrl, tran
               background: s.bare === n ? "rgba(80,200,120,0.15)" : "none",
               border: `1px solid ${s.bare === n ? green : "#333"}`,
               color: s.bare === n ? green : gray,
-              padding: "0.2rem 0.5rem", fontSize: "0.6rem", cursor: "pointer", borderRadius: "2px",
+              padding: "0.2rem 0.5rem", fontSize: "0.6rem", cursor: "pointer", borderRadius: "10px",
               fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em",
             }}>ws{n}</button>
           ))}
@@ -1710,7 +1633,7 @@ function AccountAuthScreen({
     fontFamily: "'Space Grotesk', sans-serif",
     letterSpacing: "0.04em",
     outline: "none",
-    borderRadius: "2px",
+    borderRadius: "10px",
     boxSizing: "border-box",
     transition: "border-color 0.18s ease",
   };
@@ -1761,7 +1684,7 @@ function AccountAuthScreen({
                   letterSpacing: "0.16em",
                   textTransform: "uppercase",
                   cursor: "pointer",
-                  borderRadius: "2px",
+                  borderRadius: "10px",
                 }}
               >
                 {currentMode === "signin" ? "sign in" : "sign up"}
@@ -1808,10 +1731,11 @@ function AccountAuthScreen({
 
           <motion.button
             whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
             type="submit"
             disabled={loading}
-            style={{ width: "100%", background: loading ? "#555" : "#e8e8e8", color: loading ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: loading ? "not-allowed" : "pointer", borderRadius: "2px", transition: "background 0.15s" }}
+            style={{ width: "100%", background: loading ? "#555" : "#e8e8e8", color: loading ? "#aaa" : "#0d0d0d", border: "none", padding: "0.875rem 1rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", cursor: loading ? "not-allowed" : "pointer", borderRadius: "10px", transition: "background 0.15s" }}
           >
             {loading ? "working…" : mode === "signin" ? "enter account" : "create account"}
           </motion.button>
@@ -1936,7 +1860,7 @@ function PrivacyPage() {
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 const SETTINGS_INPUT_BASE: React.CSSProperties = {
-  background: "none", border: "1px solid #222", borderRadius: "2px",
+  background: "none", border: "1px solid #222", borderRadius: "10px",
   color: "#e0e0e0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem",
   padding: "0.3rem 0.65rem", letterSpacing: "0.04em", outline: "none",
   transition: "border-color 0.18s ease",
@@ -2017,14 +1941,15 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
       id="settings-scroll"
       style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" }}
     >
-      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: "var(--t-bg)" }}>
+      <div style={{ display: "flex", maxHeight: "90%", borderRadius: "0", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", background: "var(--t-bg)" }}>
       <div style={{
         width: 160, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.06)", padding: "2.5rem 0",
         display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "stretch", overflowY: "auto",
       }}>
         <p style={{ fontSize: "0.55rem", letterSpacing: "0.25em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", margin: "0 1.25rem 1rem 1.25rem" }}>unstable</p>
         {catIds.map(id => (
-          <motion.button key={id} whileHover={{ color: "rgba(255,255,255,0.7)", background: "rgba(255,255,255,0.03)", x: 2 }} whileTap={{ scale: 0.98 }} onClick={() => scrollToCat(id)} style={{
+          <motion.button key={id} whileHover={{ color: "rgba(255,255,255,0.7)", background: "rgba(255,255,255,0.03)", x: 2 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }} onClick={() => scrollToCat(id)} style={{
             background: "none", border: "none", color: "rgba(255,255,255,0.3)", textAlign: "left",
             padding: "0.45rem 1.25rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
             letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer",
@@ -2074,7 +1999,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
             style={{
               background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
               padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
             }}
           >random</motion.button>
           {settings.wallpaper && (
@@ -2085,13 +2010,13 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
               style={{
                 background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)",
                 padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
               }}
             >clear</motion.button>
           )}
         </div>
         {settings.wallpaper && (
-          <div style={{ marginTop: "0.75rem", width: "100%", height: 120, borderRadius: "4px", overflow: "hidden", border: "1px solid var(--t-border-light)" }}>
+          <div style={{ marginTop: "0.75rem", width: "100%", height: 120, borderRadius: "0", overflow: "hidden", border: "1px solid var(--t-border-light)" }}>
             <div style={{ width: "100%", height: "100%", backgroundImage: `url("${settings.wallpaper}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
           </div>
         )}
@@ -2115,7 +2040,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                 background: settings.newtabMode === mode ? "var(--t-bg-card)" : "none",
                 border: "1px solid", borderColor: settings.newtabMode === mode ? "var(--t-border-light)" : "var(--t-border)",
                 color: settings.newtabMode === mode ? "var(--t-text)" : "var(--t-text-muted)",
-                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                padding: "0.5rem 0.75rem", borderRadius: "10px", cursor: "pointer",
                 fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
                 letterSpacing: "0.04em", textTransform: "uppercase",
                 transition: "background 0.15s, border-color 0.15s, color 0.15s",
@@ -2142,7 +2067,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                 background: settings.verticalTabs === opt.id ? "var(--t-bg-card)" : "none",
                 border: "1px solid", borderColor: settings.verticalTabs === opt.id ? "var(--t-border-light)" : "var(--t-border)",
                 color: settings.verticalTabs === opt.id ? "var(--t-text)" : "var(--t-text-muted)",
-                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                padding: "0.5rem 0.75rem", borderRadius: "10px", cursor: "pointer",
                 fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
                 letterSpacing: "0.04em", textTransform: "uppercase",
                 transition: "background 0.15s, border-color 0.15s, color 0.15s",
@@ -2166,7 +2091,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                 background: settings.pinnedTabsToSidebar === opt.id ? "var(--t-bg-card)" : "none",
                 border: "1px solid", borderColor: settings.pinnedTabsToSidebar === opt.id ? "var(--t-border-light)" : "var(--t-border)",
                 color: settings.pinnedTabsToSidebar === opt.id ? "var(--t-text)" : "var(--t-text-muted)",
-                padding: "0.5rem 0.75rem", borderRadius: "2px", cursor: "pointer",
+                padding: "0.5rem 0.75rem", borderRadius: "10px", cursor: "pointer",
                 fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
                 letterSpacing: "0.04em", textTransform: "uppercase",
                 transition: "background 0.15s, border-color 0.15s, color 0.15s",
@@ -2187,7 +2112,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
             <p style={{ margin: 0, fontSize: "0.66rem", color: "var(--t-text-muted)" }}>No sites pinned to the sidebar.</p>
           )}
           {settings.sidebarSites.map(site => (
-            <div key={site.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.7rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "2px" }}>
+            <div key={site.id} style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.55rem 0.7rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "10px" }}>
               <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--t-text)" }}>
                 <SidebarSiteIcon site={site} size={16} />
               </div>
@@ -2214,7 +2139,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                 display: "flex", alignItems: "center", gap: "0.45rem",
                 background: "none", border: "1px solid var(--t-border-light)", color: "var(--t-text-secondary)",
                 padding: "0.4rem 0.75rem", fontSize: "0.66rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.04em", borderRadius: "2px", cursor: "pointer", transition: "all 0.15s",
+                letterSpacing: "0.04em", borderRadius: "10px", cursor: "pointer", transition: "all 0.15s",
               }}
             >
               <SidebarSiteIcon site={preset} size={13} />
@@ -2249,7 +2174,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
               display: "flex", alignItems: "center", gap: "0.4rem",
               background: "var(--t-bg-card)", border: "1px solid var(--t-border-light)", color: "var(--t-text)",
               padding: "0.4rem 0.85rem", fontSize: "0.66rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.06em", textTransform: "uppercase", borderRadius: "2px", cursor: "pointer",
+              letterSpacing: "0.06em", textTransform: "uppercase", borderRadius: "10px", cursor: "pointer",
             }}
           >
             <Plus size={12} /> add
@@ -2278,11 +2203,11 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                   color: active ? "var(--t-accent-text)" : "var(--t-text-secondary)",
                   border: `1px solid ${active ? "var(--t-accent)" : "var(--t-border-light)"}`,
                   padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", cursor: "pointer", borderRadius: "2px",
+                  letterSpacing: "0.06em", cursor: "pointer", borderRadius: "10px",
                   transition: "all 0.15s",
                 }}
               >
-                <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "2px", flexShrink: 0 }} />
+                <img src={`https://www.google.com/s2/favicons?domain=${new URL(engine.url).hostname}&sz=32`} alt="" width={14} height={14} style={{ borderRadius: "10px", flexShrink: 0 }} />
                 {engine.name}
               </motion.button>
             );
@@ -2315,7 +2240,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                 color: settings.cloak === id ? "#0d0d0d" : "rgba(255,255,255,0.45)",
                 border: `1px solid ${settings.cloak === id ? "#e8e8e8" : "#222"}`,
                 padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
                 transition: "all 0.15s",
               }}
             >{CLOAK_PRESETS[id].label}</motion.button>
@@ -2323,12 +2248,13 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
         </div>
         <motion.button
           whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
           onClick={() => openCloakPopup("https://www.google.com")}
           style={{
             marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
             padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
           }}
         >open in about:blank</motion.button>
       </motion.section>
@@ -2360,12 +2286,13 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
         </p>
         <motion.button
           whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
           onClick={() => onSettingsChange({ ...settings, panicUrl: DEFAULT_PANIC_URL })}
           style={{
             marginTop: "0.85rem", background: "none", border: "1px solid #222", color: "var(--t-text-muted)",
             padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
           }}
         >reset panic url</motion.button>
       </motion.section>
@@ -2412,7 +2339,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                     border: `1px solid ${isRec ? "rgba(220,80,80,0.5)" : "#222"}`,
                     color: isRec ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.35)",
                     padding: "0.25rem 0.6rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                    letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
                   }}
                 >{isRec ? "cancel" : "record"}</motion.button>
               </motion.div>
@@ -2421,12 +2348,13 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
         </div>
         <motion.button
           whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
           onClick={() => onSettingsChange({ ...settings, shortcuts: DEFAULT_KEY_SHORTCUTS })}
           style={{
             marginTop: "1rem", background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.25)",
             padding: "0.4rem 0.85rem", fontSize: "0.6rem", fontFamily: "'Space Grotesk', sans-serif",
-            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+            letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
           }}
         >reset to defaults</motion.button>
       </motion.section>
@@ -2450,7 +2378,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                   color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
                   border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
                   padding: "0.4rem 0.7rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.04em", cursor: "pointer", borderRadius: "2px",
+                  letterSpacing: "0.04em", cursor: "pointer", borderRadius: "10px",
                   transition: "all 0.15s",
                 }}
               >{Math.round(scale * 100)}%</motion.button>
@@ -2512,7 +2440,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                   color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
                   border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
                   padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
                   transition: "all 0.15s",
                 }}
               >{labels[id]}</motion.button>
@@ -2546,7 +2474,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                   color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
                   border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
                   padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
                   transition: "all 0.15s",
                 }}
               >{labels[id]}</motion.button>
@@ -2655,7 +2583,7 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
                   color: active ? "#0d0d0d" : "rgba(255,255,255,0.45)",
                   border: `1px solid ${active ? "#e8e8e8" : "#222"}`,
                   padding: "0.4rem 0.85rem", fontSize: "0.68rem", fontFamily: "'Space Grotesk', sans-serif",
-                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                  letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
                   transition: "all 0.15s",
                 }}
               >{labels[id]}</motion.button>
@@ -2694,7 +2622,8 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
         <p style={{ fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "0.85rem", marginTop: 0 }}>settings management</p>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <motion.button
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
             onClick={() => {
               const blob = new Blob([JSON.stringify(settings, null, 2)], { type: "application/json" });
               const url = URL.createObjectURL(blob);
@@ -2705,11 +2634,12 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
             style={{
               background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
               padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
             }}
           >export settings</motion.button>
           <motion.button
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
             onClick={() => {
               const input = document.createElement("input");
               input.type = "file"; input.accept = ".json";
@@ -2740,17 +2670,18 @@ function SettingsPage({ settings, onSettingsChange, onLogout, onNavigate, fronte
             style={{
               background: "none", border: "1px solid #222", color: "rgba(255,255,255,0.45)",
               padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
-              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
             }}
           >import settings</motion.button>
           {onLogout && (
             <motion.button
-              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
               onClick={onLogout}
               style={{
                 background: "none", border: "1px solid #333", color: "rgba(200,70,70,0.7)",
                 padding: "0.4rem 0.85rem", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif",
-                letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px",
+                letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px",
               }}
             >sign out</motion.button>
           )}
@@ -2836,7 +2767,7 @@ function AuthDialog({
   const feature = prompt?.feature ?? "this feature";
   const srOnly: React.CSSProperties = { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" };
   return (
-    <Dialog open={!!prompt} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog open={!!prompt} onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
       <DialogContent
         className="gap-0 p-0"
         style={{ background: "var(--t-bg)", border: "1px solid #232323", borderRadius: "6px", width: "calc(100% - 2rem)", maxWidth: "400px", padding: "1.75rem 1.5rem", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 24px 64px rgba(0,0,0,0.65)" }}
@@ -2860,710 +2791,12 @@ function AIPage({ user, profile, onAuthenticated }: { user: User | null; profile
 }
 
 function AIPageInner({ user, profile }: { user: User; profile: Profile }) {
-  const starterMessages = useMemo<AIMessage[]>(() => [
-    { id: aiMessageId(), role: "assistant", content: "Ready when you are. Ask for quick answers, rewrites, brainstorming, or code help." },
-  ], []);
-
-  const [conversations, setConversations] = useState<AIConversationRecord[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<AIMessage[]>(starterMessages);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [booting, setBooting] = useState(true);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<AIMode>("fast");
-  const [editMessageId, setEditMessageId] = useState<string | null>(null);
-  const [editingContent, setEditingContent] = useState("");
-  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
-  const [listening, setListening] = useState(false);
-  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const [regenerating, setRegenerating] = useState(false);
-  const [feedback, setFeedback] = useState<Record<string, "like" | "dislike" | null>>({});
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const modeMeta: Record<AIMode, { label: string; hint: string }> = {
-    fast: { label: "llama-3.1-8b-instant", hint: "lowest latency" },
-    think: { label: "openai/gpt-oss-20b", hint: "more reasoning, slower replies" },
-  };
-
-  useEffect(() => {
-    if (!modeDropdownOpen) return;
-    const handler = () => setModeDropdownOpen(false);
-    const blurHandler = () => setModeDropdownOpen(false);
-    document.addEventListener("mousedown", handler);
-    window.addEventListener("blur", blurHandler);
-    return () => { document.removeEventListener("mousedown", handler); window.removeEventListener("blur", blurHandler); };
-  }, [modeDropdownOpen]);
-
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  }, [input]);
-
-  useEffect(() => {
-    if (editTextareaRef.current) {
-      const el = editTextareaRef.current;
-      el.style.height = "0px";
-      el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-    }
-  }, [editingContent]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setBooting(true);
-      try {
-        const { data, error: err } = await supabase
-          .from("ai_conversations")
-          .select("id, title, created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-        if (err) throw err;
-        if (cancelled) return;
-        const convs = (data ?? []) as AIConversationRecord[];
-        setConversations(convs);
-        if (convs.length > 0) {
-          setActiveId(convs[0].id);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load conversations.");
-      } finally {
-        if (!cancelled) setBooting(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [user.id]);
-
-  useEffect(() => {
-    if (!activeId) {
-      setMessages(starterMessages);
-      return;
-    }
-    let cancelled = false;
-    async function loadMessages() {
-      setBooting(true);
-      try {
-        const { data, error: err } = await supabase
-          .from("ai_messages")
-          .select("id, role, content")
-          .eq("conversation_id", activeId)
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: true });
-        if (err) throw err;
-        if (cancelled) return;
-        if (data && data.length > 0) {
-          setMessages(data.map((m) => ({ id: m.id, role: m.role as "user" | "assistant", content: m.content })));
-        } else {
-          setMessages(starterMessages);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load messages.");
-      } finally {
-        if (!cancelled) setBooting(false);
-      }
-    }
-    loadMessages();
-    return () => { cancelled = true; };
-  }, [activeId, user.id, starterMessages]);
-
-  // Restore saved like/dislike reactions from ai_chat_feedback
-  useEffect(() => {
-    let cancelled = false;
-    async function loadFeedback() {
-      try {
-        const { data, error: err } = await supabase
-          .from("ai_chat_feedback")
-          .select("message_id, feedback_type")
-          .eq("user_id", user.id);
-        if (err) throw err;
-        if (cancelled) return;
-        const map: Record<string, "like" | "dislike"> = {};
-        for (const row of (data ?? []) as Array<{ message_id: string; feedback_type: "like" | "dislike" }>) {
-          map[row.message_id] = row.feedback_type;
-        }
-        setFeedback(map);
-      } catch (err) {
-        if (!cancelled) console.error("Failed to load feedback:", err);
-      }
-    }
-    loadFeedback();
-    return () => { cancelled = true; };
-  }, [user.id, activeId]);
-
-  async function newChat() {
-    const { data, error: err } = await supabase
-      .from("ai_conversations")
-      .insert({ user_id: user.id, title: "New chat" })
-      .select("id, title, created_at")
-      .single();
-    if (err) { setError(err.message); return; }
-    const conv = data as AIConversationRecord;
-    setConversations(prev => [conv, ...prev]);
-    setActiveId(conv.id);
-    setMessages(starterMessages);
-    setError("");
-  }
-
-  async function deleteChat(id: string) {
-    const { error: messageError } = await supabase.from("ai_messages").delete().eq("conversation_id", id).eq("user_id", user.id);
-    if (messageError) { setError(messageError.message); return; }
-    const { error: conversationError } = await supabase.from("ai_conversations").delete().eq("id", id).eq("user_id", user.id);
-    if (conversationError) { setError(conversationError.message); return; }
-    setConversations(prev => prev.filter(c => c.id !== id));
-    if (activeId === id) {
-      const next = conversations.find(c => c.id !== id);
-      setActiveId(next ? next.id : null);
-      if (!next) setMessages(starterMessages);
-    }
-  }
-
-  async function updateConversationTitle(id: string, title: string) {
-    setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
-    const { error: updateError } = await supabase.from("ai_conversations").update({ title }).eq("id", id).eq("user_id", user.id);
-    if (updateError) setError(updateError.message);
-  }
-
-  async function generateTitle(convId: string, userPrompt: string, aiResponse: string) {
-    try {
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "fast",
-          messages: [
-            { role: "system", content: "Generate a concise title under 6 words for this conversation based on the first user message and AI response. Reply with only the title, no quotes or extra text." },
-            { role: "user", content: userPrompt },
-            { role: "assistant", content: aiResponse },
-          ],
-        }),
-      });
-      const data = await res.json().catch(() => null) as { content?: string } | null;
-      if (data?.content) {
-        const title = data.content.trim().replace(/^["'\s]+|["'\s]+$/g, "").slice(0, 60);
-        if (title) updateConversationTitle(convId, title);
-      }
-    } catch {}
-  }
-
-  async function sendMessage(rawPrompt?: string) {
-    const prompt = (rawPrompt ?? input).trim();
-    if (!prompt || loading || booting) return;
-
-    let convId = activeId;
-    if (!convId) {
-      const { data, error: err } = await supabase
-        .from("ai_conversations")
-        .insert({ user_id: user.id, title: buildConversationTitle(prompt) })
-        .select("id, title, created_at")
-        .single();
-      if (err) { setError(err.message); return; }
-      const conv = data as AIConversationRecord;
-      setConversations(prev => [conv, ...prev]);
-      convId = conv.id;
-      setActiveId(conv.id);
-    }
-
-    const userMessage: AIMessage = { id: aiMessageId(), role: "user", content: prompt };
-    setMessages(prev => [...prev, userMessage]);
-    setInput("");
-    setError("");
-    setLoading(true);
-
-    try {
-      const { data: userRow, error: insertErr } = await supabase.from("ai_messages").insert({
-        conversation_id: convId, user_id: user.id, role: "user", content: prompt,
-      }).select("id").single();
-      if (insertErr) throw insertErr;
-      // Swap the optimistic id for the persisted uuid so edits, deletes and
-      // feedback target the real row instead of a locally generated placeholder.
-      if (userRow?.id) replaceMessageId(userMessage.id, userRow.id as string);
-
-      const allMessages = [...messages, userMessage].slice(-16);
-      const content = await sendAiChat(allMessages, mode);
-      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
-      setMessages(prev => [...prev, assistantMessage]);
-
-      const { data: assistantRow, error: aiInsertErr } = await supabase.from("ai_messages").insert({
-        conversation_id: convId, user_id: user.id, role: "assistant", content,
-      }).select("id").single();
-      if (aiInsertErr) throw aiInsertErr;
-      if (assistantRow?.id) replaceMessageId(assistantMessage.id, assistantRow.id as string);
-
-      const conv = conversations.find(c => c.id === convId);
-      if (conv && conv.title === "New chat") {
-        const tempTitle = buildConversationTitle(prompt);
-        updateConversationTitle(convId, tempTitle);
-        generateTitle(convId, prompt, content);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to get a response right now.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveEdit(messageId: string) {
-    const newContent = editingContent.trim();
-    if (!newContent) return;
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: newContent } : m));
-    setEditMessageId(null);
-    setEditingContent("");
-    const { error: updateError } = await supabase.from("ai_messages").update({ content: newContent }).eq("id", messageId).eq("user_id", user.id);
-    if (updateError) setError(updateError.message);
-  }
-
-  function startEdit(msg: AIMessage) {
-    setEditMessageId(msg.id);
-    setEditingContent(msg.content);
-    setTimeout(() => editTextareaRef.current?.focus(), 0);
-  }
-
-  function cancelEdit() {
-    setEditMessageId(null);
-    setEditingContent("");
-  }
-
-  function copyMessage(content: string) {
-    navigator.clipboard.writeText(content).catch(() => {});
-  }
-
-  /** Points the optimistic message at the row that was just persisted. */
-  function replaceMessageId(tempId: string, persistedId: string) {
-    setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, id: persistedId } : m)));
-  }
-
-  /**
-   * Persists like/dislike on an assistant message to ai_chat_feedback.
-   * The UI updates immediately (optimistic) and DB failures are logged only,
-   * so feedback never blocks the chat. Messages that were not persisted yet
-   * (starter text, in-flight replies) are skipped because the column is a uuid FKey.
-   */
-  async function saveFeedback(messageId: string, next: "like" | "dislike" | null) {
-    setFeedback(prev => ({ ...prev, [messageId]: next }));
-    if (!isPersistedMessageId(messageId)) return;
-    try {
-      if (next === null) {
-        const { error } = await supabase
-          .from("ai_chat_feedback")
-          .delete()
-          .eq("message_id", messageId)
-          .eq("user_id", user.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("ai_chat_feedback")
-          .upsert(
-            { message_id: messageId, user_id: user.id, feedback_type: next },
-            { onConflict: "message_id,user_id" },
-          );
-        if (error) throw error;
-      }
-    } catch (err) {
-      console.error("Failed to save feedback:", err);
-    }
-  }
-
-  function speakMessage(id: string, content: string) {
-    if (speakingMessageId === id) {
-      window.speechSynthesis.cancel();
-      setSpeakingMessageId(null);
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
-    setSpeakingMessageId(id);
-    window.speechSynthesis.speak(utterance);
-  }
-
-  async function regenerateMessage() {
-    const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
-    if (!lastUserMsg || regenerating) return;
-    setRegenerating(true);
-    const lastAiIndex = messages.map(m => m.role).lastIndexOf("assistant");
-    if (lastAiIndex !== -1) {
-      const removed = messages[lastAiIndex];
-      setMessages(prev => prev.filter(m => m.id !== removed.id));
-      if (activeId) {
-        try { await supabase.from("ai_messages").delete().eq("id", removed.id).eq("user_id", user.id); } catch {}
-      }
-    }
-    setLoading(true);
-    try {
-      const history = messages.slice(0, lastAiIndex > 0 ? lastAiIndex - 1 : 0);
-      const content = await sendAiChat([...history, lastUserMsg], mode);
-      const assistantMessage: AIMessage = { id: aiMessageId(), role: "assistant", content };
-      setMessages(prev => [...prev, assistantMessage]);
-      if (activeId) {
-        try {
-          const { data: assistantRow } = await supabase
-            .from("ai_messages")
-            .insert({ conversation_id: activeId, user_id: user.id, role: "assistant", content })
-            .select("id")
-            .single();
-          if (assistantRow?.id) replaceMessageId(assistantMessage.id, assistantRow.id as string);
-        } catch {}
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to regenerate.");
-    } finally {
-      setLoading(false);
-      setRegenerating(false);
-    }
-  }
-
-  const sidebarWidth = 260;
-
-  function ActionButton({ icon, label, active, activeColor, onClick }: { icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void }) {
-    return (
-      <button onClick={onClick} style={{ background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.06)"}`, borderRadius: "6px", color: active ? activeColor || "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.4)", fontSize: "0.58rem", cursor: "pointer", padding: "0.2rem 0.45rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-        {icon}{label}
-      </button>
-    );
-  }
-
-  function IconButton({ icon, active, activeColor, onClick }: { icon: React.ReactNode; active?: boolean; activeColor?: string; onClick: () => void }) {
-    return (
-      <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: "0.15rem", color: active ? activeColor || "rgba(120,200,120,0.8)" : "rgba(255,255,255,0.35)", display: "inline-flex", alignItems: "center" }}>
-        {icon}
-      </button>
-    );
-  }
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-       style={{ height: "100%", overflow: "hidden", background: "#0d0d0d", fontFamily: "'Space Grotesk', sans-serif" }}
-    >
-      <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", gap: "0.75rem" }}>
-        {/* ── Sidebar ── */}
-        <motion.aside
-          initial={{ opacity: 0, x: -12 }}
-          animate={{ opacity: 1, x: 0 }}
-          style={{ width: sidebarWidth, flexShrink: 0, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}
-        >
-          {/* New chat button */}
-          <div style={{ padding: "0.85rem" }}>
-            <motion.button
-              whileHover={{ scale: 1.02, background: "rgba(255,255,255,0.06)" }}
-              whileTap={{ scale: 0.98 }}
-              onClick={newChat}
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.45rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.65rem 0", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.08em" }}
-            >
-              + New chat
-            </motion.button>
-          </div>
-
-          {/* Conversation list */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 0.4rem" }}>
-            {conversations.length === 0 && !booting && (
-              <p style={{ textAlign: "center", fontSize: "0.65rem", color: "rgba(255,255,255,0.25)", padding: "1.5rem 0", margin: 0 }}>No conversations yet</p>
-            )}
-            <AnimatePresence>
-              {conversations.map((conv) => {
-                const active = conv.id === activeId;
-                return (
-                  <motion.div
-                    key={conv.id}
-                    layout
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
-                    onClick={() => setActiveId(conv.id)}
-                    style={{
-                      cursor: "pointer", borderRadius: "10px", padding: "0.6rem 0.7rem",
-                      marginBottom: "0.2rem", display: "flex", alignItems: "center", gap: "0.4rem",
-                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
-                      border: active ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
-                    }}
-                    onMouseEnter={() => setHoveredMsgId(conv.id)}
-                    onMouseLeave={() => setHoveredMsgId(null)}
-                  >
-                    <p style={{ margin: 0, fontSize: "0.72rem", color: "#e0e0e0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
-                      {conv.title || "Untitled"}
-                    </p>
-                    {hoveredMsgId === conv.id && (
-                      <motion.button
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        onClick={(e) => { e.stopPropagation(); deleteChat(conv.id); }}
-                        style={{ flexShrink: 0, background: "rgba(220,80,80,0.15)", border: "1px solid rgba(220,80,80,0.3)", borderRadius: "6px", color: "rgba(220,80,80,0.8)", fontSize: "0.55rem", cursor: "pointer", padding: "0.15rem 0.4rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
-                      >delete</motion.button>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
-
-          {/* User info */}
-          <div style={{ padding: "0.75rem 0.85rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-            <p style={{ margin: 0, fontSize: "0.6rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
-              {profile.username}
-            </p>
-          </div>
-        </motion.aside>
-
-        {/* ── Main chat area ── */}
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}
-        >
-          {/* Header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.9rem 1.2rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <div>
-                <p style={{ margin: 0, fontSize: "0.88rem", color: "#eceff4", fontWeight: 500 }}>
-                  {activeId ? (conversations.find(c => c.id === activeId)?.title || "Chat") : "AI"}
-                </p>
-              </div>
-              {/* Mode selector moved to header */}
-              <div style={{ position: "relative" }}>
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={(e) => { e.stopPropagation(); setModeDropdownOpen(!modeDropdownOpen); }}
-                  style={{ background: mode === "think" ? "rgba(120,80,200,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${mode === "think" ? "rgba(120,80,200,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: "999px", padding: "0.3rem 0.6rem", cursor: "pointer", color: mode === "think" ? "rgba(180,140,255,0.8)" : "rgba(255,255,255,0.45)", fontSize: "0.58rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.2rem" }}
-                >
-                  {mode === "fast" ? <><Zap size={11} />fast</> : <><Brain size={11} />think</>}
-                </motion.button>
-                <AnimatePresence>
-                  {modeDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                      transition={{ duration: 0.12 }}
-                      style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#181818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.3rem", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", minWidth: 140, zIndex: 10 }}
-                    >
-                      {(["fast", "think"] as AIMode[]).map((opt) => (
-                        <motion.button
-                          key={opt}
-                          whileHover={{ background: "rgba(255,255,255,0.06)" }}
-                          onClick={() => { setMode(opt); setModeDropdownOpen(false); }}
-                          style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "100%", textAlign: "left", background: mode === opt ? "rgba(255,255,255,0.08)" : "transparent", border: "none", borderRadius: "8px", padding: "0.45rem 0.7rem", cursor: "pointer", color: mode === opt ? "#e8e8e8" : "rgba(255,255,255,0.5)", fontSize: "0.65rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.04em" }}
-                        >
-                          <span style={{ display: "inline-flex" }}>{opt === "fast" ? <Zap size={13} /> : <Brain size={13} />}</span>
-                          <span style={{ flex: 1 }}>{opt === "fast" ? "Fast" : "Think"}</span>
-                          {mode === opt && <span style={{ fontSize: "0.5rem", color: "rgba(120,200,120,0.6)" }}>active</span>}
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              {activeId && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => deleteChat(activeId)}
-                  style={{ background: "none", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(200,80,80,0.6)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
-                >delete</motion.button>
-              )}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={newChat}
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", color: "rgba(255,255,255,0.55)", borderRadius: "999px", padding: "0.35rem 0.75rem", fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}
-              >+ new</motion.button>
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-            {booting ? (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>Loading…</p>
-              </div>
-            ) : messages.length === 0 ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.8rem" }}>
-                <Atom size={32} style={{ color: "rgba(255,255,255,0.12)" }} />
-                <p style={{ margin: 0, color: "rgba(255,255,255,0.2)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>Send a message to start chatting</p>
-              </div>
-            ) : (
-              <AnimatePresence initial={false}>
-                {messages.map((message, index) => {
-                  const isUser = message.role === "user";
-                  const isEditing = editMessageId === message.id;
-                  const isHovered = hoveredMsgId === message.id;
-                  const senderName = isUser ? profile.username : "AI";
-                  return (
-                    <motion.div
-                      key={message.id}
-                      layout
-                      initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      transition={{ delay: Math.min(index * 0.03, 0.4) }}
-                      style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}
-                    >
-                      <div
-                        style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isUser ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end", width: "100%" }}
-                        onMouseEnter={() => setHoveredMsgId(message.id)}
-                        onMouseLeave={() => setHoveredMsgId(null)}
-                      >
-                        {/* Avatar */}
-                        <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: isUser ? "linear-gradient(135deg, rgba(232,236,248,0.12), rgba(232,236,248,0.04))" : "linear-gradient(135deg, rgba(120,170,255,0.12), rgba(120,170,255,0.04))", border: `1px solid ${isUser ? "rgba(232,236,248,0.12)" : "rgba(120,170,255,0.12)"}`, color: isUser ? "rgba(232,236,248,0.8)" : "rgba(120,170,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
-                          {isUser ? senderName.slice(0, 2) : <Atom size={14} />}
-                        </div>
-                        {/* Bubble */}
-                        <div style={{ position: "relative", minWidth: 0, flex: 1 }}>
-                          {isEditing ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "flex-end" }}>
-                              <textarea
-                                ref={editTextareaRef}
-                                value={editingContent}
-                                onChange={e => setEditingContent(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(message.id); }
-                                  if (e.key === "Escape") cancelEdit();
-                                }}
-                                style={{ width: "100%", resize: "none", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "14px", color: "#e0e0e0", padding: "0.75rem 0.9rem", fontSize: "0.79rem", lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", outline: "none", minHeight: 80 }}
-                              />
-                              <div style={{ display: "flex", gap: "0.4rem" }}>
-                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => saveEdit(message.id)} style={{ background: "#e8ecf8", border: "none", borderRadius: "8px", color: "#0d0d0d", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer", fontWeight: 600 }}>Save</motion.button>
-                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={cancelEdit} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", padding: "0.35rem 0.8rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", cursor: "pointer" }}>Cancel</motion.button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{ borderRadius: isUser ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
-                              <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isUser ? "rgba(232,236,248,0.84)" : "rgba(120,170,255,0.6)" }}>
-                                {isUser ? "you" : "AI"}
-                              </p>
-                              {isUser ? (
-                                <p style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                                  {message.content}
-                                </p>
-                              ) : (
-                                <AIMessageBody
-                                  content={message.content}
-                                  interactive={index === messages.length - 1 && !loading}
-                                  onAnswer={answer => void sendMessage(answer)}
-                                />
-                              )}
-                            </div>
-                          )}
-                          {/* Hover actions */}
-                          {isHovered && !isEditing && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", justifyContent: isUser ? "flex-end" : "flex-start", alignItems: "center", flexWrap: "wrap" }}
-                            >
-                              {!isUser && (
-                                <>
-                                  <ActionButton icon={<Volume2 size={11} />} label={speakingMessageId === message.id ? "stop" : "read"} active={speakingMessageId === message.id} activeColor="rgba(120,170,255,0.8)" onClick={() => speakMessage(message.id, message.content)} />
-                                  <ActionButton icon={<RefreshCw size={11} />} label="redo" onClick={regenerateMessage} />
-                                </>
-                              )}
-                              <ActionButton icon={<Copy size={11} />} label="copy" onClick={() => copyMessage(message.content)} />
-                              {isUser && <ActionButton icon={<Pencil size={11} />} label="edit" onClick={() => startEdit(message)} />}
-                              {!isUser && (
-                                <>
-                                  <span style={{ width: "1px", height: 12, background: "rgba(255,255,255,0.08)", margin: "0 0.1rem" }} />
-                                  <IconButton icon={<ThumbsUp size={12} />} active={feedback[message.id] === "like"} activeColor="rgba(120,200,120,0.8)" onClick={() => void saveFeedback(message.id, feedback[message.id] === "like" ? null : "like")} />
-                                  <IconButton icon={<ThumbsDown size={12} />} active={feedback[message.id] === "dislike"} activeColor="rgba(220,100,100,0.8)" onClick={() => void saveFeedback(message.id, feedback[message.id] === "dislike" ? null : "dislike")} />
-                                </>
-                              )}
-                            </motion.div>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            )}
-
-            {loading && (
-              <motion.div initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{ display: "flex", gap: "0.7rem", alignItems: "flex-end" }}>
-                  <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(120,170,255,0.12), rgba(120,170,255,0.04))", border: "1px solid rgba(120,170,255,0.12)", color: "rgba(120,170,255,0.8)", fontSize: "0.56rem", fontWeight: 700, flexShrink: 0 }}>
-                    <Atom size={14} />
-                  </div>
-                  <div style={{ borderRadius: "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)", maxWidth: "min(100%, 700px)" }}>
-                    <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(120,170,255,0.6)" }}>AI</p>
-                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", minHeight: 20 }}>
-                      {[0, 1, 2].map((dot) => (
-                        <motion.span key={dot} animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }} transition={{ duration: 1, repeat: Infinity, delay: dot * 0.12 }} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.5)", display: "block" }} />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </div>
-
-          {/* Input area */}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem", background: "linear-gradient(180deg, rgba(11,11,11,0.96), rgba(8,8,8,0.98))" }}>
-            {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", letterSpacing: "0.04em" }}>{error}</p>}
-            <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.5rem 0.5rem 0.5rem 0.8rem" }}>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder={activeId ? "Ask anything..." : "Start a new chat..."}
-                rows={1}
-                style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 220, overflowY: "auto" }}
-              />
-              {/* Voice input */}
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  if (listening) return;
-                  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-                  if (!SpeechRecognition) return;
-                  const recognition = new SpeechRecognition();
-                  recognition.interimResults = false;
-                  recognition.lang = "en-US";
-                  setListening(true);
-                  recognition.onresult = (event: any) => {
-                    const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join("");
-                    setInput(transcript);
-                  };
-                  recognition.onend = () => setListening(false);
-                  recognition.onerror = () => setListening(false);
-                  try { recognition.start(); } catch { setListening(false); }
-                }}
-                style={{ flexShrink: 0, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: listening ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${listening ? "rgba(220,80,80,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "50%", cursor: "pointer", color: listening ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.4)", padding: 0, position: "relative" }}
-              >
-                {listening ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc4444", display: "block", position: "absolute" }} /><Mic size={14} /></> : <Mic size={14} />}
-              </motion.button>
-              {/* Send button */}
-              <motion.button
-                whileHover={{ scale: loading ? 1 : 1.03 }}
-                whileTap={{ scale: loading ? 1 : 0.98 }}
-                type="submit"
-                disabled={loading || !input.trim()}
-                style={{ flexShrink: 0, height: 34, minWidth: 72, background: loading || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: loading || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 0.9rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" }}
-              >
-                {loading ? "sending" : <><Send size={12} />send</>}
-              </motion.button>
-            </form>
-          </div>
-        </motion.section>
-      </div>
-    </motion.div>
+    <div style={{ height: "100%", minHeight: 0 }}>
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.35)", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading AI…</div>}>
+        <AIChat user={{ id: user.id }} profile={{ username: profile.username }} />
+      </Suspense>
+    </div>
   );
 }
 
@@ -3583,361 +2816,24 @@ function ChatPage({ user, profile, session, onAuthenticated, chatTab, onChatTabC
   return <ChatPageInner user={user} profile={profile} session={session} chatTab={chatTab} onChatTabChange={onChatTabChange} />;
 }
 
-function formatChatTime(timestamp: string) {
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? "sending…" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function ChatPageInner({ user, profile, session, chatTab, onChatTabChange }: {
+function ChatPageInner({ user, profile, chatTab, onChatTabChange }: {
   user: User;
   profile: Profile;
   session: Session;
   chatTab?: "global" | "dm";
   onChatTabChange?: (tab: "global" | "dm") => void;
 }) {
-  const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const [replyTarget, setReplyTarget] = useState<ChatMessageRecord | null>(null);
-  const [reactionPickerId, setReactionPickerId] = useState<string | null>(null);
-  const [recentOwnMessageId, setRecentOwnMessageId] = useState<string | null>(null);
-  // When the page is opened from a URL the parent owns the tab; otherwise keep
-  // it local so the toggle still works if no handler is supplied.
-  const [localChatTab, setLocalChatTab] = useState<"global" | "dm">("global");
-  const activeChatTab = chatTab ?? localChatTab;
-  const selectChatTab = (next: "global" | "dm") => {
-    setLocalChatTab(next);
-    onChatTabChange?.(next);
-  };
-  const [reactions, setReactions] = useState<Record<string, string[]>>(() => {
-    try {
-      const raw = localStorage.getItem(`unstable_chat_reactions_${user.id}`);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
-  const scrollerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    localStorage.setItem(`unstable_chat_reactions_${user.id}`, JSON.stringify(reactions));
-  }, [reactions, user.id]);
-
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadMessages() {
-      setLoading(true);
-      setError("");
-      const { data, error } = await supabase
-        .from("chat_messages")
-        .select("id, user_id, username, content, created_at")
-        .order("created_at", { ascending: true })
-        .limit(150);
-
-      if (!mounted) return;
-      if (error) setError(error.message);
-      else setMessages(data ?? []);
-      setLoading(false);
-    }
-
-    loadMessages();
-
-    const channel = supabase
-      .channel("unstable-chat")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_messages" },
-        (payload) => {
-          const incoming = payload.new as ChatMessageRecord;
-          setMessages((prev) => (prev.some((msg) => msg.id === incoming.id) ? prev : [...prev, incoming]));
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "chat_messages" },
-        (payload) => {
-          const deletedId = String((payload.old as { id?: string } | null)?.id ?? "");
-          if (!deletedId) return;
-          setMessages((prev) => prev.filter((message) => message.id !== deletedId));
-          setReactionPickerId((prev) => (prev === deletedId ? null : prev));
-          setReplyTarget((prev) => (prev?.id === deletedId ? null : prev));
-        },
-      )
-      .subscribe();
-
-    return () => {
-      mounted = false;
-      void supabase.removeChannel(channel);
-    };
-  }, []);
-
-  async function sendMessage(e?: React.FormEvent) {
-    e?.preventDefault();
-    const content = input.trim();
-    if (!content || sending) return;
-
-    setSending(true);
-    setError("");
-    try {
-      const payload = replyTarget ? buildReplyPayload(replyTarget, content) : content;
-      const { data, error } = await supabase.from("chat_messages").insert({
-        user_id: user.id,
-        username: profile.username,
-        content: payload,
-      }).select("id").single();
-      if (error) throw error;
-      setInput("");
-      setReplyTarget(null);
-      setRecentOwnMessageId(data?.id ?? null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send message.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  const reactionIconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-    like: ThumbsUp,
-    fire: Flame,
-    laugh: Laugh,
-    heart: Heart,
-  };
-
-  async function undoLastMessage() {
-    if (!recentOwnMessageId) return;
-    setError("");
-    try {
-      const { error } = await supabase.from("chat_messages").delete().eq("id", recentOwnMessageId).eq("user_id", user.id);
-      if (error) throw error;
-      setMessages((prev) => prev.filter((message) => message.id !== recentOwnMessageId));
-      setRecentOwnMessageId(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to undo that message.");
-    }
-  }
-
-  function toggleReaction(messageId: string, emoji: string) {
-    setReactions((prev) => {
-      const current = prev[messageId] ?? [];
-      const exists = current.includes(emoji);
-      return {
-        ...prev,
-        [messageId]: exists ? current.filter((item) => item !== emoji) : [...current, emoji],
-      };
-    });
-    setReactionPickerId(null);
-  }
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        height: "100%",
-        overflow: "hidden",
-        background:
-          "radial-gradient(circle at top right, rgba(120,170,255,0.1), transparent 24%), #0d0d0d",
-        fontFamily: "'Space Grotesk', sans-serif",
-      }}
-    >
-      <div style={{ height: "100%", maxWidth: 1200, margin: "0 auto", padding: "1.4rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", justifyContent: "flex-start" }}>
-          <button
-            onClick={() => selectChatTab("global")}
-            style={{
-              background: activeChatTab === "global" ? "rgba(255,255,255,0.08)" : "transparent",
-              border: `1px solid ${activeChatTab === "global" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
-              color: activeChatTab === "global" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
-              borderRadius: "999px",
-              padding: "0.55rem 0.9rem",
-              cursor: "pointer",
-              fontSize: "0.68rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Global chat
-          </button>
-          <button
-            onClick={() => selectChatTab("dm")}
-            style={{
-              background: activeChatTab === "dm" ? "rgba(255,255,255,0.08)" : "transparent",
-              border: `1px solid ${activeChatTab === "dm" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)"}`,
-              color: activeChatTab === "dm" ? "#f3f4f6" : "rgba(255,255,255,0.6)",
-              borderRadius: "999px",
-              padding: "0.55rem 0.9rem",
-              cursor: "pointer",
-              fontSize: "0.68rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Direct messages
-          </button>
-        </div>
-
-        {activeChatTab === "global" ? (
-          <div style={{ height: "100%", display: "grid", gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)", gap: "1rem" }}>
-            <aside style={{ border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(15,15,15,0.96), rgba(9,9,9,0.96))", borderRadius: "18px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-              <div>
-                <p style={{ fontSize: "0.62rem", letterSpacing: "0.26em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", margin: 0 }}>unstable — chat</p>
-                <p style={{ fontSize: "1.45rem", color: "#f3f4f6", margin: "0.55rem 0 0.35rem", lineHeight: 1.05 }}>Realtime room across devices.</p>
-                <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
-                  Messages sync through Supabase Realtime. Everyone signed into this app sees the same room.
-                </p>
-              </div>
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.9rem" }}>
-                <p style={{ margin: "0 0 0.25rem", fontSize: "0.58rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" }}>Signed in as</p>
-                <p style={{ margin: 0, fontSize: "0.9rem", color: "#eef2f7" }}>{profile.username}</p>
-              </div>
-            </aside>
-
-            <section style={{ minWidth: 0, display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(180deg, rgba(12,12,12,0.96), rgba(7,7,7,0.98))", borderRadius: "22px", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.1rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin: 0, fontSize: "0.92rem", color: "#eceff4", fontWeight: 500 }}>Global chat</p>
-                  <p style={{ margin: "0.22rem 0 0", fontSize: "0.65rem", color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>type unstable://chat in the url bar</p>
-                </div>
-              </div>
-
-              <div ref={scrollerRef} style={{ flex: 1, overflowY: "auto", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-                {loading ? (
-                  <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>loading chat…</div>
-                ) : messages.length === 0 ? (
-                  <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.74rem" }}>No messages yet. Say hi.</div>
-                ) : (
-                  messages.map((message, idx) => {
-                    const isOwn = message.user_id === user.id;
-                    const parsed = parseChatMessageContent(message.content);
-                    const messageReactions = reactions[message.id] ?? [];
-                    return (
-                      <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: Math.min(idx * 0.03, 0.4) }} style={{ display: "flex", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                        <div style={{ maxWidth: "min(100%, 700px)", display: "flex", flexDirection: isOwn ? "row-reverse" : "row", gap: "0.7rem", alignItems: "flex-end" }}>
-                          <div style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", fontSize: "0.56rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>
-                            {message.username.slice(0, 2)}
-                          </div>
-                          <div style={{ position: "relative" }}>
-                            <div style={{ borderRadius: isOwn ? "22px 22px 8px 22px" : "22px 22px 22px 8px", background: "linear-gradient(180deg, rgba(25,25,25,0.98), rgba(18,18,18,0.98))", border: "1px solid rgba(255,255,255,0.07)", padding: "0.9rem 1rem", boxShadow: "0 10px 26px rgba(0,0,0,0.18)" }}>
-                              <p style={{ margin: "0 0 0.36rem", fontSize: "0.56rem", letterSpacing: "0.16em", textTransform: "uppercase", color: isOwn ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.3)" }}>
-                                {isOwn ? "you" : message.username}
-                              </p>
-                              {parsed.replySnippet && (
-                                <button
-                                  onClick={() => {
-                                    const el = document.getElementById(`chat-message-${message.id}`);
-                                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                                  }}
-                                  style={{ display: "block", width: "100%", textAlign: "left", margin: "0 0 0.55rem", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", color: "rgba(255,255,255,0.62)", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.67rem", cursor: "pointer" }}
-                                >
-                                  <span style={{ display: "block", fontSize: "0.54rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "0.22rem" }}>
-                                    replying to {parsed.replyUsername}
-                                  </span>
-                                  {parsed.replySnippet}
-                                </button>
-                              )}
-                              <p id={`chat-message-${message.id}`} style={{ margin: 0, color: "rgba(255,255,255,0.84)", fontSize: "0.79rem", lineHeight: 1.72, whiteSpace: "pre-wrap" }}>{parsed.body}</p>
-                            </div>
-                            <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                              <button onClick={() => setReplyTarget(message)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>reply</button>
-                              <button onClick={() => setReactionPickerId((prev) => prev === message.id ? null : message.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>react</button>
-                              {recentOwnMessageId === message.id && isOwn && (
-                                <button onClick={undoLastMessage} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.34)", fontSize: "0.62rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0 }}>undo</button>
-                              )}
-                            </div>
-                            <p style={{ margin: "0.3rem 0 0", fontSize: "0.54rem", color: "rgba(255,255,255,0.28)", textAlign: isOwn ? "right" : "left", letterSpacing: "0.04em" }}>
-                              {formatChatTime(message.created_at)}
-                            </p>
-                            {reactionPickerId === message.id && (
-                              <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.45rem", padding: "0.35rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", width: "fit-content", marginLeft: isOwn ? "auto" : 0 }}>
-                                {[
-                                  { icon: ThumbsUp, label: "like" },
-                                  { icon: Flame, label: "fire" },
-                                  { icon: Laugh, label: "laugh" },
-                                  { icon: Heart, label: "heart" },
-                                ].map(({ icon: Icon, label }) => (
-                                  <button key={label} onClick={() => toggleReaction(message.id, label)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.92rem", padding: "0.2rem", color: "rgba(255,255,255,0.5)", display: "inline-flex", alignItems: "center" }}><Icon size={16} /></button>
-                                ))}
-                              </div>
-                            )}
-                            {messageReactions.length > 0 && (
-                              <div style={{ display: "flex", gap: "0.32rem", flexWrap: "wrap", marginTop: "0.45rem", justifyContent: isOwn ? "flex-end" : "flex-start" }}>
-                                {messageReactions.map((reaction, index) => {
-                                  const Icon = reactionIconMap[reaction] || null;
-                                  return Icon ? (
-                                    <span key={`${message.id}-${reaction}-${index}`} style={{ padding: "0.18rem 0.45rem", borderRadius: "999px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", color: "rgba(255,255,255,0.5)" }}>
-                                      <Icon size={14} />
-                                    </span>
-                                  ) : null;
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })
-                )}
-              </div>
-
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "1rem 1.1rem 1.1rem" }}>
-                {error && <p style={{ margin: "0 0 0.7rem", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem" }}>{error}</p>}
-                {replyTarget && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.7rem", padding: "0.65rem 0.8rem", borderRadius: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: "0 0 0.18rem", fontSize: "0.54rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)" }}>replying to {replyTarget.user_id === user.id ? "yourself" : replyTarget.username}</p>
-                      <p style={{ margin: 0, color: "rgba(255,255,255,0.62)", fontSize: "0.68rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {parseChatMessageContent(replyTarget.content).body}
-                      </p>
-                    </div>
-                    <button onClick={() => setReplyTarget(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.38)", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", padding: 0 }}>cancel</button>
-                  </div>
-                )}
-                <form onSubmit={sendMessage} style={{ display: "flex", gap: "0.8rem", alignItems: "flex-end", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "18px", padding: "0.8rem" }}>
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void sendMessage();
-                      }
-                    }}
-                    placeholder="Send a message to everyone signed in..."
-                    rows={1}
-                    maxLength={2000}
-                    style={{ flex: 1, resize: "none", background: "transparent", border: "none", color: "#eef2f7", fontSize: "0.78rem", lineHeight: 1.6, outline: "none", fontFamily: "'Space Grotesk', sans-serif", minHeight: 24, maxHeight: 180, overflowY: "auto" }}
-                  />
-                  <motion.button
-                    whileHover={{ scale: sending ? 1 : 1.03 }}
-                    whileTap={{ scale: sending ? 1 : 0.98 }}
-                    type="submit"
-                    disabled={sending || !input.trim()}
-                    style={{ alignSelf: "stretch", minWidth: 104, background: sending || !input.trim() ? "#1b1b1b" : "#e8ecf8", color: sending || !input.trim() ? "rgba(255,255,255,0.25)" : "#0d0d0d", border: "none", borderRadius: "999px", cursor: sending || !input.trim() ? "not-allowed" : "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.68rem", letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, padding: "0 1rem" }}
-                  >
-                    {sending ? "sending" : "send"}
-                  </motion.button>
-                </form>
-              </div>
-            </section>
-          </div>
-        ) : (
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.3)", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading...</div>}>
-              <DMChat user={user} profile={{ ...profile, avatar_url: undefined }} />
-            </Suspense>
-          </div>
-        )}
-      </div>
-    </motion.div>
+    <div style={{ height: "100%", minHeight: 0 }}>
+      <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.35)", fontSize: "0.72rem", fontFamily: "'Space Grotesk', sans-serif" }}>Loading chat…</div>}>
+        <ChatHub
+          user={{ id: user.id }}
+          profile={{ id: profile.id, username: profile.username, avatar_url: profile.avatar_url }}
+          initialTab={chatTab ?? "global"}
+          onTabChange={onChatTabChange}
+        />
+      </Suspense>
+    </div>
   );
 }
 
@@ -3993,6 +2889,8 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   });
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig>(() => loadWidgetConfig());
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
+  const { spring, transition, scale } = useMotionTokens();
+  const reduceMotion = useShouldReduceMotion();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -4068,23 +2966,28 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
     }
   }
 
-  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "2px" };
+  const inputSt: React.CSSProperties = { background: "var(--t-bg)", border: "1px solid var(--t-border-light)", color: "var(--t-text)", padding: "0.5rem 0.75rem", fontSize: "0.8rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "10px" };
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      transition={transition.reveal}
       style={{ 
         height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: wallpaper ? `var(--t-bg) url(${wallpaper}) center/cover no-repeat` : "var(--t-bg)", fontFamily: "'Space Grotesk', sans-serif" 
       }}
     >
-      <div style={{
+      <motion.div
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={spring.entrance}
+        style={{
         display: "flex", flexDirection: "column", alignItems: "center", gap: "1.75rem", padding: "2.5rem 3rem",
         background: wallpaper ? "color-mix(in srgb, var(--t-bg) 45%, transparent)" : "transparent",
         backdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
         WebkitBackdropFilter: wallpaper ? "blur(20px) saturate(1.3)" : "none",
-        borderRadius: "12px", border: wallpaper ? "1px solid var(--t-border-light)" : "none",
+        borderRadius: "24px", border: wallpaper ? "1px solid var(--t-border-light)" : "none",
         boxShadow: wallpaper ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
       }}>
       <div style={{ position: "relative", width: "100%" }}>
@@ -4095,8 +2998,8 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       </div>
       <WidgetBar config={widgetConfig} showMs={showMs} />
       {showWidgetSettings && (
-        <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
-          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "8px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
+        <motion.div initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={spring.pop}
+          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "16px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
         >
           <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>Widgets</p>
           {(["clock", "date", "greeting", "quote", "branding"] as WidgetType[]).map(t => (
@@ -4116,22 +3019,23 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       )}
       {widgetConfig.enabled.includes("branding") && (
       <motion.p
-        initial={{ y: -10, opacity: 0 }}
+        initial={reduceMotion ? { opacity: 0 } : { y: -10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
+        transition={{ ...transition.reveal, delay: 0.05 }}
         style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--t-text-muted)", margin: 0 }}
       >unstable</motion.p>
       )}
 
       <motion.form
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.1 }}
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...spring.entrance, delay: 0.08 }}
         onSubmit={handleSearch}
         style={{ display: "flex", width: "100%", maxWidth: "520px", padding: "0 2rem" }}
       >
         <div style={{ position: "relative", flex: 1 }}>
           <input autoFocus value={input} onChange={e => { setInput(e.target.value); setNtSuggestIndex(-1); }} placeholder="search or enter a url"
-            style={{ width: "100%", background: "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(22px) saturate(1.18)", WebkitBackdropFilter: "blur(22px) saturate(1.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.2)", transition: "border-color 0.18s ease, box-shadow 0.18s ease" } as React.CSSProperties}
+            style={{ width: "100%", background: "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "18px 0 0 18px", backdropFilter: "blur(22px) saturate(1.18)", WebkitBackdropFilter: "blur(22px) saturate(1.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.2)", transition: "border-color 0.18s ease, box-shadow 0.18s ease" } as React.CSSProperties}
             onFocus={e => { if (ntSuggestions.length) setShowNtSuggestions(true); }}
             onBlur={e => { setTimeout(() => setShowNtSuggestions(false), 200); }}
             onKeyDown={e => {
@@ -4147,7 +3051,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             }}
           />
           {showNtSuggestions && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 18px 18px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
               <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
                 {ntSuggestions.map((s, i) => (
                   <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
@@ -4162,45 +3066,47 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         </div>
         <motion.button
           whileHover={{ background: "var(--t-accent-hover)" }}
-          whileTap={{ scale: 0.98 }}
+          whileTap={{ scale: scale.press }}
+          transition={spring.press}
           type="submit"
-          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 2px 2px 0" }}
+          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 18px 18px 0" }}
         >go</motion.button>
       </motion.form>
 
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
+        initial={reduceMotion ? { opacity: 0 } : { y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
+        transition={{ ...transition.reveal, delay: 0.16 }}
         style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", justifyContent: "center", padding: "0 2rem", maxWidth: 600 }}
       >
         {all.map((sc, i) => (
           <motion.div
-            initial={{ scale: 0, opacity: 0 }}
+            initial={reduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.3 + i * 0.05 }}
+            transition={{ ...spring.entrance, delay: 0.22 + i * 0.045 }}
             key={sc.id}
             style={{ position: "relative" }}
             className="sc-wrap"
           >
             <motion.button
               whileHover={{ y: -4, background: "var(--t-bg-tertiary)" }}
-              whileTap={{ scale: 0.9 }}
+              whileTap={{ scale: scale.press }}
+              transition={spring.press}
               onClick={() => onNavigate(sc.url)}
               title={sc.name}
               style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
             >
               <div style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <img src={sc.favicon && /^(https?:)?\/\//i.test(sc.favicon) ? sc.favicon : ""} alt={sc.name} width={24} height={24} style={{ borderRadius: "4px", objectFit: "contain" }}
+                <img src={sc.favicon && /^(https?:)?\/\//i.test(sc.favicon) ? sc.favicon : ""} alt={sc.name} width={24} height={24} style={{ borderRadius: "6px", objectFit: "contain" }}
                   onError={e => { const img = e.target as HTMLImageElement; img.style.display = "none"; const fb = img.nextSibling as HTMLElement; if (fb) fb.style.display = "flex"; }}
                 />
-                <span style={{ display: "none", width: 24, height: 24, background: "var(--t-bg-tertiary)", borderRadius: "4px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "var(--t-text-secondary)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
+                <span style={{ display: "none", width: 24, height: 24, background: "var(--t-bg-tertiary)", borderRadius: "6px", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "var(--t-text-secondary)", fontWeight: 600 }}>{sc.name[0]?.toUpperCase()}</span>
               </div>
               <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
             </motion.button>
-            <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "4px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
+            <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "8px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
             {menuOpenId === sc.id && (
-              <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "4px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
+              <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "14px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
                 <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
                   onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
                   onMouseLeave={e => e.currentTarget.style.background = "none"}><Pencil size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Edit</button>
@@ -4213,11 +3119,11 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         ))}
         {!adding && (
           <motion.button
-            initial={{ scale: 0, opacity: 0 }}
+            initial={reduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.3 + all.length * 0.05 }}
-            whileHover={{ scale: 1.1, background: "var(--t-bg-tertiary)" }}
-            whileTap={{ scale: 0.9 }}
+            transition={{ ...spring.entrance, delay: 0.22 + all.length * 0.045 }}
+            whileHover={{ background: "var(--t-bg-tertiary)" }}
+            whileTap={{ scale: scale.press }}
             onClick={() => setAdding(true)}
             title="Add shortcut"
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
@@ -4231,26 +3137,27 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       <AnimatePresence>
         {adding && (
           <motion.form
-            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            exit={reduceMotion ? { opacity: 0, transition: transition.dismiss } : { opacity: 0, scale: 0.92, y: 10, transition: transition.dismiss }}
+            transition={spring.pop}
             onSubmit={handleAdd}
-            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "4px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
+            style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "18px", padding: "1rem 1.25rem", width: "100%", maxWidth: "300px" }}
           >
             <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>{editingShortcut ? "edit shortcut" : "new shortcut"}</p>
             <input autoFocus placeholder="name" value={newName} onChange={e => setNewName(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
             <input placeholder="url" value={newUrl} onChange={e => setNewUrl(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
             <input placeholder="image url (optional)" value={newImg} onChange={e => setNewImg(e.target.value)} style={inputSt} onFocus={e => e.target.style.borderColor = "var(--t-border)"} onBlur={e => e.target.style.borderColor = "var(--t-border-light)"} />
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={{ flex: 1, background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>{editingShortcut ? "save" : "add"}</motion.button>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => { setAdding(false); setEditingShortcut(null); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "var(--t-text-muted)", border: "1px solid var(--t-border-light)", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "2px" }}>cancel</motion.button>
+              <motion.button whileTap={{ scale: scale.press }} transition={spring.press} type="submit" style={{ flex: 1, background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px" }}>{editingShortcut ? "save" : "add"}</motion.button>
+              <motion.button whileTap={{ scale: scale.press }} transition={spring.press} type="button" onClick={() => { setAdding(false); setEditingShortcut(null); setNewName(""); setNewUrl(""); setNewImg(""); }} style={{ flex: 1, background: "none", color: "var(--t-text-muted)", border: "1px solid var(--t-border-light)", padding: "0.5rem", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", borderRadius: "10px" }}>cancel</motion.button>
             </div>
           </motion.form>
         )}
       </AnimatePresence>
 
       <style>{`.sc-wrap:hover .sc-menu-btn{display:flex!important} input::placeholder{color:rgba(255,255,255,0.2)} .widget-btn:hover{opacity:1!important}`}</style>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
@@ -4258,13 +3165,15 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
 function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [greeting, setGreeting] = useState("");
+  const { spring } = useMotionTokens();
+  const reduceMotion = useShouldReduceMotion();
   useEffect(() => {
     setGreeting(getGreeting());
     setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
   }, []);
   if (!config.enabled.length) return null;
   return (
-    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", marginBottom: "0.5rem" }}>
+    <motion.div initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={spring.entrance} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", marginBottom: "0.5rem" }}>
       {config.enabled.includes("clock") && (
         <ClockWidget showMs={showMs} />
       )}
@@ -4287,6 +3196,8 @@ function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean 
 }
 
 const ClockWidget = memo(function ClockWidget({ showMs }: { showMs?: boolean }) {
+  const { spring } = useMotionTokens();
+  const reduceMotion = useShouldReduceMotion();
   const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
   const [ms, setMs] = useState(0);
   useEffect(() => {
@@ -4302,7 +3213,7 @@ const ClockWidget = memo(function ClockWidget({ showMs }: { showMs?: boolean }) 
     return () => clearTimeout(timer);
   }, []);
   return (
-    <motion.p initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+    <motion.p initial={reduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring.entrance}
       style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1, display: "flex", alignItems: "baseline", gap: "0.05rem" }}
     >{time}{showMs && <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums" }}>{String(ms).padStart(3, "0")}</span>}</motion.p>
   );
@@ -4384,7 +3295,7 @@ function HistoryPage({ onNavigate }: { onNavigate: (url: string) => void }) {
                     </button>
                     <button onClick={async () => { await deleteHistoryEntry(e.id); load(); }}
                       className="hist-del"
-                      style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                      style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "0", transition: "opacity 0.15s", flexShrink: 0 }}
                       onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-secondary)"}
                       onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
                     ><X size={12} /></button>
@@ -4443,7 +3354,7 @@ function BookmarksPage({ onNavigate }: { onNavigate: (url: string) => void }) {
                 </div>
                 <button onClick={async () => { await removeBookmark(e.id); load(); }}
                   className="bm-del"
-                  style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "4px", transition: "opacity 0.15s", flexShrink: 0 }}
+                  style={{ opacity: 0, background: "none", border: "none", color: "rgba(255,120,120,0.6)", cursor: "pointer", padding: "4px", borderRadius: "0", transition: "opacity 0.15s", flexShrink: 0 }}
                   onMouseEnter={e2 => e2.currentTarget.style.background = "var(--t-bg-hover)"}
                   onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}
                 ><X size={12} /></button>
@@ -4922,7 +3833,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
     >
       <div style={{ width: 14, height: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {tab.loading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
-          : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "2px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
+          : tab.favicon ? <img src={tab.favicon} alt="" width={14} height={14} style={{ borderRadius: "10px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
             : <Globe size={14} strokeWidth={1.5} style={{ opacity: 0.35 }} />
         }
       </div>
@@ -4930,7 +3841,7 @@ function BrowserTab({ tab, isActive, onActivate, onClose, onRefresh, onDuplicate
       {tab.incognito && <EyeOff size={10} style={{ flexShrink: 0, opacity: 0.5 }} />}
       {tab.pinned && <Pin size={10} style={{ flexShrink: 0, opacity: 0.55 }} />}
       {tab.muted && <VolumeX size={11} style={{ flexShrink: 0, opacity: 0.55 }} />}
-      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 13, lineHeight: 1, borderRadius: "10px", flexShrink: 0 }}
         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
       >×</motion.button>
@@ -5165,14 +4076,14 @@ function CollapsedSidebar({
                   <div style={{ width: 18, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     {tab.loading
                       ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }} />
-                      : tab.favicon ? <img src={tab.favicon} alt="" width={18} height={18} style={{ borderRadius: "4px", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
+                      : tab.favicon ? <img src={tab.favicon} alt="" width={18} height={18} style={{ borderRadius: "0", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
                         : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
                     }
                   </div>
                   {expanded && (
                     <>
                       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-                      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onTabClose(tab.id); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 12, lineHeight: 1, borderRadius: "2px", flexShrink: 0 }}
+                      <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }} onClick={e => { e.stopPropagation(); onTabClose(tab.id); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.22)", cursor: "pointer", padding: "1px 3px", fontSize: 12, lineHeight: 1, borderRadius: "10px", flexShrink: 0 }}
                         onMouseEnter={e => (e.target as HTMLButtonElement).style.color = "#e8e8e8"}
                         onMouseLeave={e => (e.target as HTMLButtonElement).style.color = "rgba(255,255,255,0.22)"}
                       >×</motion.button>
@@ -5389,7 +4300,7 @@ const welcomePrimaryBtn: React.CSSProperties = {
   textTransform: "uppercase",
   fontWeight: 600,
   cursor: "pointer",
-  borderRadius: "2px",
+  borderRadius: "10px",
 };
 
 const welcomeSecondaryBtn: React.CSSProperties = {
@@ -5402,7 +4313,7 @@ const welcomeSecondaryBtn: React.CSSProperties = {
   letterSpacing: "0.12em",
   textTransform: "uppercase",
   cursor: "pointer",
-  borderRadius: "2px",
+  borderRadius: "10px",
 };
 
 const welcomeLabel: React.CSSProperties = {
@@ -5418,7 +4329,8 @@ function WelcomeOption({ label, description, active, onClick, icon }: { label: s
   return (
     <motion.button
       whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+      whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }}
       onClick={onClick}
       style={{
         flex: 1,
@@ -5536,10 +4448,12 @@ function WelcomeFlow({ open, user, onComplete, frontendOnly = false }: {
                   <span style={{ color: "rgba(255,255,255,0.78)", fontWeight: 600 }}>Allegedcarrot4</span>.
                 </p>
                 <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setSetupStep(0); setStep("setup"); }} style={welcomePrimaryBtn}>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }} onClick={() => { setSetupStep(0); setStep("setup"); }} style={welcomePrimaryBtn}>
                     set up
                   </motion.button>
-                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => onComplete(null)} style={welcomeSecondaryBtn}>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }} onClick={() => onComplete(null)} style={welcomeSecondaryBtn}>
                     skip setup
                   </motion.button>
                 </div>
@@ -5585,7 +4499,8 @@ function WelcomeFlow({ open, user, onComplete, frontendOnly = false }: {
                 </div>
 
                 <div style={{ display: "flex", gap: "0.6rem", justifyContent: "flex-end", marginTop: "1.9rem" }}>
-                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setupStep === 0 ? setStep("welcome") : setSetupStep(current => current - 1)} style={welcomeSecondaryBtn}>
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }} onClick={() => setupStep === 0 ? setStep("welcome") : setSetupStep(current => current - 1)} style={welcomeSecondaryBtn}>
                     back
                   </motion.button>
                 </div>
@@ -7021,7 +5936,7 @@ function BrowserApp({
   const canBack = (activeTab?.historyIndex ?? -1) > 0;
   const canForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false;
 
-  const btn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "0 0.35rem", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "2px", height: 26, minWidth: 26, flexShrink: 0, transition: "color 0.1s, background 0.1s" };
+  const btn: React.CSSProperties = { background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "0 0.35rem", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", height: 26, minWidth: 26, flexShrink: 0, transition: "color 0.1s, background 0.1s" };
   const btnOff: React.CSSProperties = { ...btn, color: "rgba(255,255,255,0.14)", cursor: "not-allowed" };
   const hov = (on: boolean) => ({
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { if (on) { (e.target as HTMLButtonElement).style.color = "#e8e8e8"; (e.target as HTMLButtonElement).style.background = "#1a1a1a"; } },
@@ -7344,7 +6259,7 @@ function BrowserApp({
                       }
                     }}
                     placeholder="search, url, or unstable://…"
-                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 1.5rem 0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "12px", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
+                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #1e1e1e", color: "#e0e0e0", padding: "0.26rem 1.5rem 0.26rem 0.65rem", fontSize: "0.77rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", letterSpacing: "0.01em", transition: "border-color 0.15s" }}
                   />
                 <button type="button" onClick={async () => {
                   const liveUrl = activeTab?.currentUrl || activeTab?.url;
@@ -7478,7 +6393,7 @@ function BrowserApp({
 
         <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
           {fullscreen && (
-            <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "2px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
+            <button onClick={() => setFullscreen(false)} style={{ position: "absolute", top: 12, right: 12, zIndex: 999, background: "rgba(0,0,0,0.6)", border: "1px solid #333", color: "#e8e8e8", cursor: "pointer", padding: "6px 10px", borderRadius: "10px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>exit fullscreen</button>
           )}
           {/* Tab stage. A tab is mounted when it is active, the other half of a
               split, still loading (so a background navigation finishes), playing
@@ -7578,9 +6493,9 @@ function BrowserApp({
               </p>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1.2rem" }}>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(false); setPendingPerm(null); }}
-                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>deny</motion.button>
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>deny</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { pendingPermResolve.current?.(true); setPendingPerm(null); }}
-                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>allow</motion.button>
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>allow</motion.button>
               </div>
             </motion.div>
           </motion.div>
@@ -7592,14 +6507,14 @@ function BrowserApp({
       <AnimatePresence>
         {pendingRestore.length > 0 && (
           <motion.div initial={{ opacity: 0, x: 18, y: 18 }} animate={{ opacity: 1, x: 0, y: 0 }} exit={{ opacity: 0, x: 18, y: 18 }} transition={{ type: "spring", stiffness: 400, damping: 28 }}
-            style={{ position: "fixed", right: 18, bottom: 18, zIndex: 999999, background: "linear-gradient(180deg, #171717, #101010)", border: "1px solid #383838", borderRadius: "12px", padding: "1rem", maxWidth: 360, width: "calc(100vw - 36px)", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}>
+            style={{ position: "fixed", right: 18, bottom: 18, zIndex: 999999, background: "linear-gradient(180deg, #171717, #101010)", border: "1px solid #383838", borderRadius: "0", padding: "1rem", maxWidth: 360, width: "calc(100vw - 36px)", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "0 18px 48px rgba(0,0,0,0.55)" }}>
               <p style={{ margin: "0 0 0.35rem", fontSize: "0.6rem", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", fontWeight: 600 }}>session restore</p>
               <p style={{ color: "#e8e8e8", margin: "0 0 0.75rem", fontSize: "0.85rem", lineHeight: 1.5 }}>
                 Restore <strong>{pendingRestore.length}</strong> saved {pendingRestore.length === 1 ? "tab" : "tabs"} from your last visit?
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", maxHeight: 112, overflow: "auto", marginBottom: "0.85rem" }}>
                 {pendingRestore.map(p => (
-                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "4px" }}>
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "0" }}>
                     {p.favicon ? <img src={p.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0 }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : null}
                     <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeProxyUrl(p.url) || p.title}</span>
                   </div>
@@ -7612,10 +6527,10 @@ function BrowserApp({
                     setPendingRestore([]);
                     setRestoreAccepted(false);
                   }}
-                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>no thanks</motion.button>
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>no thanks</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                   onClick={() => setRestoreAccepted(true)}
-                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>restore</motion.button>
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>restore</motion.button>
               </div>
           </motion.div>
         )}
@@ -7634,11 +6549,11 @@ function BrowserApp({
               <p style={{ margin: 0, color: "rgba(255,255,255,0.35)", fontSize: "0.62rem", fontFamily: "'Space Grotesk', sans-serif", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{qrUrl}</p>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={copyQrUrl}
-                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>{qrCopied ? "✓ Copied" : "Copy URL"}</motion.button>
+                  style={{ background: "#e8e8e8", color: "#0d0d0d", border: "none", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>{qrCopied ? "✓ Copied" : "Copy URL"}</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={saveQrPng}
-                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Save PNG</motion.button>
+                  style={{ background: "#222", color: "#e8e8e8", border: "1px solid #444", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Save PNG</motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => setQrUrl(null)}
-                  style={{ background: "none", color: "rgba(255,255,255,0.5)", border: "1px solid #333", padding: "0.4rem 1rem", borderRadius: "4px", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Close</motion.button>
+                  style={{ background: "none", color: "rgba(255,255,255,0.5)", border: "1px solid #333", padding: "0.4rem 1rem", borderRadius: "0", cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Close</motion.button>
               </div>
             </motion.div>
           </motion.div>

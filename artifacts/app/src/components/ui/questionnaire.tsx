@@ -148,7 +148,7 @@ function Questionnaire({
     <QuestionnaireContext.Provider value={value}>
       <div
         data-slot="questionnaire"
-        className={cn("flex flex-col gap-3 rounded-md border border-border bg-card p-3", className)}
+        className={cn("flex flex-col gap-3 rounded-2xl border border-border bg-card p-4", className)}
       >
         {children}
       </div>

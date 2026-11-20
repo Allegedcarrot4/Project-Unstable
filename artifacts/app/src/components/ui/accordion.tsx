@@ -1,5 +1,5 @@
 import * as React from "react"
-import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import * as AccordionPrimitive from "@animate-ui/react/primitives/radix-ui/accordion"
 import { ChevronDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -44,7 +44,7 @@ const AccordionContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <AccordionPrimitive.Content
     ref={ref}
-    className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
+    className="overflow-hidden text-sm"
     {...props}
   >
     <div className={cn("pb-4 pt-0", className)}>{children}</div>

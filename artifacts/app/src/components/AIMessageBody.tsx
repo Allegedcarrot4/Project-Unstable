@@ -1,13 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, Sparkles } from "lucide-react"
 
 import {
   CodeBlock,
   CodeBlockActions,
   CodeBlockContent,
   CodeBlockCopyButton,
+  CodeBlockFooter,
   CodeBlockHeader,
   CodeBlockTitle,
 } from "@/components/ui/code-block"
@@ -16,16 +17,35 @@ import {
   QuestionnaireActions,
   QuestionnaireChoice,
   QuestionnaireChoices,
+  QuestionnaireDescription,
+  QuestionnaireError,
   QuestionnaireInput,
   QuestionnaireItem,
+  QuestionnaireNext,
+  QuestionnairePrevious,
   QuestionnaireProgress,
+  QuestionnaireSkip,
   QuestionnaireSubmit,
   QuestionnaireTitle,
+  type QuestionnaireItemData,
 } from "@/components/ui/questionnaire"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ui/reasoning"
+import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ui/sources"
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ui/tool"
+import { Markdown, extractSources } from "@/components/Markdown"
 
 type Segment = { type: "text"; value: string } | { type: "code"; value: string; lang: string }
+
+export interface AIMessageMeta {
+  model?: string
+  mode?: string
+  elapsedMs?: number
+  /** Optional reasoning / plan text supplied by the caller. */
+  reasoning?: string
+}
 
 const MONTHS = [
   "january",
@@ -158,32 +178,141 @@ function splitSegments(content: string): Segment[] {
   return segments.length ? segments : [{ type: "text", value: content }]
 }
 
+/* ── Questionnaire parsing ──────────────────────────────────────────────── */
+
+const QUESTIONNAIRE_FENCE = /```questionnaire[^\n]*\r?\n([\s\S]*?)```/i
+
+function normalizeOptions(raw: unknown): { value: string; label: string }[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((option, index) => {
+      if (typeof option === "string") return { value: String(index), label: option }
+      if (option && typeof option === "object") {
+        const record = option as { label?: unknown; value?: unknown }
+        const label = typeof record.label === "string" ? record.label : String(record.value ?? "")
+        const value = typeof record.value === "string" ? record.value : String(index)
+        return label ? { value, label } : null
+      }
+      return null
+    })
+    .filter((option): option is { value: string; label: string } => !!option)
+}
+
+/** Reads an explicit ```questionnaire JSON block, if the model emitted one. */
+function readQuestionnaireBlock(content: string): { items: QuestionnaireItemData[]; cleaned: string } | null {
+  const match = QUESTIONNAIRE_FENCE.exec(content)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[1].trim()) as {
+      title?: string
+      questions?: Array<Record<string, unknown>>
+      prompt?: string
+      options?: unknown
+      multiple?: boolean
+    }
+    const rawQuestions = Array.isArray(parsed.questions)
+      ? parsed.questions
+      : parsed.prompt
+        ? [parsed as unknown as Record<string, unknown>]
+        : []
+
+    const items: QuestionnaireItemData[] = rawQuestions
+      .map((question, index): QuestionnaireItemData | null => {
+        const prompt = typeof question.prompt === "string" ? question.prompt : typeof question.title === "string" ? question.title : ""
+        const choices = normalizeOptions(question.options ?? question.choices)
+        if (!prompt || choices.length === 0) return null
+        return {
+          name: `q${index}`,
+          prompt,
+          description: typeof question.description === "string" ? question.description : undefined,
+          required: question.required !== false,
+          multiple: question.multiple === true,
+          choices,
+          input: { label: "Something else", placeholder: "Type another answer…" },
+        }
+      })
+      .filter((item): item is QuestionnaireItemData => !!item)
+
+    if (!items.length) return null
+    return { items, cleaned: content.replace(match[0], "").trimEnd() }
+  } catch {
+    return null
+  }
+}
+
+/** Falls back to the trailing "question + listed answers" pattern. */
+function heuristicQuestionnaire(content: string, interactive: boolean): {
+  items: QuestionnaireItemData[]
+  cleaned: string
+} | null {
+  if (!interactive) return null
+  const question = findQuestion(content)
+  if (!question) return null
+  const drop = new Set<number>([question.questionLine, ...question.optionLines])
+  const cleaned = content
+    .split(/\r?\n/)
+    .filter((_, index) => !drop.has(index))
+    .join("\n")
+    .trimEnd()
+  return {
+    items: [
+      {
+        name: "answer",
+        prompt: question.prompt,
+        required: true,
+        choices: question.options.map((option, index) => ({ value: String(index), label: option })),
+        input: { label: "Something else", placeholder: "Type another answer…" },
+      },
+    ],
+    cleaned,
+  }
+}
+
 export function AIMessageBody({
   content,
   interactive = false,
   onAnswer,
+  meta,
 }: {
   content: string
   /** Only the newest reply offers the questionnaire, so old answers stay readable. */
   interactive?: boolean
   onAnswer?: (answer: string) => void
+  meta?: AIMessageMeta
 }) {
-  const question = React.useMemo(() => (interactive ? findQuestion(content) : null), [content, interactive])
+  const questionnaire = React.useMemo(() => {
+    const explicit = readQuestionnaireBlock(content)
+    if (explicit) return explicit
+    return heuristicQuestionnaire(content, interactive)
+  }, [content, interactive])
 
-  const visibleContent = React.useMemo(() => {
-    if (!question) return content
-    const drop = new Set<number>([question.questionLine, ...question.optionLines])
-    return content
-      .split(/\r?\n/)
-      .filter((_, index) => !drop.has(index))
-      .join("\n")
-      .trimEnd()
-  }, [content, question])
-
+  const visibleContent = questionnaire?.cleaned ?? content
   const segments = React.useMemo(() => splitSegments(visibleContent), [visibleContent])
+  const sources = React.useMemo(() => extractSources(visibleContent), [visibleContent])
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+    <div className="flex flex-col gap-2">
+      {meta?.reasoning ? (
+        <Reasoning defaultOpen={false}>
+          <ReasoningTrigger>Reasoning</ReasoningTrigger>
+          <ReasoningContent>
+            <Markdown content={meta.reasoning} />
+          </ReasoningContent>
+        </Reasoning>
+      ) : null}
+
+      {meta?.model ? (
+        <Tool defaultOpen={false}>
+          <ToolHeader title={`Model · ${meta.model}`} state="output-available" />
+          <ToolContent>
+            <ToolInput>{meta.mode ?? "fast"}</ToolInput>
+            <ToolOutput>
+              {meta.elapsedMs ? `${(meta.elapsedMs / 1000).toFixed(1)}s response time` : "response received"}
+            </ToolOutput>
+          </ToolContent>
+        </Tool>
+      ) : null}
+
       {segments.map((segment, index) =>
         segment.type === "code" ? (
           <CodeBlock key={`code-${index}`}>
@@ -193,61 +322,80 @@ export function AIMessageBody({
                 <CodeBlockCopyButton value={segment.value} />
               </CodeBlockActions>
             </CodeBlockHeader>
-            <CodeBlockContent>{segment.value}</CodeBlockContent>
+            <CodeBlockContent lineNumbers={segment.value.split("\n").length > 8}>{segment.value}</CodeBlockContent>
+            <CodeBlockFooter>
+              <span className="text-[0.56rem] uppercase tracking-[0.14em] text-muted-foreground">
+                {segment.value.split("\n").length} lines
+              </span>
+              <span className="text-[0.56rem] text-muted-foreground/70">{segment.lang}</span>
+            </CodeBlockFooter>
           </CodeBlock>
-        ) : (
-          <p
-            key={`text-${index}`}
-            style={{
-              margin: 0,
-              color: "rgba(255,255,255,0.84)",
-              fontSize: "0.79rem",
-              lineHeight: 1.72,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {segment.value.trim()}
-          </p>
-        )
+        ) : segment.value.trim() ? (
+          <Markdown key={`text-${index}`} content={segment.value.trim()} />
+        ) : null
       )}
 
-      <MentionedDate text={content} />
+      <MentionedDate text={visibleContent} />
 
-      {question ? (
+      {sources.length > 0 ? (
+        <Sources defaultOpen={false}>
+          <SourcesTrigger count={sources.length} />
+          <SourcesContent>
+            {sources.map(source => (
+              <Source key={source.href} href={source.href} title={source.title} />
+            ))}
+          </SourcesContent>
+        </Sources>
+      ) : null}
+
+      {questionnaire && onAnswer ? (
         <Questionnaire
           className="mt-1"
-          items={[
-            {
-              name: "answer",
-              prompt: question.prompt,
-              required: true,
-              choices: question.options.map((option, index) => ({ value: String(index), label: option })),
-              input: { label: "Something else", placeholder: "Type another answer…" },
-            },
-          ]}
+          items={questionnaire.items}
           onSubmit={answers => {
-            const picked = (answers.answer ?? []).map(value => question.options[Number(value)] ?? value)
-            const answer = picked.join(", ").trim()
-            if (answer) onAnswer?.(answer)
+            const lines: string[] = []
+            for (const item of questionnaire.items) {
+              const picked = answers[item.name] ?? []
+              if (!picked.length) continue
+              const labels = picked.map(value => item.choices.find(choice => choice.value === value)?.label ?? value)
+              lines.push(`${item.prompt} ${labels.join(", ")}`)
+            }
+            const answer = lines.join("\n").trim()
+            if (answer) onAnswer(answer)
           }}
         >
           <QuestionnaireProgress />
-          <QuestionnaireItem name="answer" required>
-            <QuestionnaireTitle>{question.prompt}</QuestionnaireTitle>
-            <QuestionnaireChoices>
-              {question.options.map((option, index) => (
-                <QuestionnaireChoice key={option} value={String(index)}>
-                  <span style={{ fontSize: "0.72rem" }}>{option}</span>
-                </QuestionnaireChoice>
-              ))}
-            </QuestionnaireChoices>
-            <QuestionnaireInput label="Something else" placeholder="Type another answer…" />
-          </QuestionnaireItem>
+          {questionnaire.items.map(item => (
+            <QuestionnaireItem key={item.name} name={item.name} required={item.required}>
+              <QuestionnaireTitle>{item.prompt}</QuestionnaireTitle>
+              {item.description ? <QuestionnaireDescription>{item.description}</QuestionnaireDescription> : null}
+              <QuestionnaireChoices>
+                {item.choices.map(choice => (
+                  <QuestionnaireChoice key={choice.value} value={choice.value}>
+                    <span className="text-[0.72rem]">{choice.label}</span>
+                  </QuestionnaireChoice>
+                ))}
+              </QuestionnaireChoices>
+              <QuestionnaireInput label="Something else" placeholder="Type another answer…" />
+            </QuestionnaireItem>
+          ))}
+          <QuestionnaireError />
           <QuestionnaireActions>
+            <QuestionnairePrevious />
+            <QuestionnaireSkip />
+            <QuestionnaireNext />
             <QuestionnaireSubmit />
           </QuestionnaireActions>
         </Questionnaire>
+      ) : questionnaire ? (
+        <Marker variant="border">
+          <MarkerIcon>
+            <Sparkles />
+          </MarkerIcon>
+          <MarkerContent>
+            The assistant asked: {questionnaire.items.map(item => item.prompt).join(" ")}
+          </MarkerContent>
+        </Marker>
       ) : null}
     </div>
   )
@@ -266,7 +414,7 @@ function MentionedDate({ text }: { text: string }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="mt-1 inline-flex w-fit items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-[0.66rem] text-card-foreground/85 transition-colors hover:bg-muted"
+          className="mt-1 inline-flex w-fit items-center gap-2 rounded-2xl border border-border bg-card px-3 py-1.5 text-[0.66rem] text-card-foreground/85 transition-colors hover:bg-muted"
         >
           <CalendarIcon className="size-3.5 opacity-70" />
           {date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}

@@ -4,6 +4,7 @@ import * as React from "react"
 import { Check, Copy } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import * as CodeBlockPrimitive from "@animate-ui/react/primitives/code-block"
 
 /**
  * Code block surface, following the shadcn code-block composition:
@@ -24,7 +25,7 @@ function CodeBlock({
       data-variant={variant}
       data-size={size}
       className={cn(
-        "my-2 flex flex-col overflow-hidden rounded-md border border-border bg-card text-card-foreground",
+        "my-2 flex flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground",
         size === "sm" ? "text-[0.68rem]" : "text-[0.72rem]",
         variant === "destructive" && "border-destructive/50",
         className
@@ -109,7 +110,7 @@ function CodeBlockContent({
   startLine = 1,
   children,
   ...props
-}: React.ComponentProps<"pre"> & {
+}: React.ComponentProps<typeof CodeBlockPrimitive.Content> & {
   wrap?: boolean
   lineNumbers?: boolean
   startLine?: number
@@ -117,7 +118,7 @@ function CodeBlockContent({
   const lines = typeof children === "string" ? children.replace(/\n$/, "").split("\n") : null
 
   return (
-    <pre
+    <CodeBlockPrimitive.Content
       data-slot="code-block-content"
       tabIndex={0}
       className={cn(
@@ -135,7 +136,7 @@ function CodeBlockContent({
             </span>
           ))
         : children}
-    </pre>
+    </CodeBlockPrimitive.Content>
   )
 }
 
