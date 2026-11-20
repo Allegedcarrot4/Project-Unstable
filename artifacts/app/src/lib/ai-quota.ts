@@ -1,40 +1,57 @@
 /**
- * Free AI usage allowance.
+ * AI credits.
  *
  * The app has no billing backend, so the allowance lives in localStorage per
- * account: a simple counter for the current UTC week. The window starts at
- * Monday 00:00 UTC and the bar in the AI sidebar shows how much is left.
+ * account. It is deliberately strict: 10 credits per UTC day, and credits do
+ * not carry over. A prompt is priced by how much you send: each block of
+ * characters costs a credit, and Think mode costs twice as much.
  */
 
-export const AI_WEEKLY_FREE_MESSAGES = 100;
+export const AI_DAILY_CREDITS = 10;
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const STORAGE_PREFIX = "unstable_ai_quota_";
+/** Characters that buy one credit. Larger prompts spend more. */
+export const AI_PROMPT_CHARS_PER_CREDIT = 320;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STORAGE_PREFIX = "unstable_ai_credits_";
+
+export type AiEffort = "fast" | "think";
 
 export interface AiQuota {
   used: number;
   limit: number;
   remaining: number;
-  /** Epoch ms of the next Monday 00:00 UTC. */
+  /** Epoch ms of the next 00:00 UTC. */
   resetsAt: number;
   /** 0..1 share of the allowance still available. */
   fraction: number;
 }
 
 interface StoredQuota {
-  week: number;
+  day: number;
   used: number;
 }
 
-/** Monday 00:00 UTC of the week containing `now`. */
-export function weekStartUtc(now: number = Date.now()): number {
+/** 00:00 UTC of the day containing `now`. */
+export function dayStartUtc(now: number = Date.now()): number {
   const date = new Date(now);
-  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceMonday);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 
-export function nextWeeklyResetUtc(now: number = Date.now()): number {
-  return weekStartUtc(now) + WEEK_MS;
+export function nextDailyResetUtc(now: number = Date.now()): number {
+  return dayStartUtc(now) + DAY_MS;
+}
+
+/**
+ * What a prompt costs. Short prompts cost 1; every extra block of characters
+ * costs another credit, and Think mode doubles the price. The cost never
+ * exceeds the whole daily allowance.
+ */
+export function estimateCreditCost(prompt: string, effort: AiEffort = "fast"): number {
+  const chars = prompt.trim().length;
+  const blocks = Math.max(1, Math.ceil(chars / AI_PROMPT_CHARS_PER_CREDIT));
+  const multiplier = effort === "think" ? 2 : 1;
+  return Math.min(AI_DAILY_CREDITS, blocks * multiplier);
 }
 
 function readStored(userId: string): StoredQuota | null {
@@ -42,42 +59,43 @@ function readStored(userId: string): StoredQuota | null {
     const raw = localStorage.getItem(STORAGE_PREFIX + userId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredQuota>;
-    if (typeof parsed?.week !== "number" || typeof parsed?.used !== "number") return null;
-    return { week: parsed.week, used: parsed.used };
+    if (typeof parsed?.day !== "number" || typeof parsed?.used !== "number") return null;
+    return { day: parsed.day, used: parsed.used };
   } catch {
     return null;
   }
 }
 
 function toQuota(used: number): AiQuota {
-  const limit = AI_WEEKLY_FREE_MESSAGES;
+  const limit = AI_DAILY_CREDITS;
   const clamped = Math.max(0, Math.min(limit, used));
   return {
     used: clamped,
     limit,
     remaining: limit - clamped,
-    resetsAt: nextWeeklyResetUtc(),
+    resetsAt: nextDailyResetUtc(),
     fraction: (limit - clamped) / limit,
   };
 }
 
-/** Current allowance, rolling over automatically once the week changes. */
+/** Today's credits, rolling over at 00:00 UTC. */
 export function readAiQuota(userId: string): AiQuota {
   if (!userId) return toQuota(0);
   const stored = readStored(userId);
-  const week = weekStartUtc();
-  if (!stored || stored.week !== week) return toQuota(0);
+  const day = dayStartUtc();
+  if (!stored || stored.day !== day) return toQuota(0);
   return toQuota(stored.used);
 }
 
-/** Counts one sent message and returns the updated allowance. */
-export function recordAiMessage(userId: string): AiQuota {
+/** Spends `cost` credits and returns the updated allowance. */
+export function recordAiUsage(userId: string, cost: number): AiQuota {
   const current = readAiQuota(userId);
-  const next = toQuota(current.used + 1);
+  const spend = Math.max(0, Math.ceil(cost));
+  const next = toQuota(current.used + spend);
   try {
     localStorage.setItem(
       STORAGE_PREFIX + userId,
-      JSON.stringify({ week: weekStartUtc(), used: next.used } satisfies StoredQuota)
+      JSON.stringify({ day: dayStartUtc(), used: next.used } satisfies StoredQuota)
     );
   } catch {
     /* storage blocked: the bar just will not persist */

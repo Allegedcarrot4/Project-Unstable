@@ -3035,7 +3035,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       >
         <div style={{ position: "relative", flex: 1 }}>
           <input autoFocus value={input} onChange={e => { setInput(e.target.value); setNtSuggestIndex(-1); }} placeholder="search or enter a url"
-            style={{ width: "100%", background: "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "18px 0 0 18px", backdropFilter: "blur(22px) saturate(1.18)", WebkitBackdropFilter: "blur(22px) saturate(1.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.2)", transition: "border-color 0.18s ease, box-shadow 0.18s ease" } as React.CSSProperties}
+            style={{ width: "100%", background: "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.045))", border: "1px solid rgba(255,255,255,0.24)", borderRight: "none", color: "var(--t-text)", padding: "0.75rem 1rem", fontSize: "0.85rem", fontFamily: "'Space Grotesk', sans-serif", outline: "none", borderRadius: "0", backdropFilter: "blur(22px) saturate(1.18)", WebkitBackdropFilter: "blur(22px) saturate(1.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.2)", transition: "border-color 0.18s ease, box-shadow 0.18s ease" } as React.CSSProperties}
             onFocus={e => { if (ntSuggestions.length) setShowNtSuggestions(true); }}
             onBlur={e => { setTimeout(() => setShowNtSuggestions(false), 200); }}
             onKeyDown={e => {
@@ -3051,7 +3051,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             }}
           />
           {showNtSuggestions && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 18px 18px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
               <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
                 {ntSuggestions.map((s, i) => (
                   <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
@@ -3069,7 +3069,7 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
           whileTap={{ scale: scale.press }}
           transition={spring.press}
           type="submit"
-          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0 18px 18px 0" }}
+          style={{ background: "var(--t-accent)", color: "var(--t-accent-text)", border: "none", padding: "0.75rem 1.25rem", fontSize: "0.7rem", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", borderRadius: "0" }}
         >go</motion.button>
       </motion.form>
 

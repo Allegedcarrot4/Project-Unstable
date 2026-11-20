@@ -87,7 +87,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { AttachmentFile, AttachmentRemove } from "@/components/ui/attachment"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
-import { formatQuotaReset, readAiQuota, recordAiMessage } from "@/lib/ai-quota"
+import { estimateCreditCost, formatQuotaReset, readAiQuota, recordAiUsage } from "@/lib/ai-quota"
 import { motion } from "motion/react"
 import { useMotionTokens, useShouldReduceMotion } from "@animate-ui/react/utils/motion"
 
@@ -396,6 +396,18 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
     const prompt = [typed, attachedBlock].filter(Boolean).join("\n\n").trim()
     if (!prompt || loading || booting) return
 
+    // Price the prompt before touching the conversation: big prompts and Think
+    // mode spend more of the strict daily allowance.
+    const cost = estimateCreditCost(prompt, mode)
+    const freshQuota = readAiQuota(user.id)
+    if (cost > freshQuota.remaining) {
+      setQuota(freshQuota)
+      setError(
+        `Not enough credits. This prompt costs ${cost}, you have ${freshQuota.remaining} left. Resets in ${formatQuotaReset(freshQuota.resetsAt)}.`
+      )
+      return
+    }
+
     let conversationId = activeId
     if (!conversationId) {
       const { data, error: err } = await supabase
@@ -419,7 +431,7 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
     setAttachment(null)
     setError("")
     setLoading(true)
-    setQuota(recordAiMessage(user.id))
+    setQuota(recordAiUsage(user.id, cost))
 
     try {
       const { data: userRow, error: insertError } = await supabase
@@ -749,7 +761,7 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
 
         <div className="flex flex-col gap-2 px-4 py-3">
           <div className="flex items-baseline justify-between gap-2 text-[0.68rem]">
-            <span className="font-medium text-foreground">Free</span>
+            <span className="font-medium text-foreground">Credits</span>
             <span className="font-mono text-[0.62rem] text-muted-foreground">
               {quota.remaining}/{quota.limit}
             </span>
@@ -757,7 +769,7 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
           <div
             className="h-1 w-full overflow-hidden rounded-full bg-muted"
             role="progressbar"
-            aria-label="Free messages remaining this week"
+            aria-label="AI credits remaining today"
             aria-valuemin={0}
             aria-valuemax={quota.limit}
             aria-valuenow={quota.remaining}
@@ -770,7 +782,7 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
             />
           </div>
           <p className="text-[0.56rem] text-muted-foreground">
-            Resets in {formatQuotaReset(quota.resetsAt)} · Mon 00:00 UTC
+            Resets in {formatQuotaReset(quota.resetsAt)} · 00:00 UTC
           </p>
         </div>
       </aside>
@@ -1135,6 +1147,12 @@ export function AIChat({ user, profile }: { user: { id: string }; profile: { use
                 </Button>
                 <span className="hidden text-[0.58rem] text-muted-foreground sm:inline">
                   {input.length}/4000
+                </span>
+                <span className="hidden items-center gap-1 text-[0.58rem] text-muted-foreground sm:flex">
+                  <span className="font-mono">
+                    {estimateCreditCost([input, attachment?.body ?? ""].join("\n"), mode)}
+                  </span>
+                  cr
                 </span>
               </PromptInputTools>
               <PromptInputSubmit
