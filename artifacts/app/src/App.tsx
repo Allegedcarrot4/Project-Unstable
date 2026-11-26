@@ -10,6 +10,8 @@ import { ErrorScreen } from "./components/ErrorScreen";
 import { DownloadIndicator } from "./components/DownloadIndicator";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./components/ui/dialog";
+import { Checkbox } from "./components/ui/checkbox";
+import { SlidingNumber } from "@animate-ui/react/primitives/texts/sliding-number";
 const AIChat = lazy(() => import("./components/AIChat").then(m => ({ default: m.AIChat })));
 const ChatHub = lazy(() => import("./components/ChatHub").then(m => ({ default: m.ChatHub })));
 const ProfilePage = lazy(() => import("./components/ProfilePage").then(m => ({ default: m.ProfilePage })));
@@ -2889,17 +2891,24 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
   });
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig>(() => loadWidgetConfig());
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
+  const [addHover, setAddHover] = useState(false);
   const { spring, transition, scale } = useMotionTokens();
   const reduceMotion = useShouldReduceMotion();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
+      const target = e.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) setMenuOpenId(null);
+      const el = target instanceof Element ? target : target.parentElement;
+      if (!el?.closest("[data-widget-settings]")) setShowWidgetSettings(false);
     }
     function handleBlur() { setMenuOpenId(null); }
     document.addEventListener("mousedown", handleClick);
     window.addEventListener("blur", handleBlur);
-    return () => { document.removeEventListener("mousedown", handleClick); window.removeEventListener("blur", handleBlur); };
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, []);
 
   useEffect(() => {
@@ -2979,8 +2988,8 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
       }}
     >
       <motion.div
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 18, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={spring.entrance}
         style={{
         display: "flex", flexDirection: "column", alignItems: "center", gap: "1.75rem", padding: "2.5rem 3rem",
@@ -2991,32 +3000,59 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
         boxShadow: wallpaper ? "0 8px 48px rgba(0,0,0,0.5)" : "none",
       }}>
       <div style={{ position: "relative", width: "100%" }}>
-        <button onClick={() => setShowWidgetSettings(!showWidgetSettings)}
+        <motion.button
+          type="button"
+          data-widget-settings
+          aria-label="Widget settings"
+          aria-expanded={showWidgetSettings}
+          onClick={() => setShowWidgetSettings(v => !v)}
           className="widget-btn"
-          style={{ position: "absolute", top: -8, right: -8, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)", cursor: "pointer", padding: "5px", borderRadius: "6px", opacity: 0.5, transition: "opacity 0.15s", zIndex: 10, lineHeight: 1 }}
-        ><Settings2 size={13} /></button>
+          whileTap={{ scale: scale.press }}
+          transition={spring.press}
+          style={{ position: "absolute", top: -8, right: -8, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", color: "var(--t-text-muted)", cursor: "pointer", padding: "5px", borderRadius: "6px", opacity: 0.5, zIndex: 10, lineHeight: 1 }}
+        >
+          <motion.span
+            style={{ display: "flex" }}
+            animate={{ rotate: reduceMotion ? 0 : showWidgetSettings ? 90 : 0 }}
+            transition={transition.spin}
+          >
+            <Settings2 size={13} />
+          </motion.span>
+        </motion.button>
       </div>
       <WidgetBar config={widgetConfig} showMs={showMs} />
-      {showWidgetSettings && (
-        <motion.div initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={spring.pop}
-          style={{ background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "16px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
-        >
-          <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>Widgets</p>
-          {(["clock", "date", "greeting", "quote", "branding"] as WidgetType[]).map(t => (
-            <label key={t} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.68rem", color: "var(--t-text)", cursor: "pointer", padding: "0.25rem 0" }}>
-              <input type="checkbox" checked={widgetConfig.enabled.includes(t)}
-                onChange={() => {
-                  const next = toggleWidget(widgetConfig, t);
-                  setWidgetConfig(next);
-                  saveWidgetConfig(next);
-                }}
-                style={{ accentColor: "var(--t-accent)" }}
-              />
-              {t === "clock" ? "Clock" : t === "date" ? "Date" : t === "greeting" ? "Greeting" : t === "quote" ? "Quote" : "Branding"}
-            </label>
-          ))}
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {showWidgetSettings && (
+          <motion.div
+            data-widget-settings
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: -6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={reduceMotion
+              ? { opacity: 0, transition: transition.dismiss }
+              : { opacity: 0, scale: 0.96, y: -4, transition: transition.dismiss }}
+            transition={spring.pop}
+            style={{ transformOrigin: "top center", background: "var(--t-bg-secondary)", border: "1px solid var(--t-border-light)", borderRadius: "16px", padding: "0.75rem 1rem", width: "100%", maxWidth: 300, display: "flex", flexDirection: "column", gap: "0.35rem" }}
+          >
+            <p style={{ margin: 0, fontSize: "0.6rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--t-text-muted)" }}>Widgets</p>
+            {(["clock", "date", "greeting", "quote", "branding"] as WidgetType[]).map(t => (
+              <div key={t} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.68rem", color: "var(--t-text)", padding: "0.25rem 0" }}>
+                <Checkbox
+                  id={`widget-toggle-${t}`}
+                  checked={widgetConfig.enabled.includes(t)}
+                  onCheckedChange={() => {
+                    const next = toggleWidget(widgetConfig, t);
+                    setWidgetConfig(next);
+                    saveWidgetConfig(next);
+                  }}
+                />
+                <label htmlFor={`widget-toggle-${t}`} style={{ cursor: "pointer" }}>
+                  {t === "clock" ? "Clock" : t === "date" ? "Date" : t === "greeting" ? "Greeting" : t === "quote" ? "Quote" : "Branding"}
+                </label>
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
       {widgetConfig.enabled.includes("branding") && (
       <motion.p
         initial={reduceMotion ? { opacity: 0 } : { y: -10, opacity: 0 }}
@@ -3050,19 +3086,27 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
               }
             }}
           />
-          {showNtSuggestions && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0 0 8px 8px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
-              <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
-                {ntSuggestions.map((s, i) => (
-                  <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
-                    style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
-                    onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
-                  >{s}</div>
-                ))}
-              </div>
-            </div>
-          )}
+          <AnimatePresence>
+            {showNtSuggestions && (
+              <motion.div
+                initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4, transition: transition.dismiss }}
+                transition={spring.pop}
+                style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "0", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)", transformOrigin: "top center" }}
+              >
+                <div ref={ntSuggestListRef} style={{ maxHeight: 160, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--t-border) var(--t-bg-secondary)" }}>
+                  {ntSuggestions.map((s, i) => (
+                    <div key={s} onClick={() => { setInput(s); setShowNtSuggestions(false); setNtSuggestIndex(-1); onNavigate(searchUrl(s, searchEngine ?? "duckduckgo")); }}
+                      style={{ padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "var(--t-text-secondary)", cursor: "pointer", borderBottom: "1px solid var(--t-border-light)", background: i === ntSuggestIndex ? "var(--t-bg-tertiary)" : "transparent", transition: "background 0.1s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "var(--t-bg-tertiary)"; setNtSuggestIndex(i); }}
+                      onMouseLeave={e => { if (ntSuggestIndex !== i) e.currentTarget.style.background = "transparent"; }}
+                    >{s}</div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <motion.button
           whileHover={{ background: "var(--t-accent-hover)" }}
@@ -3089,7 +3133,9 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             className="sc-wrap"
           >
             <motion.button
-              whileHover={{ y: -4, background: "var(--t-bg-tertiary)" }}
+              whileHover={reduceMotion
+                ? { background: "var(--t-bg-tertiary)" }
+                : { y: -4, background: "var(--t-bg-tertiary)", boxShadow: "0 8px 20px rgba(0,0,0,0.22)" }}
               whileTap={{ scale: scale.press }}
               transition={spring.press}
               onClick={() => onNavigate(sc.url)}
@@ -3105,16 +3151,27 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
               <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em", maxWidth: "56px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.name}</span>
             </motion.button>
             <button onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === sc.id ? null : sc.id); }} className="sc-menu-btn" style={{ position: "absolute", top: 0, right: 0, background: "var(--t-bg-hover)", border: "none", color: "var(--t-text-muted)", borderRadius: "8px", width: 18, height: 18, fontSize: 11, cursor: "pointer", display: "none", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋮</button>
-            {menuOpenId === sc.id && (
-              <div ref={menuRef} style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "14px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100 }}>
-                <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "none"}><Pencil size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Edit</button>
-                <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "none"}><Trash2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Delete</button>
-              </div>
-            )}
+            <AnimatePresence>
+              {menuOpenId === sc.id && (
+                <motion.div
+                  ref={menuRef}
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: scale.menu, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={reduceMotion
+                    ? { opacity: 0, transition: transition.dismiss }
+                    : { opacity: 0, scale: 0.96, y: -3, transition: transition.dismiss }}
+                  transition={spring.pop}
+                  style={{ position: "absolute", top: 22, right: 0, zIndex: 1000, background: "var(--t-bg-secondary)", border: "1px solid var(--t-border)", borderRadius: "14px", overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", minWidth: 100, transformOrigin: "top right" }}
+                >
+                  <button onClick={() => { setMenuOpenId(null); setEditingShortcut(sc); setNewName(sc.name); setNewUrl(sc.url); setNewImg(sc.favicon === faviconUrl(extractDomain(sc.url)) ? "" : sc.favicon); setAdding(true); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "var(--t-text)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}><Pencil size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Edit</button>
+                  <button onClick={() => { setMenuOpenId(null); removeShortcut(sc.id); }} style={{ display: "flex", alignItems: "center", gap: "0.45rem", width: "100%", background: "none", border: "none", color: "rgba(235,120,120,0.9)", fontSize: "0.68rem", padding: "0.5rem 0.8rem", cursor: "pointer", textAlign: "left", fontFamily: "'Space Grotesk', sans-serif" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--t-bg-hover)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}><Trash2 size={12} style={{ opacity: 0.7, flexShrink: 0 }} />Delete</button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         ))}
         {!adding && (
@@ -3124,11 +3181,19 @@ function NewTabPage({ onNavigate, customShortcuts, setCustomShortcuts, wallpaper
             transition={{ ...spring.entrance, delay: 0.22 + all.length * 0.045 }}
             whileHover={{ background: "var(--t-bg-tertiary)" }}
             whileTap={{ scale: scale.press }}
+            onMouseEnter={() => setAddHover(true)}
+            onMouseLeave={() => setAddHover(false)}
             onClick={() => setAdding(true)}
             title="Add shortcut"
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem", background: "none", border: "none", cursor: "pointer", padding: "0.55rem 0.4rem", borderRadius: "6px", transition: "background 0.15s", minWidth: "52px" }}
           >
-            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed var(--t-border-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "var(--t-text-muted)" }}>+</div>
+            <div style={{ width: 28, height: 28, borderRadius: "6px", border: "1px dashed var(--t-border-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "var(--t-text-muted)" }}>
+              <motion.span
+                style={{ display: "flex", lineHeight: 1 }}
+                animate={{ rotate: reduceMotion ? 0 : addHover ? 90 : 0 }}
+                transition={transition.spin}
+              >+</motion.span>
+            </div>
             <span style={{ fontSize: "0.57rem", color: "var(--t-text-muted)", letterSpacing: "0.03em" }}>add</span>
           </motion.button>
         )}
@@ -3195,27 +3260,78 @@ function WidgetBar({ config, showMs }: { config: WidgetConfig; showMs?: boolean 
   );
 }
 
+const CLOCK_FACE: React.CSSProperties = {
+  margin: 0,
+  display: "flex",
+  alignItems: "baseline",
+  gap: "0.02em",
+  fontSize: "3rem",
+  fontWeight: 200,
+  color: "var(--t-text)",
+  letterSpacing: "0.02em",
+  lineHeight: 1.1,
+  fontVariantNumeric: "tabular-nums",
+};
+
+/** Two digits that roll on their own, so the clock keeps a steady width. */
+const CLOCK_ROLL = { stiffness: 400, damping: 34, mass: 0.3 };
+
+function ClockPair({ value }: { value: number }) {
+  return (
+    <span aria-hidden="true" style={{ display: "inline-flex" }}>
+      <SlidingNumber number={Math.floor(value / 10)} transition={CLOCK_ROLL} />
+      <SlidingNumber number={value % 10} transition={CLOCK_ROLL} />
+    </span>
+  );
+}
+
 const ClockWidget = memo(function ClockWidget({ showMs }: { showMs?: boolean }) {
   const { spring } = useMotionTokens();
   const reduceMotion = useShouldReduceMotion();
-  const [time, setTime] = useState(() => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-  const [ms, setMs] = useState(0);
+  const hour12 = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12 ?? false,
+    []
+  );
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     function tick() {
-      const now = new Date();
-      setTime(now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-      setMs(now.getMilliseconds());
-      timer = setTimeout(tick, 1000 - now.getMilliseconds());
+      const next = new Date();
+      setNow(next);
+      timer = setTimeout(tick, 1000 - next.getMilliseconds());
     }
-    const delay = 1000 - Date.now() % 1000;
-    timer = setTimeout(tick, delay);
+    timer = setTimeout(tick, 1000 - Date.now() % 1000);
     return () => clearTimeout(timer);
   }, []);
+
+  const hours24 = now.getHours();
+  const hour = hour12 ? (hours24 % 12 || 12) : hours24;
+  const label = `${hour}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+  const colon: React.CSSProperties = { opacity: 0.45 };
+
   return (
-    <motion.p initial={reduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring.entrance}
-      style={{ margin: 0, fontSize: "3rem", fontWeight: 200, color: "var(--t-text)", letterSpacing: "0.02em", lineHeight: 1.1, display: "flex", alignItems: "baseline", gap: "0.05rem" }}
-    >{time}{showMs && <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums" }}>{String(ms).padStart(3, "0")}</span>}</motion.p>
+    <motion.p
+      initial={reduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={spring.entrance}
+      style={CLOCK_FACE}
+    >
+      <span className="sr-only">{label}</span>
+      {hour12 ? (
+        <SlidingNumber aria-hidden="true" number={hour} transition={CLOCK_ROLL} />
+      ) : (
+        <ClockPair value={hour} />
+      )}
+      <span aria-hidden="true" style={colon}>:</span>
+      <ClockPair value={now.getMinutes()} />
+      <span aria-hidden="true" style={colon}>:</span>
+      <ClockPair value={now.getSeconds()} />
+      {showMs && (
+        <span style={{ fontSize: "0.8rem", fontWeight: 300, opacity: 0.3, fontVariantNumeric: "tabular-nums", marginLeft: "0.15rem" }}>
+          {String(now.getMilliseconds()).padStart(3, "0")}
+        </span>
+      )}
+    </motion.p>
   );
 });
 
