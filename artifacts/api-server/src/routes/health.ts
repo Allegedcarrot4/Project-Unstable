@@ -1,9 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
 
 const healthRoute: FastifyPluginAsync = async (app) => {
-  app.get("/healthz", async (_req, reply) => {
+  const health = async (_req: unknown, reply: { send: (payload: unknown) => unknown }) => {
     return reply.send({ status: "ok" });
-  });
+  };
+
+  app.get("/healthz", health);
+  // Older proxy assets still check this endpoint; keep it as a compatibility
+  // alias so a stale service worker cannot mark the backend offline.
+  app.get("/health", health);
   
   // MoonBeam/Wisp info endpoint
   app.get("/wisp/info", async (_req, reply) => {

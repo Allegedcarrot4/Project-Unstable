@@ -131,7 +131,6 @@ await app.register(fastifyStatic, {
   root: bareModDist,
   prefix: "/api/baremod/",
   decorateReply: false,
-  wildcard: false,
 });
 
 app.get("/", async (_req, reply) => {
