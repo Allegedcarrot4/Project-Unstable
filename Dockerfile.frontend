@@ -22,7 +22,7 @@ RUN BASE_PATH=/ NODE_ENV=production \
 
 FROM nginx:alpine AS runner
 ENV PORT=7860 \
-    BACKEND_URL=http://api-server:3001 \
+    BACKEND_URL=http://workspaceapi-server.railway.internal:3001 \
     NGINX_ENVSUBST_FILTER="^(BACKEND_URL|PORT)$"
 
 COPY --from=builder /app/artifacts/app/dist/public/ /usr/share/nginx/html/

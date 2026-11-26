@@ -134,6 +134,10 @@ await app.register(fastifyStatic, {
   wildcard: false,
 });
 
+app.get("/", async (_req, reply) => {
+  return reply.send({ status: "ok", service: "api-server" });
+});
+
 // ─── API routes ───────────────────────────────────────────────────────────────
 app.register(router, { prefix: "/api" });
 
