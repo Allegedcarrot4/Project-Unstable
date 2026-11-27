@@ -6,15 +6,24 @@ const SESSION_KEY = "unstable_auth";
 // If PASSWORD is not configured, the gate is skipped entirely. Otherwise only
 // the configured PASSWORD unlocks it.
 async function isGateRequired(): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/password-status", {
-      signal: AbortSignal.timeout(6000),
-    });
-    const data = (await res.json().catch(() => null)) as { required?: boolean } | null;
-    return Boolean(res.ok && data?.required);
-  } catch {
-    return false;
+  // A sleeping/cold backend can take longer than the first timeout. Retry with
+  // a larger budget so the gate is not silently skipped at boot.
+  for (const timeoutMs of [6000, 15000]) {
+    try {
+      const res = await fetch("/api/auth/password-status", {
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => null)) as { required?: boolean } | null;
+      if (data && typeof data.required === "boolean") return data.required;
+      // Non-JSON (or error) response: this host has no password backend, which
+      // is the frontend-only deployment path.
+      if (!res.ok) return false;
+    } catch { /* timeout or network error: try again */ }
   }
+  // Backend unreachable: preserve frontend-only mode instead of locking the app
+  // behind a password it cannot verify.
+  return false;
 }
 
 // POST /api/auth/check -> 200 ok | 401 wrong

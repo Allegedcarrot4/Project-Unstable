@@ -1,4 +1,8 @@
 (function() {
+  // Run once per document. A second execution used to throw on the
+  // `webdriver` defineProperty below and skip every later section.
+  if (window.__unstableInjectLoaded) return;
+  window.__unstableInjectLoaded = true;
   try {
     const PARENT = window.parent;
     const pendingPerms = {};
@@ -25,79 +29,50 @@
       try { window.webkitRTCPeerConnection = PatchedRTCPeerConnection; } catch {}
     }
 
-    // ─── 4. Navigator Spoofing ────────────────────────────────────────────
-    Object.defineProperty(navigator, "webdriver", { get: () => false, configurable: false });
-    Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"], configurable: false });
-    Object.defineProperty(navigator, "deviceMemory", { get: () => 8, configurable: false });
-    Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8, configurable: false });
+    // ─── 4. Navigator / frame consistency ─────────────────────────────────
+    // A proxied page must look like the real browser running it. The previous
+    // version replaced navigator.plugins, deviceMemory and hardwareConcurrency
+    // with fake values and added canvas/WebGL noise. That made the page *less*
+    // consistent (navigator disagreed with the network headers) and it threw
+    // on `webdriver`, which skipped every later section of this file.
+    // Keep the real values and only correct signals that are actually wrong.
     try {
-      Object.defineProperty(navigator, "plugins", {
-        get: () => {
-          const arr = [
-            { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer" },
-            { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai" },
-            { name: "Native Client", filename: "internal-nacl-plugin" },
-          ];
-          arr.item = (i) => arr[i];
-          arr.namedItem = (n) => arr.find(p => p.name === n) || null;
-          arr.length = arr.length;
-          return arr;
-        }, configurable: false
-      });
-    } catch {}
+      if (navigator.webdriver) {
+        Object.defineProperty(Navigator.prototype, "webdriver", {
+          configurable: true,
+          enumerable: true,
+          get: function () { return false; },
+        });
+      }
+    } catch { /* non-configurable: a real browser already reports false */ }
 
-    // ─── 2. Canvas Fingerprinting Protection ──────────────────────────────
-    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    HTMLCanvasElement.prototype.toDataURL = function(...args) {
-      const img = origToDataURL.apply(this, args);
-      return addCanvasNoise(img);
-    };
-    const origToBlob = HTMLCanvasElement.prototype.toBlob;
-    HTMLCanvasElement.prototype.toBlob = function(cb, ...args) {
-      origToBlob.call(this, function(blob) {
-        if (!blob) return cb(blob);
-        const reader = new FileReader();
-        reader.onload = () => {
-          const noisy = addCanvasNoise(reader.result);
-          fetch(noisy).then(r => r.blob()).then(cb).catch(() => cb(blob));
-        };
-        reader.onerror = () => cb(blob);
-        reader.readAsDataURL(blob);
-      }, ...args);
-    };
-
-    function addCanvasNoise(dataUrl) {
-      try {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return dataUrl;
-        const img = new Image();
-        img.src = dataUrl;
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        for (let i = 0; i < d.data.length; i += 4) {
-          d.data[i] ^= 1;
-          if (i % 8 === 0) d.data[i + 1] ^= 1;
-        }
-        ctx.putImageData(d, 0, 0);
-        return canvas.toDataURL();
-      } catch { return dataUrl; }
-    }
-
-    // ─── 3. WebGL Fingerprinting Protection ───────────────────────────────
-    const gl = document.createElement("canvas").getContext("webgl");
-    if (gl) {
-      const origGetParameter = gl.getParameter.bind(gl);
-      gl.getParameter = function(p) {
-        if (p === 37445) return "Intel Inc.";
-        if (p === 37446) return "Intel Iris OpenGL Engine";
-        return origGetParameter(p);
-      };
-    }
+    // Present the document as top-level. Frame-busting scripts and some bot
+    // checks treat any framed page as suspicious, and document.referrer would
+    // otherwise leak the Unstable origin. PARENT was captured above, so the
+    // postMessage bridge keeps using the real parent window.
+    try {
+      if (window.top !== window) {
+        Object.defineProperty(window, "top", { configurable: true, get: function () { return window; } });
+      }
+    } catch { /* ignore */ }
+    try {
+      if (window.parent !== window) {
+        Object.defineProperty(window, "parent", { configurable: true, get: function () { return window; } });
+      }
+    } catch { /* ignore */ }
+    try {
+      Object.defineProperty(window, "frameElement", { configurable: true, get: function () { return null; } });
+    } catch { /* ignore */ }
+    try {
+      Object.defineProperty(document, "referrer", { configurable: true, get: function () { return ""; } });
+    } catch { /* ignore */ }
+    try {
+      const emptyOrigins = { length: 0, item: function () { return null; }, contains: function () { return false; } };
+      Object.defineProperty(location, "ancestorOrigins", { configurable: true, get: function () { return emptyOrigins; } });
+    } catch { /* ignore */ }
 
     // ─── 5. Permission Interceptor ────────────────────────────────────────
+    try {
     const PERMISSION_MAP = {
       camera: "camera",
       microphone: "microphone",
@@ -156,6 +131,7 @@
         return origWatch(succ, fail, opts);
       };
     }
+    } catch (e) { console.warn("[unstable-inject] permission bridge error:", e); }
     // ─── 6. Download Interception ──────────────────────────────────────────
     // Downloads must be fetched *inside* the proxied page: only this frame's
     // service worker can turn a proxy URL back into the real file. The Unstable

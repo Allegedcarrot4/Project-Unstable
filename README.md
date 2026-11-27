@@ -16,13 +16,21 @@
 - 5 bare proxy servers + Wisp WebSocket transport
 - libcurl, epoxy, and bare-mux transport options
 - Built-in adblock and tracking parameter stripping
-- Canvas, WebGL, and WebRTC fingerprint protection
+- Consistent browser identity: real UA, client hints, Accept-Language, and WebRTC leak protection
 - New tab page with editable shortcuts
 - Tab cloaking (Google Drive, Schoology, ClassLink, Google Classroom)
 - Recordable keyboard shortcuts
 - `unstable://` protocol (newtab, settings, credits, blank)
 - Password-protected access
 - Dark themes with animated backgrounds
+
+---
+
+## Source Code and License
+
+You may **view** the source code of every version of this project. You may **not copy, redistribute, or reuse Unstable's own code** without written permission from the copyright holder.
+
+Third-party libraries, engines, typefaces, images, and other assets that are not owned or created by Project Unstable — and other open-source components used here — are excluded from that restriction and remain governed by their own licenses. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 

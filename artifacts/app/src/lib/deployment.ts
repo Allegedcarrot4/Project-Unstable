@@ -43,22 +43,39 @@ export function detectDeployment(): Promise<DeploymentMode> {
   if (resolved) return Promise.resolve(resolved);
   if (probe) return probe;
 
+  const probeHealth = async (timeoutMs: number): Promise<"ok" | "bad" | "unreachable"> => {
+    try {
+      const res = await fetch("/api/healthz", {
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const data = (await res.json().catch(() => null)) as { status?: string } | null;
+      return res.ok && data?.status === "ok" ? "ok" : "bad";
+    } catch {
+      return "unreachable";
+    }
+  };
+
   probe = (async () => {
     // CDN-gateway builds render the UI from a file CDN with no backend at all.
     if ((window as unknown as { __cdnGatewayPath?: string }).__cdnGatewayPath) {
       return resolve("frontend");
     }
-    try {
-      const res = await fetch("/api/healthz", {
-        signal: AbortSignal.timeout(5000),
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      const data = (await res.json().catch(() => null)) as { status?: string } | null;
-      return resolve(res.ok && data?.status === "ok" ? "fullstack" : "frontend");
-    } catch {
-      return resolve("frontend");
-    }
+
+    const first = await probeHealth(5000);
+    if (first === "ok") return resolve("fullstack");
+    // A static host answers immediately (404 or its SPA HTML), which is a
+    // definite "no backend".
+    if (first === "bad") return resolve("frontend");
+
+    // Unreachable is ambiguous: a static host on a broken network and a
+    // sleeping/cold Railway container both time out. Retry with a longer
+    // budget, then assume fullstack — concluding "frontend" here would
+    // disable accounts and chat for the rest of the session after a cold start.
+    const second = await probeHealth(15000);
+    if (second === "bad") return resolve("frontend");
+    return resolve("fullstack");
   })();
 
   return probe;

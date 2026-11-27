@@ -1,0 +1,49 @@
+Project Unstable — Source Code Notice
+=====================================
+
+Copyright (c) 2026 Allegedcarrot4. All rights reserved.
+
+Viewing is permitted; copying is not
+------------------------------------
+
+You may view, read, and inspect the source code of this repository in every
+version before and after this release, for reference, learning, security
+review, and contribution back to the official project.
+
+You may NOT copy, reproduce, redistribute, re-upload, mirror, sublicense, or
+reuse Project Unstable's own source code, in whole or in part, by any means,
+without prior written permission from the copyright holder.
+
+Third-party and open-source exception
+-------------------------------------
+
+This restriction does not apply to third-party libraries, engines, tools,
+typefaces, images, and other assets that are not owned or created by Project
+Unstable, or to other open-source components used by this project.
+
+Those components remain the property of their respective owners and are
+governed by their own licenses, which are included with or referenced by
+those components. Where a third-party license conflicts with this notice, the
+third-party license controls for that component.
+
+Contributions
+-------------
+
+Contributions submitted directly to the official repositories are accepted
+under the project's contribution terms.
+
+Official repositories:
+
+  - https://github.com/allegedcarrot4/project-unstable
+  - https://huggingface.co/spaces/allegedcarrot4/unstable-node
+
+Warranty
+--------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

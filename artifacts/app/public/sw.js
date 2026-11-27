@@ -9,7 +9,52 @@ const COOKIE_CHANNEL = "__unstable_cookie_sync";
 const cookieBC = new BroadcastChannel(COOKIE_CHANNEL);
 let adblockEnabled = true;
 let adblockCount = 0;
-const CUSTOM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+// ─── Browser identity ────────────────────────────────────────────────────────
+// The proxy must look like the browser that is actually running it. Hardcoding
+// Chrome/125 made every request disagree with navigator.userAgent (Chrome/158
+// on this machine), which is exactly the mismatch bot checks look for. Read the
+// real UA from the worker, derive the client hints from it, and only fill in
+// headers the rewriter left out.
+const REAL_UA = (self.navigator && self.navigator.userAgent) || "";
+const REAL_LANGS = (self.navigator && self.navigator.languages && self.navigator.languages.length)
+  ? Array.from(self.navigator.languages)
+  : ["en-US", "en"];
+
+function acceptLanguageHeader() {
+  return REAL_LANGS.map((lang, i) => {
+    if (i === 0) return lang;
+    const q = Math.max(0.1, 1 - i * 0.1).toFixed(1);
+    return `${lang};q=${q}`;
+  }).join(",");
+}
+
+const ACCEPT_LANGUAGE = acceptLanguageHeader();
+
+function chromiumMajor(ua) {
+  const m = /(?:Chrome|Chromium)\/(\d+)/.exec(ua || "");
+  return m ? m[1] : "";
+}
+
+function clientHintBrands(ua) {
+  const major = chromiumMajor(ua);
+  if (!major) return "";
+  return `"Chromium";v="${major}", "Google Chrome";v="${major}", "Not?A_Brand";v="24"`;
+}
+
+function clientHintPlatform(ua) {
+  if (/Windows/i.test(ua)) return '"Windows"';
+  if (/Mac OS X|Macintosh/i.test(ua)) return '"macOS"';
+  if (/Android/i.test(ua)) return '"Android"';
+  if (/CrOS/i.test(ua)) return '"Chrome OS"';
+  if (/Linux/i.test(ua)) return '"Linux"';
+  return '""';
+}
+
+function isMobileUA(ua) {
+  return /Mobile|Android|iPhone|iPad/i.test(ua || "");
+}
+
 
 // ─── Adblock rules ──────────────────────────────────────────────────────────
 // Fast O(1) hostname Set for whole-domain blocks. Regexes only for path-specific
@@ -144,12 +189,23 @@ async function attachCookiesToBareRequest(request) {
   let bareHeaders = {};
   try { bareHeaders = JSON.parse(bareHeadersRaw || "{}"); } catch {}
   if (cookies) bareHeaders["cookie"] = cookies;
-  bareHeaders["user-agent"] = CUSTOM_UA;
-  bareHeaders["sec-ch-ua"] = '"Chromium";v="125", "Google Chrome";v="125"';
-  bareHeaders["sec-ch-ua-platform"] = '"Windows"';
-  // Spoof referer to prevent proxy URL leakage
-  if (bareHeaders["referer"]) bareHeaders["referer"] = bareUrl;
-  if (bareHeaders["Referer"]) bareHeaders["Referer"] = bareUrl;
+
+  // Keep the target request's identity identical to the real browser.
+  if (REAL_UA) bareHeaders["user-agent"] = REAL_UA;
+  if (!bareHeaders["accept-language"]) bareHeaders["accept-language"] = ACCEPT_LANGUAGE;
+  const existingCh = bareHeaders["sec-ch-ua"] || "";
+  const major = chromiumMajor(REAL_UA);
+  if (major && (!existingCh || !existingCh.includes(`v="${major}"`))) {
+    bareHeaders["sec-ch-ua"] = clientHintBrands(REAL_UA);
+    bareHeaders["sec-ch-ua-mobile"] = isMobileUA(REAL_UA) ? "?1" : "?0";
+    bareHeaders["sec-ch-ua-platform"] = clientHintPlatform(REAL_UA);
+  }
+  // Only rewrite a referer that would leak the proxy origin; a referer that
+  // already points at the target site is legitimate.
+  for (const key of ["referer", "Referer"]) {
+    const value = bareHeaders[key];
+    if (value && String(value).includes(self.location.origin)) bareHeaders[key] = bareUrl;
+  }
   if (isTrackingUrl(bareUrl)) { bareHeaders["x-unstable-strip-tracking"] = "1"; }
   const newHeaders = new Headers(request.headers);
   newHeaders.set("x-bare-headers", JSON.stringify(bareHeaders));
@@ -293,7 +349,9 @@ async function handleRequest(event) {
   if (uv.route(event)) {
     response = await uv.fetch(event);
     response = await stripResponseHeaders(response);
-    response = await injectFingerprint(response);
+    // Only real documents get the injected client script. HTML fragments
+    // fetched by page script must not have a <script> appended.
+    if (isDocumentNavigation(event.request)) response = await injectFingerprint(response);
   } else {
     response = await fetch(request);
   }

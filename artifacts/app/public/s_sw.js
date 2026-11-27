@@ -7,6 +7,76 @@ let sw = null;
 let configPromise = null;
 let adblockEnabled = true;
 
+// ─── Browser identity ────────────────────────────────────────────────────────
+// Scramjet forwards the FetchEvent request headers to the target. Derive the
+// identity from the real browser so the target never sees a UA/client-hint
+// mismatch, and fill in headers the rewriter does not add (Accept-Language).
+const REAL_UA = (self.navigator && self.navigator.userAgent) || "";
+const REAL_LANGS = (self.navigator && self.navigator.languages && self.navigator.languages.length)
+  ? Array.from(self.navigator.languages)
+  : ["en-US", "en"];
+
+function acceptLanguageHeader() {
+  return REAL_LANGS.map((lang, i) => {
+    if (i === 0) return lang;
+    const q = Math.max(0.1, 1 - i * 0.1).toFixed(1);
+    return `${lang};q=${q}`;
+  }).join(",");
+}
+
+const ACCEPT_LANGUAGE = acceptLanguageHeader();
+
+function chromiumMajor(ua) {
+  const m = /(?:Chrome|Chromium)\/(\d+)/.exec(ua || "");
+  return m ? m[1] : "";
+}
+
+function clientHintBrands(ua) {
+  const major = chromiumMajor(ua);
+  if (!major) return "";
+  return `"Chromium";v="${major}", "Google Chrome";v="${major}", "Not?A_Brand";v="24"`;
+}
+
+function clientHintPlatform(ua) {
+  if (/Windows/i.test(ua)) return '"Windows"';
+  if (/Mac OS X|Macintosh/i.test(ua)) return '"macOS"';
+  if (/Android/i.test(ua)) return '"Android"';
+  if (/CrOS/i.test(ua)) return '"Chrome OS"';
+  if (/Linux/i.test(ua)) return '"Linux"';
+  return '""';
+}
+
+function isMobileUA(ua) {
+  return /Mobile|Android|iPhone|iPad/i.test(ua || "");
+}
+
+// Mutate the headers Scramjet is about to send to the target site. The worker
+// dispatches a "request" event with a plain object right before its bare fetch.
+function normalizeRequestHeaders(headers) {
+  try {
+    if (REAL_UA && !headers["user-agent"]) headers["user-agent"] = REAL_UA;
+    if (!headers["accept-language"]) headers["accept-language"] = ACCEPT_LANGUAGE;
+    const major = chromiumMajor(REAL_UA);
+    const existing = headers["sec-ch-ua"] || "";
+    if (major && (!existing || !existing.includes(`v="${major}"`))) {
+      headers["sec-ch-ua"] = clientHintBrands(REAL_UA);
+      if (!headers["sec-ch-ua-mobile"]) headers["sec-ch-ua-mobile"] = isMobileUA(REAL_UA) ? "?1" : "?0";
+      if (!headers["sec-ch-ua-platform"]) headers["sec-ch-ua-platform"] = clientHintPlatform(REAL_UA);
+    }
+  } catch { /* never block a request on a header tweak */ }
+}
+
+function initWorker() {
+  if (sw) return sw;
+  sw = new ScramjetServiceWorker();
+  try {
+    sw.addEventListener("request", (ev) => normalizeRequestHeaders(ev.requestHeaders));
+  } catch { /* older worker build without the event */ }
+  configPromise = sw.loadConfig();
+  return sw;
+}
+
+
 // ─── Adblock rules ──────────────────────────────────────────────────────────
 // Fast O(1) hostname Set — same logic as sw.js
 
@@ -159,8 +229,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       await self.clients.claim();
-      sw = new ScramjetServiceWorker();
-      configPromise = sw.loadConfig();
+      initWorker();
     })()
   );
 });
@@ -168,8 +237,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (ev) => {
   // Requests that are neither proxied nor blockable are left entirely to the
   // browser: no service-worker round trip and no bypass of the HTTP cache.
+  //
+  // The rewriter injects <script src="/eggs/scramjet.wasm.wasm"> into every
+  // document. Scramjet answers that request from this worker with a JS payload
+  // that sets self.WASM; if the worker ignores it, the browser executes the
+  // raw wasm as a script and throws "Invalid or unexpected token".
   const reqUrl = ev.request.url;
-  const isProxied = reqUrl.includes('/ham/');
+  const isProxied = reqUrl.includes('/ham/') || reqUrl.includes('/eggs/scramjet.wasm.wasm');
   const isBlockable = adblockEnabled && (isAdRequest(reqUrl) || reqUrl.includes('/cdn-cgi/'));
   if (!isProxied && !isBlockable) return;
 
@@ -184,7 +258,7 @@ self.addEventListener('fetch', (ev) => {
           return new Response(null, { status: 204 });
         }
 
-        if (!sw) { sw = new ScramjetServiceWorker(); configPromise = sw.loadConfig(); }
+        if (!sw) initWorker();
         await configPromise;
         if (sw.route(ev) || reqUrl.includes('/ham/')) {
           const response = await sw.fetch(ev);
@@ -201,13 +275,21 @@ self.addEventListener('fetch', (ev) => {
           stripped.delete('x-frame-options');
           stripped.delete('etag');
           stripped.delete('last-modified');
-          if (ev.request.mode === 'navigate' || ev.request.destination === 'document') {
-            stripped.set('content-type', 'text/html; charset=utf-8');
+          const isDocument = ev.request.mode === 'navigate' || ev.request.destination === 'document';
+          if (isDocument) {
+            // Only repair a missing/opaque type. Forcing every document to
+            // text/html breaks XML, plain-text and PDF navigations.
+            const ct = (stripped.get('content-type') || '').toLowerCase();
+            if (!ct || ct === 'application/octet-stream') {
+              stripped.set('content-type', 'text/html; charset=utf-8');
+            }
           }
           let finalResponse = new Response(response.body, {
             status: response.status, statusText: response.statusText, headers: stripped,
           });
-          finalResponse = await injectFingerprint(finalResponse);
+          // Never append the client script to an HTML fragment fetched by page
+          // script; only real documents get it.
+          if (isDocument) finalResponse = await injectFingerprint(finalResponse);
           return finalResponse;
         }
         return fetch(ev.request);

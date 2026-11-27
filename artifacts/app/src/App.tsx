@@ -962,15 +962,43 @@ async function setupProxy(bareNum = 1, transportMode: TransportMode = "auto", wi
         scope: SCRAMJET_PREFIX,
         updateViaCache: "none",
       });
-      if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      reg.addEventListener("updatefound", () => {
-        const newSW = reg.installing;
-        if (newSW) newSW.addEventListener("statechange", () => {
-          if (newSW.state === "installed" && reg.waiting) {
-            reg.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
+      const activateWorker = (worker: ServiceWorker | null) => {
+        if (!worker) return;
+        if (worker.state === "installed" || worker.state === "activated") {
+          worker.postMessage({ type: "SKIP_WAITING" });
+        }
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "installed") worker.postMessage({ type: "SKIP_WAITING" });
         });
-      });
+      };
+      activateWorker(reg.waiting);
+      activateWorker(reg.installing);
+      reg.addEventListener("updatefound", () => activateWorker(reg.installing));
+
+      // Do not report Scramjet as ready until the worker actually controls
+      // /ham/. A tab opened during registration would otherwise load /ham/…
+      // from the network (404/SPA HTML) instead of through Scramjet.
+      if (!reg.active) {
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = () => { if (!settled) { settled = true; resolve(); } };
+          const watch = () => {
+            const worker = reg.installing || reg.waiting;
+            if (!worker) return;
+            if (worker.state === "installed") worker.postMessage({ type: "SKIP_WAITING" });
+            if (worker.state === "activated" || worker.state === "redundant") finish();
+            worker.addEventListener("statechange", () => {
+              if (worker.state === "installed") worker.postMessage({ type: "SKIP_WAITING" });
+              if (worker.state === "activated" || worker.state === "redundant") finish();
+            });
+          };
+          reg.addEventListener("updatefound", watch);
+          watch();
+          // Never hold proxy setup hostage to a worker that cannot activate.
+          setTimeout(finish, 6000);
+        });
+      }
+      void reg.update().catch(() => { /* offline or blocked — keep the current worker */ });
     } catch { /* scope might already be claimed */ }
     emitStatus({ scramjet: "ready" });
   } catch (err) {
@@ -1752,14 +1780,14 @@ function AccountAuthScreen({
 function CreditsPage() {
   const items = [
     ["Ultraviolet", "web proxy engine"], ["Scramjet", "web proxy engine (primary)"],
-    ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl+wisp transport (primary)"],
-    ["bare-server-node", "bare proxy backend (fallback)"], ["bare-as-module3", "bare transport module"],
-    ["wisp-js", "wisp server"], ["React", "frontend library"],
+    ["bare-mux", "transport multiplexer"], ["libcurl-transport", "libcurl + Wisp transport"],
+    ["bare-server-node", "bare proxy backend"], ["bare-as-module3", "bare transport module"],
+    ["wisp-js", "Wisp server"], ["React", "frontend library"],
     ["Vite", "build tool"], ["TypeScript", "language"],
-    ["framer-motion", "animations"], ["lucide-react", "icons"],
-    ["three.js", "3D engine"],
-    ["Supabase", "auth, database, realtime"], ["Radix UI", "UI primitives"],
-    ["Tailwind CSS", "utility CSS"], ["Space Grotesk", "typeface"],
+    ["Motion / Animate UI", "animation primitives"], ["Radix UI / Base UI", "UI primitives"],
+    ["Tailwind CSS", "utility CSS"], ["lucide-react", "icons"],
+    ["three.js", "3D engine"], ["Supabase", "auth, database, realtime"],
+    ["Space Grotesk", "typeface"], ["DuckDuckGo", "search suggestions"],
   ];
   return (
     <motion.div
@@ -1781,6 +1809,9 @@ function CreditsPage() {
           </motion.div>
         ))}
       </div>
+      <p style={{ maxWidth: 440, padding: "0 2rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.24)", lineHeight: 1.6, margin: 0, textAlign: "center" }}>
+        Third-party libraries, engines, typefaces and assets remain the property of their respective owners and are used under their own licenses. The Unstable name, interface and original code are © 2026 Allegedcarrot4. Viewing the source is permitted; copying Unstable's own code is not, except for third-party and open-source components.
+      </p>
       <p style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.15)", letterSpacing: "0.06em", margin: 0 }}>type unstable://credits in the url bar</p>
     </motion.div>
   );
@@ -1797,13 +1828,16 @@ function ToSPage() {
     >
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — terms of service</p>
       {[
-        ["Service Overview", "Unstable is a web proxy and browser tool that provides access to web content through various proxying engines (Scramjet, Ultraviolet, Bare). It also includes AI chat, group chat, games, and customization features. The service is provided as-is with no guarantees of uptime or availability."],
-        ["Acceptable Use", "You agree not to use Unstable to access, store, or distribute illegal content or to violate any applicable laws. Circumventing network restrictions may violate institutional policies, and you are solely responsible for your usage."],
-        ["Proxy and Transport", "Unstable supports multiple proxy engines and transport modes (Wisp, Bare, custom Wisp servers). These are provided as technical tools, and the operators are not responsible for how users route traffic through them."],
-        ["Accounts and Authentication", "Account creation is optional and handled via Supabase Auth. Account data includes usernames and authentication credentials managed by Supabase. Server-side secrets and API keys must never be committed to public repositories."],
-        ["AI and Chat Features", "AI conversations and chat messages are stored server-side via Supabase. AI requests are forwarded to third-party providers through a server-side proxy. Chat messages are delivered across devices in real time via Supabase Realtime."],
-        ["Third-Party Services", "Unstable depends on Supabase for auth, storage, and realtime functionality, and on third-party AI providers for AI responses. The operators are not responsible for the availability, content, or behavior of these services."],
-        ["Modifications", "These terms may be updated at any time. Continued use after changes constitutes acceptance of the new terms."],
+        ["Service Overview", "Unstable is a browser-style web proxy that loads third-party sites through Scramjet, Ultraviolet and Bare/Wisp transports. It also includes optional accounts, AI chat, group chat, games, and customization. The service is provided as-is, with no guarantee of uptime, availability, or fitness for a particular purpose."],
+        ["Eligibility and Accounts", "Accounts are optional and handled by Supabase Auth. You are responsible for keeping your credentials secure and for all activity under your account. Device registration and ban enforcement may be used to protect the service from abuse."],
+        ["Acceptable Use", "You agree not to use Unstable to access, store, or distribute illegal content, to violate applicable laws, or to breach institutional policies. You must not abuse the proxy, AI, or chat systems, attempt to disrupt the service, or interfere with other users."],
+        ["Proxied Content", "Proxied pages belong to their respective sites. Unstable does not control, endorse, or guarantee that content, and some sites may block or degrade proxy access. You are responsible for complying with the terms of the sites you visit."],
+        ["AI Features and Daily Credits", "AI requests are forwarded to third-party providers through a server-side route. Each account receives 10 AI credits per UTC day, reset at 00:00 UTC with no carryover. Credit cost depends on prompt size, and Think mode costs twice as much. AI output can be inaccurate or incomplete and must not be treated as professional advice."],
+        ["Chat and Encryption", "Global chat is public to signed-in users and relies on transport security. Direct messages and groups use end-to-end encryption when every participant has published a key; in that case the server stores ciphertext, not plaintext. Participants, timestamps and delivery metadata may still be visible. Do not send secrets you cannot afford to expose."],
+        ["Source Code and License", "You may view this project's source code. You may not copy, redistribute, or reuse Unstable's own code, in whole or in part, without written permission. Third-party libraries, engines, assets and other open-source components are excluded from that restriction and remain governed by their own licenses."],
+        ["Privacy", "Account, chat, AI and device data are handled as described in the privacy policy (unstable://privacy). By using the service you consent to that handling."],
+        ["Disclaimers and Liability", "The service is provided without warranties of any kind. To the maximum extent permitted by law, the operators are not liable for indirect, incidental, or consequential damages, data loss, service interruption, or the actions of third-party sites and providers."],
+        ["Changes and Termination", "These terms may be updated at any time, and access may be limited or terminated for abuse or operational reasons. Continued use after a change means you accept the updated terms."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1833,14 +1867,16 @@ function PrivacyPage() {
       <div id="pp-scroll" style={{ height: "100%", overflowY: "auto" }}>
       <p style={{ fontSize: "0.65rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "rgba(255,255,255,0.18)", marginTop: 0, marginBottom: "2rem" }}>unstable — privacy policy</p>
       {[
-        ["Data We Collect", "Account records (username, auth identifiers), AI conversation history, and chat messages are stored in Supabase. Local preferences such as theme, shortcuts, settings, and wallpaper are stored in your browser's localStorage. Proxy and transport configuration, including custom Wisp server URLs, are saved locally."],
-        ["Authentication", "Account authentication is handled by Supabase Auth. No passwords are stored in this application's codebase. Server-side secrets and API keys must remain outside public repositories."],
-        ["AI Conversations", "Messages sent to the AI page are stored in Supabase as conversation history and forwarded to a third-party AI provider via a server-side route to generate responses. Conversation history can be viewed and deleted."],
-        ["Chat Messages", "Messages sent in unstable://chat are stored in Supabase and delivered in real time across devices via Supabase Realtime. Emoji reactions and message history are synced server-side."],
-        ["Local Storage", "The following are stored in your browser: UI settings (theme, wallpaper, background effect options), keyboard shortcuts, custom bookmark shortcuts, panic URL, cloak selection, proxy engine, transport mode, and custom Wisp server URL. This data does not leave your browser unless explicitly shared through app features."],
-        ["Third-Party Services", "Supabase stores and processes account data, chat messages, and AI history. AI providers process messages forwarded to them for response generation. These services have their own privacy policies governing data handling. Retention and backups depend on your deployment's Supabase configuration."],
-        ["Public Repository Safety", "The Supabase anon key is designed to be public client configuration. Server secrets, AI provider keys, and server-side access credentials must never be committed to a public repository. All client-side code, network requests, and browser storage should be treated as potentially inspectable."],
-        ["Updates", "This policy may be updated at any time. Check unstable://privacy for the current version."],
+        ["Data We Collect", "Account records (username, email and auth identifiers), AI conversation history, chat messages, and device/security records are stored in Supabase. Local preferences such as theme, shortcuts, settings and wallpaper are stored in your browser."],
+        ["Account and Authentication", "Authentication is handled by Supabase Auth. Unstable does not store your password in its own code or database. Server-side secrets and API keys must remain outside public repositories."],
+        ["AI Conversations and Credits", "Prompts and responses are stored as conversation history and forwarded to a third-party AI provider through a server-side route. Daily credit usage is tracked per account so the 10-credit limit can be enforced; usage resets at 00:00 UTC and does not carry over."],
+        ["Chat and End-to-End Encryption", "Global chat is public to signed-in users. Direct messages and groups use per-account ECDH keys and per-message AES-256-GCM encryption when every participant has published a key, so the server stores ciphertext for those conversations. Message metadata such as sender, participants, timestamps and reactions may still be stored."],
+        ["Local Storage", "UI settings, keyboard shortcuts, custom shortcuts, panic URL, cloak selection, proxy engine, transport mode, custom Wisp URL, draft state and the local E2EE identity are stored in your browser. This data does not leave your browser unless you use a feature that sends it."],
+        ["Device and Security Data", "A device identifier and ban status may be checked to protect the service from abuse. Device identifiers are derived and are not used for advertising. Security checks may log limited technical data such as timestamps and request outcomes."],
+        ["Third-Party Services", "Supabase stores and processes account data, chat messages and AI history. AI providers process forwarded prompts to generate responses. Proxied sites receive the requests you make through them. These services have their own privacy policies, and retention depends on the deployment's configuration."],
+        ["Retention and Deletion", "Conversation history and chat messages remain until you delete them or the deployment removes them. Account deletion may be requested from the operator. Locally stored data can be removed at any time by clearing site data for this origin."],
+        ["Your Choices", "You can use the app without an account, avoid AI and chat features, clear local storage, and choose which proxy engine and transport to use. Some features require an account or a network connection to a third-party service."],
+        ["Changes", "This policy may be updated at any time. Check unstable://privacy for the current version."],
       ].map(([title, body], i) => (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -6742,6 +6778,13 @@ export default function App() {
   const deployment = useDeploymentMode();
   const frontendOnly = deployment === "frontend";
   const [accountLoading, setAccountLoading] = useState(true);
+  // Never leave the boot screen hanging on a slow/cold backend. The app can
+  // render optimistically and fill in the session when it arrives.
+  const [bootFallback, setBootFallback] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setBootFallback(true), 4000);
+    return () => clearTimeout(timer);
+  }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -6896,7 +6939,7 @@ export default function App() {
 
   return (
     <>
-      {accountLoading || deployment === "detecting" ? (
+      {accountLoading && !bootFallback ? (
         // Deliberately not animated: an AnimatePresence exit here would hold the
         // whole app back until the spinner's animation finished (and never
         // finish at all in a tab that is not compositing frames).

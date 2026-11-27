@@ -4,18 +4,30 @@ Copyright (c) 2026 Allegedcarrot4
 
 All rights reserved.
 
-Redistribution, reproduction, or duplication of this software, in whole or
-in part, by any means, is strictly prohibited without prior written permission
-from the copyright holder.
+Viewing, reading, and inspecting the source code of this software, in every
+version before and after this release, is permitted for reference, learning,
+security review, and contribution back to the official project.
 
-The only exception to this restriction is the submission of modifications,
-improvements, or contributions directly to the official repositories:
+Copying, redistribution, reproduction, or duplication of this software's own
+code, in whole or in part, by any means, is strictly prohibited without prior
+written permission from the copyright holder.
+
+This restriction does not apply to third-party libraries, engines, tools,
+typefaces, images, and other assets that are not owned or created by Project
+Unstable, or to other open-source components used by this software. Those
+components remain the property of their respective owners and are governed by
+their own licenses. Where a third-party license conflicts with this license,
+the third-party license controls for that component.
+
+The only exception to the copying restriction for Project Unstable's own code
+is the submission of modifications, improvements, or contributions directly
+to the official repositories:
 
   - https://github.com/allegedcarrot4/project-unstable
   - https://huggingface.co/spaces/allegedcarrot4/unstable-node
 
-Any use, modification, or distribution of this software outside of the
-official contribution workflow is forbidden.
+Any use, modification, or distribution of Project Unstable's own code outside
+of the official contribution workflow is forbidden.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

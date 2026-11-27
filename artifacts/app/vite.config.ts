@@ -53,44 +53,6 @@ export default defineConfig({
         { src: driftDist + "/drift_wasm_bg.wasm", dest: "drift" },
       ],
     }),
-    ...(isProd ? [javascriptObfuscator({
-      include: [/\.js$/],
-      exclude: [/node_modules/, /epoxy/, /libcurl/, /baremux/, /three/, /drift/, /\.(woff2?|ttf|wasm)$/],
-      options: {
-        compact: true,
-        controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 0.75,
-        deadCodeInjection: true,
-        deadCodeInjectionThreshold: 0.4,
-        disableConsoleOutput: true,
-        identifierNamesGenerator: "hexadecimal",
-        renameGlobals: false,
-        rotateStringArray: true,
-        shuffleStringArray: true,
-        splitStrings: true,
-        splitStringsChunkLength: 10,
-        stringArray: true,
-        stringArrayEncoding: ["base64"],
-        stringArrayThreshold: 0.75,
-        transformObjectKeys: true,
-        unicodeEscapeSequence: false,
-      },
-    }),
-    // Pre-compress all JS/CSS/HTML/wasm assets at build time.
-    // Fastify serves the .br/.gz sidecars directly, saving per-request CPU.
-    compression({ algorithm: "brotliCompress", exclude: [/\.(br|gz)$/] }),
-    compression({ algorithm: "gzip", exclude: [/\.(br|gz)$/] }),
-    ] : []),
-  ],
-  plugins: [
-    react(),
-    tailwindcss(),
-    viteStaticCopy({
-      targets: [
-        { src: epoxyDist + "/index.mjs", dest: "epoxy" },
-        { src: driftDist + "/drift_wasm_bg.wasm", dest: "drift" },
-      ],
-    }),
     fontFallbackMiddleware(),
     ...(isProd ? [javascriptObfuscator({
       include: [/\.js$/],
